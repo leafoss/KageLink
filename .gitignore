@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+.builder_venv/
+.venv/
+
+# Flutter
+.dart_tool/
+build/
+
+# Android
+**/local.properties
+
+# IDE
+.vscode/
+.idea/
+
+# Windows
+Thumbs.db
+Desktop.ini

@@ -1,0 +1,13 @@
+KAGELINK 3.3.0 — INSTALADOR FINAL DE UM CLIQUE
+
+Execute:
+
+CRIAR_INSTALADOR.bat
+
+O script cria um ambiente isolado de compilação, instala as dependências do agente, inclui Pillow/MSS, empacota KageLink.exe, incorpora o cloudflared e compila o instalador com Inno Setup.
+
+Resultado:
+
+output\KageLink-PC-Agent-Setup-v3.3.0.exe
+
+O usuário final não precisa de Python ou ferramentas de desenvolvimento. O instalador preserva configurações, token, histórico e logs de versões anteriores.

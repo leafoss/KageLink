@@ -1,0 +1,266 @@
+{
+  "@@locale": "en_US",
+  "appName": "KageLink",
+  "appSubtitle": "Shinobi Remote Channel",
+  "language": "Language",
+  "portugueseBrazil": "Português do Brasil",
+  "englishUS": "English",
+  "routeHubEyebrow": "SECRET CHAKRA NETWORK",
+  "routeHubDescription": "Choose a known route or seal a new path to the computer running Shinobi Story Online.",
+  "newRoute": "New shinobi route",
+  "editRoute": "Edit shinobi route",
+  "newAddressTooltip": "Create a new route",
+  "internalNetwork": "Internal network",
+  "externalNetwork": "External route",
+  "customRoute": "Custom route",
+  "internalShort": "Internal",
+  "externalShort": "External",
+  "customShort": "Custom",
+  "routeName": "Route name",
+  "routeNameInternalHint": "Home base",
+  "routeNameExternalHint": "External relay",
+  "defaultRouteName": "Shinobi route",
+  "serverAddress": "IP, port, or server address",
+  "addressRequired": "Enter the IP address and port.",
+  "accessToken": "Access seal token",
+  "tokenHint": "Paste the token displayed on the computer",
+  "tokenRequired": "Enter the access token.",
+  "showToken": "Show access token",
+  "hideToken": "Hide access token",
+  "favoriteRoute": "Mark as a favorite route",
+  "favoriteRouteDescription": "Favorite seals remain at the top of the known routes.",
+  "establishChannel": "ESTABLISH CHANNEL",
+  "openingChannel": "OPENING CHANNEL...",
+  "addressHelp": "Internal IPs, public addresses, and HTTPS tunnel domains are supported. The app adds http:// when needed.",
+  "savedRoutes": "Known routes",
+  "savedRoutesCount": "{count} saved",
+  "@savedRoutesCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "noSavedRoutes": "No route has been sealed yet. Your first successful connection will be remembered here.",
+  "removeRouteTitle": "Remove saved route?",
+  "removeRouteBody": "The route “{name}” and its stored access token will be deleted from this device.",
+  "@removeRouteBody": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "cancel": "Cancel",
+  "remove": "Remove",
+  "connectNow": "Connect now",
+  "delete": "Delete",
+  "lastUsed": "Last used: {date}",
+  "@lastUsed": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "favorite": "Add favorite seal",
+  "removeFavorite": "Remove favorite seal",
+  "httpsProtected": "HTTPS protected",
+  "httpUnencrypted": "HTTP connection",
+  "connected": "Connected",
+  "reconnecting": "Reconnecting",
+  "offline": "Offline",
+  "game": "GAME",
+  "reading": "READING",
+  "sending": "SENDING",
+  "gameLocated": "Game located",
+  "gameNotLocated": "Game not located",
+  "chatLocated": "Chat reading available",
+  "chatNotLocated": "Chat reading unavailable",
+  "inputLocated": "Message input calibrated",
+  "inputNotLocated": "Message input unavailable",
+  "allOperational": "Reading and sending are available",
+  "reconnectingSummary": "Restoring the chakra route...",
+  "close": "Close",
+  "refreshChat": "Refresh channel",
+  "calibrateInput": "Calibrate input",
+  "settings": "Settings",
+  "switchServer": "Change route",
+  "messageIncoming": "Received",
+  "messageOutgoing": "Transmitted",
+  "messageHint": "Type a message...",
+  "sendingUnavailable": "Sending is unavailable",
+  "sendMessage": "Transmit message",
+  "scrollToLatest": "Scroll to the latest message",
+  "newMessagesBelow": "{count} new messages below",
+  "@newMessagesBelow": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "emptyChatTitle": "The scroll is still blank.",
+  "emptyChatDescription": "New Shinobi messages will appear here in real time as soon as the PC agent reads them.",
+  "calibrationTitle": "Calibrate message input",
+  "calibrationIntro": "Choose the channel that matches the size of the field where you type inside Shinobi. The preference is saved by the PC agent.",
+  "noInputControls": "No Edit control was found. Open the game and keep the chat window visible.",
+  "channelNumber": "Channel {number}",
+  "@channelNumber": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "classLabel": "Class",
+  "dimensions": "Dimensions",
+  "visible": "Visible",
+  "enabled": "Enabled",
+  "yes": "yes",
+  "no": "no",
+  "position": "Position: {left}, {top}",
+  "@position": {
+    "placeholders": {
+      "left": {
+        "type": "int"
+      },
+      "top": {
+        "type": "int"
+      }
+    }
+  },
+  "compatibilityHigh": "High compatibility",
+  "compatibilityStandard": "Standard candidate",
+  "active": "Active",
+  "useThisChannel": "Use this channel",
+  "inputSelected": "Input {width}×{height} selected.",
+  "@inputSelected": {
+    "placeholders": {
+      "width": {
+        "type": "int"
+      },
+      "height": {
+        "type": "int"
+      }
+    }
+  },
+  "retry": "Try again",
+  "settingsTitle": "KageLink settings",
+  "connectionSection": "Connection",
+  "currentRoute": "Current shinobi route",
+  "statusSection": "Agent status",
+  "languageSection": "Language",
+  "appearanceSection": "Appearance",
+  "visualTheme": "Visual theme",
+  "chakraNight": "Chakra Night",
+  "calibrationSection": "Agent calibration",
+  "openCalibration": "Open input scan",
+  "aboutSection": "About",
+  "versionLabel": "KageLink 3.3.0 — Chat + Game",
+  "changeRoute": "Change connection route",
+  "secureChannel": "Secure chakra channel",
+  "insecureChannel": "Unencrypted local channel",
+  "unexpectedError": "An unexpected error interrupted the channel.",
+  "invalidToken": "The access seal was rejected. Check the token stored on the computer.",
+  "serverUnavailable": "The route did not respond. Check the address, port, and whether the PC agent is running.",
+  "invalidAddress": "The server address is invalid. Use IP:port or a complete URL.",
+  "httpSchemeRequired": "Use an address beginning with http:// or https://.",
+  "noServerConnected": "No server is currently connected.",
+  "timeoutError": "The server took too long to respond.",
+  "unreachableError": "The app could not reach this IP address and port.",
+  "authenticationFailed": "The channel could not be authenticated.",
+  "historyFailed": "The message history could not be loaded.",
+  "statusFailed": "The PC agent status could not be read.",
+  "sendFailed": "The message could not be transmitted.",
+  "sendNotConfirmed": "The PC agent did not confirm the transmitted message.",
+  "inputCandidatesFailed": "The input channels could not be scanned.",
+  "inputSelectionFailed": "The selected input channel could not be saved.",
+  "serverReportedError": "The PC agent reported an operational error.",
+  "routeConnected": "Chakra channel established.",
+  "messageTransmitted": "Message transmitted.",
+  "networkInternalHint": "Example: 192.168.0.25:8765",
+  "networkExternalHint": "Example: 200.100.50.25:45000",
+  "networkCustomHint": "Example: https://your-tunnel.trycloudflare.com",
+  "selectLanguage": "Select application language",
+  "routeDetails": "Route details",
+  "agentOperational": "Operational",
+  "agentAttention": "Needs attention",
+  "unknown": "Unknown",
+  "gameMissingForSend": "The game was not located.\nOpen Shinobi Story Online and try again.",
+  "foregroundFailedForSend": "The game could not be brought to the foreground.\nClick the game window once and try again.",
+  "chatOoc": "OOC",
+  "chatIc": "IC / RP",
+  "sendingToChannel": "SENDING TO: {channel}",
+  "@sendingToChannel": {
+    "placeholders": {
+      "channel": {
+        "type": "String"
+      }
+    }
+  },
+  "oocMessageHint": "Type an OOC message...",
+  "icMessageHint": "Write an IC / Roleplay message...",
+  "oocInputLocated": "OOC input located",
+  "oocInputNotLocated": "OOC input not located",
+  "icInputLocated": "IC input located",
+  "icInputNotLocated": "IC input not located",
+  "bothChannelsOperational": "Reading, OOC and IC are available",
+  "oocUnavailableSummary": "OOC input unavailable. Open calibration.",
+  "icUnavailableSummary": "IC input unavailable. Open calibration.",
+  "emptyOocChatTitle": "The OOC scroll is still empty.",
+  "emptyOocChatDescription": "Regular messages, notices and server information will appear in this tab.",
+  "emptyIcChatTitle": "No Roleplay has been recorded yet.",
+  "emptyIcChatDescription": "Complete blocks that start with (* and end with *) will appear here as one message.",
+  "calibrationIntroDual": "Choose the OOC and IC/Roleplay fields separately. Candidate 002 is the initial IC reference; its complete geometry will be saved so the control can be recognized even when the HWND changes.",
+  "located": "located",
+  "notLocated": "not located",
+  "relativePosition": "Relative position: {left}, {top}",
+  "@relativePosition": {
+    "placeholders": {
+      "left": {
+        "type": "int"
+      },
+      "top": {
+        "type": "int"
+      }
+    }
+  },
+  "useAsOoc": "Use as OOC",
+  "useAsIc": "Use as IC",
+  "activeOoc": "OOC active",
+  "activeIc": "IC active",
+  "inputSelectedForChannel": "{channel} field {width}×{height} selected.",
+  "@inputSelectedForChannel": {
+    "placeholders": {
+      "channel": {
+        "type": "String"
+      },
+      "width": {
+        "type": "int"
+      },
+      "height": {
+        "type": "int"
+      }
+    }
+  },
+  "oocInputMissingForSend": "The OOC input could not be located.\nOpen Shinobi Story Online or recalibrate the field.",
+  "icInputMissingForSend": "The IC/Roleplay input could not be located.\nOpen Shinobi Story Online or recalibrate the field.",
+  "gameOpenToStart": "Open the GAME tab to start",
+  "gameConnecting": "Connecting to the stream...",
+  "gameNotLocatedTitle": "Game not found",
+  "gameMinimizedTitle": "The game is minimized",
+  "gameStreamUnavailable": "Stream unavailable",
+  "gameLoadingFrame": "Loading image...",
+  "gameNotLocatedDescription": "Open the “Shinobi Story Online” window on the computer. Chat will continue to work normally.",
+  "gameMinimizedDescription": "Restore the game window on the computer to continue streaming.",
+  "gameStreamRetryDescription": "The game connection will retry without interrupting chat.",
+  "gameWaitingAgent": "Waiting for the PC Agent...",
+  "gameLive": "LIVE",
+  "gameOffline": "OFFLINE",
+  "gameShowControls": "Show controls",
+  "gameHideControls": "Hide controls",
+  "gameViewModeTooltip": "View mode",
+  "gameFullScreenMode": "Full screen",
+  "gameZoomMode": "Zoomed"
+}

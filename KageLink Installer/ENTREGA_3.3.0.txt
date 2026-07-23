@@ -1,0 +1,29 @@
+KAGELINK 3.3.0 — ENTREGA GAME V1
+
+Este pacote contém o projeto-fonte consolidado sobre a versão 3.2.0 enviada.
+
+Incluído:
+- aplicativo Flutter com abas OOC, IC/RP e GAME;
+- PC Agent com stream e controle isolados;
+- joystick e botões A/B/C/D;
+- captura 960x540, 10 FPS alvo, modos Tela inteira e Aproximado;
+- scripts de compilação do APK e instalador Windows;
+- testes, documentação, changelog e imagem conceitual.
+
+Não incluído neste ZIP:
+- APK compilado;
+- KageLink.exe compilado;
+- instalador EXE compilado.
+
+Motivo: o ambiente desta entrega é Linux e não possui Flutter/Android SDK, Windows, Shinobi Story Online, PyInstaller Windows ou Inno Setup. Os scripts estão prontos para gerar os artefatos em um Windows de desenvolvimento.
+
+Validação executada neste ambiente:
+- 26 testes Python aprovados;
+- compileall Python aprovado;
+- 4 ARBs válidos e com 178 chaves equivalentes;
+- 157 referências de localização conferidas;
+- imports relativos Dart conferidos;
+- delimitadores Dart conferidos;
+- versões 3.3.0 alinhadas.
+
+A captura HWND, SendInput, FPS real e comportamento do BYOND precisam ser homologados em Windows conforme RELATORIO_TESTES_3.3.0.md.

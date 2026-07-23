@@ -1,0 +1,699 @@
+Quero que você desenvolva a primeira versão funcional da aba GAME no projeto KageLink.
+
+Vou anexar:
+
+1. O ZIP completo da última versão funcional do KageLink.
+2. A imagem Idea.png, que deve ser usada como referência visual obrigatória para a nova interface.
+
+IMPORTANTE: a versão atual do KageLink está funcionando perfeitamente, especialmente o sistema de chat, leitura, parsing e envio de mensagens. Não altere, não refatore, não reorganize e não tente melhorar o funcionamento atual do chat.
+
+O objetivo é adicionar a aba GAME como um módulo novo e isolado, reutilizando a mesma conexão, servidor, túnel seguro e token já utilizados pelo aplicativo.
+
+==================================================
+1. REGRA PRINCIPAL: PRESERVAR O CHAT
+==================================================
+
+O sistema atual de chat deve permanecer intacto.
+
+Não altere o comportamento de:
+
+- captura do chat;
+- parsing de mensagens;
+- separação entre OOC e IC/RP;
+- envio de mensagens;
+- conexão atual;
+- autenticação;
+- layout funcional das telas atuais;
+- leitura do jogo;
+- endpoints atuais;
+- WebSockets atuais;
+- arquivos de configuração atuais.
+
+Não reescreva o aplicativo do zero.
+
+Não faça refatorações não relacionadas à aba GAME.
+
+As novas funções devem ser implementadas em módulos, endpoints e classes separados sempre que possível.
+
+Caso o módulo GAME apresente erro, seja desativado ou não encontre a janela do jogo, o chat deve continuar funcionando normalmente.
+
+==================================================
+2. OBJETIVO DA ABA GAME
+==================================================
+
+Adicionar ao aplicativo Android uma terceira aba chamada:
+
+GAME
+
+A navegação principal deverá conter:
+
+- OOC
+- IC / RP
+- GAME
+
+A aparência final deve seguir fielmente a imagem Idea.png anexada:
+
+- identidade visual atual do KageLink;
+- fundo escuro;
+- detalhes em azul-ciano;
+- destaques em laranja;
+- transmissão do jogo ocupando a maior parte da tela;
+- joystick transparente no lado inferior esquerdo;
+- quatro botões transparentes no lado inferior direito;
+- indicadores discretos de transmissão no topo;
+- controles sobrepostos à imagem do jogo.
+
+A interface não deve parecer um aplicativo separado. A aba GAME deve parecer parte nativa do KageLink atual.
+
+==================================================
+3. PLATAFORMA
+==================================================
+
+O foco desta versão é exclusivamente:
+
+- Android;
+- aplicativo Flutter atual;
+- PC Agent para Windows.
+
+O aparelho principal de teste é um Samsung Galaxy S24.
+
+Não implemente suporte a iOS nesta versão.
+
+==================================================
+4. ORIENTAÇÃO DA TELA
+==================================================
+
+Ao entrar na aba GAME:
+
+- colocar o aplicativo automaticamente em modo paisagem;
+- manter as abas de navegação acessíveis;
+- ocupar o máximo possível da tela com a transmissão;
+- preservar corretamente as proporções da imagem;
+- não distorcer o jogo.
+
+Ao sair da aba GAME e entrar em OOC ou IC/RP:
+
+- restaurar a orientação normal em modo retrato;
+- preservar a conexão;
+- preservar as mensagens já carregadas;
+- não reiniciar o aplicativo;
+- não desconectar o servidor;
+- não perder o estado das telas.
+
+O usuário deve poder sair da aba GAME, escrever no chat e retornar ao jogo normalmente.
+
+==================================================
+5. JANELA DO JOGO NO WINDOWS
+==================================================
+
+A janela do jogo sempre possui exatamente o título:
+
+Shinobi Story Online
+
+O PC Agent deve localizar a janela pelo título exato.
+
+O jogo pode estar:
+
+- em janela normal;
+- maximizado;
+- em tela cheia.
+
+O Agent deve localizar novamente a janela caso ela seja movida, redimensionada, maximizada ou tenha seu modo de exibição alterado.
+
+Não capture a área de trabalho inteira.
+
+Não capture:
+
+- barra de tarefas;
+- notificações;
+- outras janelas;
+- navegador;
+- aplicativos pessoais do usuário.
+
+Capture somente a área útil interna da janela “Shinobi Story Online”, removendo, quando tecnicamente possível:
+
+- bordas do Windows;
+- barra de título;
+- menus externos à área útil;
+- áreas que não fazem parte do conteúdo visual do jogo.
+
+Use as APIs apropriadas do Windows para obter o HWND e o retângulo da área cliente.
+
+Se um método de captura não funcionar em determinada forma de exibição, implemente fallbacks seguros para janela normal, maximizada e tela cheia.
+
+Não declare suporte a uma condição que não tenha sido realmente testada.
+
+Se a janela estiver minimizada e não puder ser capturada corretamente, apresente no aplicativo uma mensagem clara, sem afetar o chat.
+
+==================================================
+6. TRANSMISSÃO DA IMAGEM
+==================================================
+
+Esta é uma V1 leve e estável. Não implemente WebRTC nesta etapa.
+
+Configuração-base:
+
+- resolução transmitida: 960 × 540;
+- proporção: 16:9;
+- FPS pretendido: entre 8 e 12;
+- sem áudio;
+- baixa latência;
+- foco em estabilidade e baixo consumo.
+
+Preferencialmente, utilize:
+
+- WebSocket separado para a transmissão;
+- quadros JPEG ou WebP em formato binário;
+- compressão adequada para manter 8 a 12 FPS;
+- descarte de quadros antigos;
+- exibição sempre do quadro mais recente.
+
+Não crie uma fila grande de imagens, porque isso aumentaria o atraso.
+
+A transmissão da aba GAME deve utilizar o mesmo:
+
+- endereço do servidor;
+- domínio;
+- túnel seguro;
+- token de autenticação;
+- processo de conexão já utilizado pelo KageLink.
+
+O módulo GAME pode e deve possuir endpoints e WebSockets próprios, separados dos canais atuais de chat.
+
+Exemplo de separação arquitetural:
+
+- sistema atual de chat: permanecer intocado;
+- canal novo para stream do jogo;
+- canal novo para comandos do jogo;
+- endpoint novo para status da janela e do stream.
+
+Os nomes exatos das rotas podem seguir o padrão existente do projeto.
+
+==================================================
+7. MODOS DE VISUALIZAÇÃO
+==================================================
+
+A aba GAME deve possuir somente dois modos de visualização:
+
+1. TELA INTEIRA
+   - mostra toda a área útil do jogo;
+   - preserva a proporção;
+   - utiliza letterbox quando necessário;
+   - nunca estica ou deforma a imagem.
+
+2. APROXIMADO
+   - mostra uma aproximação da região central;
+   - o personagem normalmente fica no centro da tela do jogo;
+   - recortar uma área central em 16:9;
+   - ampliar esse recorte para preencher a tela do celular;
+   - utilizar uma aproximação fixa e adequada, próxima de 2×;
+   - não implementar detecção de personagem nesta V1.
+
+O usuário poderá escolher apenas entre:
+
+- Tela inteira;
+- Aproximado.
+
+Não adicione:
+
+- controle livre de zoom;
+- pinch-to-zoom;
+- ajuste manual de recorte;
+- opções avançadas;
+- editor de resolução;
+- controle de qualidade;
+- controle de FPS.
+
+A resolução-base continuará fixa em 960 × 540.
+
+==================================================
+8. JOYSTICK
+==================================================
+
+Adicionar um joystick virtual transparente no lado inferior esquerdo.
+
+O joystick deve controlar as teclas direcionais do teclado:
+
+- cima = seta para cima;
+- baixo = seta para baixo;
+- esquerda = seta para esquerda;
+- direita = seta para direita.
+
+Permitir diagonais utilizando duas teclas simultaneamente:
+
+- cima + direita;
+- cima + esquerda;
+- baixo + direita;
+- baixo + esquerda.
+
+O joystick poderá ser visualmente analógico, mas sua saída deve ser digital em oito direções.
+
+Funcionamento:
+
+- ao mover o joystick para uma direção, enviar key-down da tecla correspondente;
+- ao mudar de direção, soltar as teclas que deixaram de ser necessárias;
+- ao voltar o joystick ao centro, enviar key-up de todas as setas;
+- não enviar centenas de comandos repetidos sem necessidade;
+- enviar novos eventos apenas quando o estado das direções mudar.
+
+Adicionar uma zona morta adequada para evitar movimentos involuntários.
+
+O joystick deve aceitar pressionamento contínuo.
+
+==================================================
+9. BOTÕES A, B, C E D
+==================================================
+
+Adicionar quatro botões transparentes no lado inferior direito, conforme a disposição visual da imagem Idea.png.
+
+Mapeamento fixo:
+
+- A = tecla E;
+- B = tecla Espaço;
+- C = tecla G;
+- D = tecla V.
+
+O usuário não poderá alterar esse mapeamento nesta versão.
+
+Todos os quatro botões devem aceitar:
+
+- toque rápido;
+- pressionamento contínuo.
+
+Comportamento:
+
+- pointer-down ou touch-down = key-down;
+- pointer-up = key-up;
+- pointer-cancel = key-up;
+- perda de foco = key-up;
+- saída da tela = key-up.
+
+Não implementar toggle.
+
+Um toque rápido deve resultar naturalmente em pressionar e soltar a tecla.
+
+Um pressionamento contínuo deve manter a tecla pressionada enquanto o dedo permanecer sobre o botão.
+
+O aplicativo deve possuir suporte real a multitouch, permitindo, por exemplo:
+
+- manter o joystick para cima;
+- manter a tecla E pressionada ao mesmo tempo;
+- tocar em outro botão sem interromper o movimento.
+
+==================================================
+10. ENVIO DOS COMANDOS AO JOGO
+==================================================
+
+Os comandos devem ser destinados exclusivamente à janela:
+
+Shinobi Story Online
+
+Utilize o HWND localizado pelo PC Agent.
+
+Whitelist permitida nesta V1:
+
+- seta para cima;
+- seta para baixo;
+- seta para esquerda;
+- seta para direita;
+- E;
+- Espaço;
+- G;
+- V.
+
+Não aceite comandos arbitrários enviados pelo aplicativo.
+
+Não permita:
+
+- Alt+F4;
+- tecla Windows;
+- Ctrl+Esc;
+- execução de atalhos;
+- envio de textos arbitrários;
+- controle do restante do computador.
+
+Primeiro tente um método de envio direcionado ao HWND que seja reconhecido pelo Dream Seeker/BYOND.
+
+Caso mensagens simples do Windows não sejam reconhecidas pelo jogo, implemente um fallback confiável utilizando as APIs apropriadas de entrada do Windows, mas sempre validando que a janela-alvo é “Shinobi Story Online”.
+
+Não envie comandos para outra janela por engano.
+
+Teste especificamente:
+
+- pressionar e soltar as setas;
+- manter uma seta pressionada;
+- pressionar diagonais;
+- manter E pressionado;
+- usar Espaço;
+- usar G;
+- usar V;
+- movimentar e apertar um botão simultaneamente.
+
+Considere os problemas já conhecidos de jogos BYOND ignorarem determinadas teclas quando a janela não está corretamente focada.
+
+Implemente o gerenciamento de foco de forma segura e limitada ao jogo.
+
+==================================================
+11. SEGURANÇA E TECLAS PRESAS
+==================================================
+
+Aceitar comandos somente quando:
+
+- o aplicativo estiver conectado;
+- a aba GAME estiver aberta;
+- a janela “Shinobi Story Online” estiver localizada;
+- o módulo de controle estiver ativo.
+
+Soltar imediatamente todas as teclas controladas pelo módulo GAME quando:
+
+- a conexão for perdida;
+- o WebSocket de controle fechar;
+- o aplicativo sair da aba GAME;
+- o aplicativo for colocado em segundo plano;
+- o Android cancelar um gesto;
+- a janela do jogo for fechada;
+- a janela deixar de existir;
+- o PC Agent for encerrado;
+- o heartbeat deixar de ser recebido;
+- ocorrer erro no módulo de streaming;
+- ocorrer erro no módulo de controle.
+
+Isso deve acontecer automaticamente.
+
+Não é necessário criar um botão visual “soltar tudo”.
+
+Mantenha internamente um registro das teclas atualmente pressionadas para impedir:
+
+- teclas presas;
+- key-down duplicado;
+- key-up perdido;
+- movimento contínuo após a desconexão.
+
+O fechamento da janela do jogo deve:
+
+- interromper somente o stream do jogo;
+- interromper somente os comandos do jogo;
+- mostrar “Jogo não localizado” ou mensagem equivalente na aba GAME;
+- manter todo o sistema de chat funcionando normalmente.
+
+==================================================
+12. CONEXÃO E AUTENTICAÇÃO
+==================================================
+
+Reutilizar a conexão atual do KageLink.
+
+Não criar:
+
+- segundo aplicativo;
+- segundo processo de pareamento;
+- segundo token;
+- nova configuração manual de servidor;
+- nova autenticação para o usuário.
+
+A aba GAME deve utilizar o mesmo token já configurado.
+
+Todos os novos endpoints e WebSockets devem validar esse token.
+
+Não registrar o token em logs visíveis.
+
+O canal do jogo deve ser independente do canal do chat para que:
+
+- travamento no vídeo não afete mensagens;
+- atraso na imagem não atrase o chat;
+- perda do jogo não desconecte o restante;
+- comandos tenham prioridade sobre quadros de vídeo.
+
+==================================================
+13. INTERFACE VISUAL
+==================================================
+
+Usar a imagem Idea.png como referência visual obrigatória.
+
+A aba deve possuir aproximadamente:
+
+- cabeçalho atual do KageLink;
+- abas OOC, IC/RP e GAME;
+- aba GAME destacada;
+- faixa superior discreta sobre o vídeo;
+- indicador LIVE;
+- latência em milissegundos;
+- FPS atual;
+- opção “Ocultar controles”;
+- acesso discreto à escolha entre Tela inteira e Aproximado;
+- stream ocupando o restante da tela;
+- joystick transparente à esquerda;
+- botões A, B, C e D transparentes à direita.
+
+Não adicionar botões extras de jogabilidade.
+
+Não adicionar:
+
+- teclado virtual;
+- mouse virtual;
+- clique por toque na transmissão;
+- câmera;
+- áudio;
+- gravação;
+- screenshots;
+- macros;
+- editor de controles;
+- atalhos configuráveis;
+- chat sobreposto dentro da tela do jogo;
+- funções além do escopo solicitado.
+
+Os controles devem ter transparência suficiente para não esconder o jogo, mas permanecer visíveis.
+
+Não cubra de forma excessiva:
+
+- barras de vida;
+- chakra;
+- ícones importantes;
+- personagem central.
+
+O layout deve se adaptar corretamente ao Samsung Galaxy S24 e a outras proporções Android comuns.
+
+==================================================
+14. COMPORTAMENTO QUANDO O JOGO NÃO ESTIVER DISPONÍVEL
+==================================================
+
+Quando a aba GAME for aberta e a janela não for encontrada:
+
+- não gerar erro fatal;
+- não fechar o aplicativo;
+- não desconectar o chat;
+- não travar o PC Agent;
+- exibir um estado visual coerente com o KageLink;
+- informar que “Shinobi Story Online” não foi localizado;
+- tentar localizar novamente periodicamente;
+- permitir retornar para OOC e IC/RP normalmente.
+
+Quando a janela reaparecer:
+
+- restaurar o stream;
+- exigir que o usuário esteja na aba GAME para habilitar comandos;
+- não manter teclas antigas pressionadas.
+
+==================================================
+15. ORGANIZAÇÃO DO PC AGENT
+==================================================
+
+O novo código deve ser separado conceitualmente em módulos equivalentes a:
+
+- localizador da janela;
+- captura da área cliente;
+- encoder/compressor de frames;
+- servidor do stream;
+- servidor de comandos;
+- gerenciador de teclas pressionadas;
+- heartbeat e segurança;
+- status do módulo GAME.
+
+Não misture a lógica de controle do jogo com o parser atual de mensagens.
+
+Não altere o parser para implementar o stream.
+
+O sistema de chat deve continuar podendo iniciar mesmo que uma dependência exclusiva do módulo GAME falhe.
+
+==================================================
+16. EMPACOTAMENTO
+==================================================
+
+O PC Agent deve continuar sendo distribuído como executável/instalador para Windows.
+
+O usuário final não deve precisar instalar manualmente:
+
+- Python;
+- pip;
+- bibliotecas Python;
+- ferramentas de compilação;
+- dependências de desenvolvimento.
+
+Inclua no empacotamento todas as novas dependências necessárias ao módulo GAME.
+
+Atualize corretamente:
+
+- requirements;
+- configuração do PyInstaller;
+- arquivos spec;
+- scripts de build;
+- instalador;
+- inclusão de DLLs ou módulos necessários;
+- regras do firewall, somente se realmente necessárias.
+
+Não remova nenhuma dependência utilizada pelo chat atual.
+
+Não faça o instalador substituir ou apagar configurações existentes sem necessidade.
+
+==================================================
+17. TESTES OBRIGATÓRIOS
+==================================================
+
+Antes de entregar, valide pelo menos:
+
+CHAT
+
+- conexão atual continua funcionando;
+- leitura continua funcionando;
+- OOC continua funcionando;
+- IC/RP continua funcionando;
+- parsing continua funcionando;
+- envio de mensagens continua funcionando;
+- troca de abas não perde mensagens.
+
+GAME — STREAM
+
+- janela normal;
+- janela maximizada;
+- tela cheia, dentro dos limites suportados pelo Windows e pelo jogo;
+- redimensionamento da janela;
+- mudança de posição;
+- modo Tela inteira;
+- modo Aproximado;
+- transmissão entre 8 e 12 FPS;
+- resolução 960 × 540;
+- ausência de fila crescente de frames;
+- reconexão;
+- jogo fechado;
+- jogo reaberto.
+
+GAME — CONTROLES
+
+- todas as quatro setas;
+- oito direções;
+- joystick retornando ao centro;
+- A enviando E;
+- B enviando Espaço;
+- C enviando G;
+- D enviando V;
+- toque rápido;
+- pressionamento contínuo;
+- multitouch;
+- movimento enquanto E está pressionado;
+- saída da aba durante um hold;
+- conexão perdida durante um hold;
+- aplicativo em segundo plano durante um hold;
+- fechamento da janela durante um hold;
+- nenhuma tecla permanecendo presa.
+
+ORIENTAÇÃO
+
+- GAME abre em landscape;
+- OOC e IC/RP retornam ao portrait;
+- alternar entre as abas não reinicia o app;
+- alternar não encerra a conexão;
+- alternar não perde mensagens.
+
+==================================================
+18. CRITÉRIOS DE ACEITAÇÃO
+==================================================
+
+A entrega só será considerada correta quando:
+
+1. O chat atual estiver visual e funcionalmente preservado.
+2. A aba GAME estiver integrada ao mesmo aplicativo.
+3. A aba GAME abrir em landscape.
+4. Somente a área do jogo for transmitida.
+5. O stream funcionar em 960 × 540 e entre 8 e 12 FPS.
+6. O joystick controlar as setas.
+7. A controlar E.
+8. B controlar Espaço.
+9. C controlar G.
+10. D controlar V.
+11. Tap e hold funcionarem.
+12. Movimento e botões funcionarem simultaneamente.
+13. Nenhuma tecla permanecer presa.
+14. A perda do jogo não afetar o chat.
+15. A perda do stream não afetar o chat.
+16. A autenticação atual ser reutilizada.
+17. A interface seguir a referência Idea.png.
+18. O projeto poder ser compilado e instalado normalmente.
+19. Não existirem mudanças desnecessárias fora do escopo.
+20. O usuário receber o projeto completo, e não patches separados.
+
+==================================================
+19. ENTREGA FINAL
+==================================================
+
+Não envie apenas trechos de código ou instruções para eu aplicar manualmente.
+
+Entregue um ZIP final completo contendo:
+
+- projeto Flutter atualizado;
+- PC Agent atualizado;
+- instalador atualizado;
+- todos os arquivos-fonte;
+- requirements atualizados;
+- configuração de build;
+- arquivos do PyInstaller;
+- scripts .bat necessários;
+- configuração do instalador;
+- README atualizado;
+- changelog detalhando somente as mudanças realizadas;
+- instruções de compilação do APK;
+- instruções de compilação do PC Agent;
+- instruções para gerar o instalador final.
+
+Não remova arquivos funcionais do projeto original.
+
+Não altere nomes e estruturas sem necessidade.
+
+Não entregue patches cumulativos ou vários ZIPs intermediários.
+
+Entregue apenas uma versão final consolidada.
+
+Se for possível compilar no ambiente disponível, inclua também:
+
+- APK release;
+- executável do PC Agent;
+- instalador final do Windows.
+
+Caso algum artefato não possa ser compilado no ambiente disponível:
+
+- não finja que compilou;
+- informe claramente a limitação;
+- entregue o código completo e pronto para compilação;
+- inclua os logs das validações que realmente foram executadas.
+
+==================================================
+20. PROCESSO DE TRABALHO
+==================================================
+
+Antes de modificar:
+
+1. Extraia e inspecione completamente o ZIP enviado.
+2. Identifique a arquitetura atual do Flutter e do PC Agent.
+3. Localize os arquivos responsáveis pelo chat, conexão e autenticação.
+4. Preserve esses módulos.
+5. Planeje a nova aba GAME de forma isolada.
+6. Implemente o servidor de stream e controle.
+7. Implemente a interface Flutter.
+8. Atualize o empacotamento.
+9. Execute testes de regressão do chat.
+10. Execute testes do módulo GAME.
+11. Gere o ZIP final consolidado.
+
+Não comece criando um projeto novo baseado apenas na descrição.
+
+A última versão anexada é a fonte oficial e deve ser usada como base.
+
+Não modifique nada além do necessário para implementar a aba GAME V1.

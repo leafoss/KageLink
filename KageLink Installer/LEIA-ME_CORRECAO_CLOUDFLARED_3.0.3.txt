@@ -1,0 +1,43 @@
+KAGELINK 3.0.3 — CORREÇÃO DO HASH DO CLOUDFLARED
+====================================================
+
+CAUSA
+-----
+O projeto baixava:
+
+cloudflared 2026.7.2
+
+mas validava o arquivo usando este hash antigo:
+
+20b9638f685333d623798e733effbad2487093f15ba592f6c7752360ff3b7ab7
+
+Esse hash pertencia a outro artefato/release e não correspondia ao executável
+2026.7.2 atualmente publicado.
+
+HASH CORRETO
+------------
+cloudflared-windows-amd64.exe:
+
+cdb5d4432f6ae1595654a692a51308b69d2bf7af961f5578d9391837cf072df9
+
+MELHORIAS
+---------
+- Hash corrigido no compilador.
+- Hash corrigido no fallback do KageLink.exe.
+- Verificação do cabeçalho MZ do executável.
+- Execução de `cloudflared --version` antes de aceitar o arquivo.
+- Registro do hash em payload\cloudflared.sha256.
+- Download parcial antigo removido antes de tentar novamente.
+
+COMO USAR
+---------
+Execute novamente:
+
+installer\CRIAR_INSTALADOR.bat
+
+Não é necessário repetir a instalação das dependências manualmente. O ambiente
+de build já existente poderá ser reutilizado.
+
+RESULTADO
+---------
+installer\output\KageLink-PC-Agent-Setup-v3.0.3.exe

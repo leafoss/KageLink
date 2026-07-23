@@ -1,0 +1,6 @@
+KageLink application source code
+Copyright (c) 2026 Rafael Demari Dib
+
+Permission is granted to use, modify, and compile this source code for the owner's personal use. Redistribution or commercial publication requires the owner's authorization.
+
+Third-party Flutter packages remain subject to their respective licenses.

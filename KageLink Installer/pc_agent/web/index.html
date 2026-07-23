@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#111827">
+  <meta name="color-scheme" content="dark">
+  <title>Shinobi Remote Chat</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/static/icons/icon-192.png">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div id="toast" class="toast" hidden></div>
+
+  <section id="login-screen" class="login-screen">
+    <div class="login-card">
+      <img src="/static/icons/icon-192.png" class="login-icon" alt="">
+      <p class="eyebrow">SHINOBI STORY ONLINE</p>
+      <h1>Remote Chat</h1>
+      <p class="login-copy">Acompanhe e responda ao chat do jogo pelo celular.</p>
+      <label for="token-input">Token de acesso</label>
+      <input id="token-input" type="password" autocomplete="current-password" placeholder="Cole o token do config.json">
+      <button id="login-button" class="primary-button">Entrar</button>
+      <p id="login-error" class="error-text" hidden></p>
+    </div>
+  </section>
+
+  <main id="app-shell" class="app-shell" hidden>
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">SHINOBI STORY ONLINE</p>
+        <h1>Remote Chat</h1>
+      </div>
+      <div class="header-actions">
+        <button id="install-button" class="icon-button" title="Instalar aplicativo" hidden>＋</button>
+        <button id="settings-button" class="icon-button" title="Configurações">⚙</button>
+      </div>
+    </header>
+
+    <section class="status-strip" aria-live="polite">
+      <span id="connection-dot" class="status-dot offline"></span>
+      <span id="connection-label">Desconectado</span>
+      <span class="status-separator">•</span>
+      <span id="game-label">Jogo não localizado</span>
+    </section>
+
+    <section id="chat-list" class="chat-list" aria-live="polite"></section>
+
+    <button id="jump-bottom" class="jump-bottom" hidden>↓ Novas mensagens</button>
+
+    <form id="composer" class="composer">
+      <textarea id="message-input" rows="1" maxlength="400" placeholder="Digite uma mensagem…"></textarea>
+      <button id="send-button" type="submit" class="send-button" aria-label="Enviar mensagem">➤</button>
+    </form>
+  </main>
+
+  <dialog id="settings-dialog" class="settings-dialog">
+    <div class="dialog-header">
+      <div>
+        <p class="eyebrow">CONFIGURAÇÃO</p>
+        <h2>Campo de envio</h2>
+      </div>
+      <button id="close-settings" class="icon-button" aria-label="Fechar">×</button>
+    </div>
+    <p class="settings-copy">Selecione o controle <strong>Edit</strong> que corresponde à caixa de digitação do jogo. O aplicativo salvará o tamanho escolhido para reencontrá-lo após reiniciar o Shinobi.</p>
+    <button id="refresh-candidates" class="secondary-button">Atualizar campos</button>
+    <div id="candidate-list" class="candidate-list"></div>
+    <hr>
+    <button id="logout-button" class="danger-button">Sair deste aparelho</button>
+  </dialog>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

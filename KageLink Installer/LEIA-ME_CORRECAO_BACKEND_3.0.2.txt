@@ -1,0 +1,40 @@
+KAGELINK 3.0.2 — CORREÇÃO DO SERVIDOR E DA CONEXÃO
+======================================================
+
+O QUE A IMAGEM INDICAVA
+-----------------------
+A interface e o config.json estavam funcionando, mas o servidor FastAPI
+interno falhou. Por isso:
+
+- AGENT aparecia como ERROR;
+- a conexão externa permanecia em STARTING;
+- nenhum endereço trycloudflare.com era criado.
+
+CORREÇÕES
+---------
+- Detecção automática de porta ocupada.
+- Troca automática para outra porta livre.
+- Nova porta salva no config.json sem trocar a chave.
+- Backend `app` incluído explicitamente no PyInstaller.
+- Todos os submódulos `pc_agent` incluídos explicitamente.
+- Endpoint interno `/api/health`.
+- Validação do servidor pelo endpoint de saúde.
+- Erro real exibido dentro da janela.
+- Botão Abrir logs.
+- Botão Tentar novamente.
+- Túnel marcado como ERRO quando o servidor falha.
+- KAGELINK_CONNECTION.txt criado mesmo antes do túnel.
+- cloudflared.exe incorporado ao instalador.
+- Download na primeira execução mantido apenas como fallback.
+
+COMO GERAR
+----------
+Execute:
+
+installer\CRIAR_INSTALADOR.bat
+
+Resultado:
+
+installer\output\KageLink-PC-Agent-Setup-v3.0.2.exe
+
+Instale por cima da versão anterior. O config.json e a chave serão preservados.

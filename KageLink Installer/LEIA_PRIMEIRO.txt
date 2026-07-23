@@ -1,0 +1,33 @@
+KAGELINK 3.3.0 — LEIA PRIMEIRO
+
+Este pacote contém a versão completa com:
+
+- chat OOC e IC/RP preservado;
+- nova aba GAME em paisagem;
+- transmissão 960x540, 8–12 FPS, sem áudio;
+- joystick nas setas;
+- A=E, B=Espaço, C=G e D=V;
+- Tela inteira e Aproximado;
+- PC Agent e instalador atualizados.
+
+PARA GERAR O APK
+
+Execute:
+
+COMPILAR_APK.bat
+
+Resultado:
+
+KageLink-v3.3.0.apk
+
+PARA GERAR O INSTALADOR WINDOWS
+
+Execute:
+
+installer\CRIAR_INSTALADOR.bat
+
+Resultado:
+
+installer\output\KageLink-PC-Agent-Setup-v3.3.0.exe
+
+A compilação final precisa ser feita no Windows. Leia README_pt-BR.md e RELATORIO_TESTES_3.3.0.md antes da homologação.

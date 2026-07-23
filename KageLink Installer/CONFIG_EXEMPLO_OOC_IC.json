@@ -1,0 +1,41 @@
+{
+  "game_title": "shinobi story online",
+  "chat_class": "RICHEDIT50W",
+  "input_class": "Edit",
+  "access_token": "GERADO_AUTOMATICAMENTE_NA_PRIMEIRA_EXECUCAO",
+  "poll_interval_seconds": 0.75,
+  "max_message_length": 400,
+  "min_send_interval_seconds": 1.0,
+  "database_path": "data/chat_history.db",
+  "input_control": {
+    "preferred_width": 536,
+    "preferred_height": 53
+  },
+  "input_controls": {
+    "ooc": {
+      "preferred_width": 536,
+      "preferred_height": 53,
+      "relative_left": null,
+      "relative_top": null,
+      "candidate_index": null,
+      "parent_class": ""
+    },
+    "ic": {
+      "preferred_width": 0,
+      "preferred_height": 0,
+      "relative_left": null,
+      "relative_top": null,
+      "candidate_index": 2,
+      "parent_class": ""
+    }
+  },
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8765
+  },
+  "ui_language": "pt-BR",
+  "external_connection": {
+    "enabled": true,
+    "provider": "cloudflare_quick_tunnel"
+  }
+}

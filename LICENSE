@@ -1,3 +1,6 @@
-Copyright (c) KageLink contributors.
+KageLink application source code
+Copyright (c) 2026 Rafael Demari Dib
 
-Choose an open-source license before publishing (MIT recommended).
+Permission is granted to use, modify, and compile this source code for the owner's personal use. Redistribution or commercial publication requires the owner's authorization.
+
+Third-party Flutter packages remain subject to their respective licenses.

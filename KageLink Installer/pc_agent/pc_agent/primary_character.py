@@ -47,7 +47,10 @@ def load_character_history(history: HistoryStore) -> list[dict[str, str]]:
     for item in values:
         if not isinstance(item, dict):
             continue
-        name = normalize_character_name(item.get("name", ""))
+        try:
+            name = normalize_character_name(item.get("name", ""))
+        except ValueError:
+            continue
         changed_at = _parse_timestamp(item.get("changed_at"))
         if changed_at is None:
             continue
@@ -62,9 +65,12 @@ def load_character_history(history: HistoryStore) -> list[dict[str, str]]:
 
 
 def get_primary_character(history: HistoryStore) -> str:
-    return normalize_character_name(
-        history.get_runtime_state(PRIMARY_CHARACTER_STATE_KEY, "")
-    )
+    try:
+        return normalize_character_name(
+            history.get_runtime_state(PRIMARY_CHARACTER_STATE_KEY, "")
+        )
+    except ValueError:
+        return ""
 
 
 def saved_characters(history: HistoryStore) -> list[str]:
@@ -114,12 +120,14 @@ def resolve_primary_character(history: HistoryStore, at_timestamp: Any) -> str:
     if target is None:
         return get_primary_character(history)
 
+    events = load_character_history(history)
+    if not events:
+        return get_primary_character(history)
+
     selected: str | None = None
-    for item in load_character_history(history):
+    for item in events:
         changed_at = _parse_timestamp(item["changed_at"])
         if changed_at is None or changed_at > target:
             break
         selected = item["name"]
-    if selected is not None:
-        return selected
-    return get_primary_character(history)
+    return selected if selected is not None else ""

@@ -29,6 +29,30 @@ class ChatChannelParserTests(unittest.TestCase):
             [("ooc", "OOC Rafael: hello")],
         )
 
+    def test_exact_says_marker_is_ic(self) -> None:
+        parser = ChatChannelParser()
+        result = parser.feed("Uchiha, Leafos Says: Hello")
+        self.assertEqual(
+            [(item.channel, item.text) for item in result],
+            [("ic", "Uchiha, Leafos Says: Hello")],
+        )
+
+    def test_exact_says_marker_with_markdown_speaker_is_ic(self) -> None:
+        parser = ChatChannelParser()
+        result = parser.feed("**Anbu** Says: test")
+        self.assertEqual(
+            [(item.channel, item.text) for item in result],
+            [("ic", "**Anbu** Says: test")],
+        )
+
+    def test_lowercase_says_marker_remains_ooc(self) -> None:
+        parser = ChatChannelParser()
+        result = parser.feed("**Anbu** says: test")
+        self.assertEqual(
+            [(item.channel, item.text) for item in result],
+            [("ooc", "**Anbu** says: test")],
+        )
+
     def test_ic_simple(self) -> None:
         parser = ChatChannelParser()
         result = parser.feed("(*Uchiha, Leafos nods.*)")
@@ -65,6 +89,22 @@ class ChatChannelParserTests(unittest.TestCase):
                 ("ooc", "Server Information: Test"),
                 ("ic", "(*Leafos looks around.*)"),
                 ("ooc", "OOC Rafael: test"),
+            ],
+        )
+
+    def test_mixed_plain_says_and_ooc_content(self) -> None:
+        parser = ChatChannelParser()
+        result = parser.feed(
+            "Server Information: Test\n"
+            "**Anbu** Says: ???\n"
+            "**Anbu** says: lowercase"
+        )
+        self.assertEqual(
+            [(item.channel, item.text) for item in result],
+            [
+                ("ooc", "Server Information: Test"),
+                ("ic", "**Anbu** Says: ???"),
+                ("ooc", "**Anbu** says: lowercase"),
             ],
         )
 

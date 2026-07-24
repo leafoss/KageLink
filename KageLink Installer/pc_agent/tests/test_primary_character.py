@@ -68,6 +68,17 @@ class PrimaryCharacterTests(unittest.TestCase):
             "Matsunaya Hika",
         )
 
+    def test_timestamp_before_first_selection_does_not_assume_current_character(self) -> None:
+        set_primary_character(
+            self.history,
+            "Matsunaya Hika",
+            changed_at=datetime(2026, 7, 24, 12, 0, tzinfo=timezone.utc),
+        )
+        self.assertEqual(
+            resolve_primary_character(self.history, "2026-07-24T11:30:00+00:00"),
+            "",
+        )
+
     def test_blank_name_clears_current_character_without_losing_history(self) -> None:
         set_primary_character(
             self.history,

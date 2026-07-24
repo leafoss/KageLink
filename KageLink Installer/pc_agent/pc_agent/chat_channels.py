@@ -20,7 +20,7 @@ class ChatChannelParser:
     The IC grammar is intentionally strict and deterministic:
     - an IC roleplay block starts at ``(*`` and ends at the next ``*)``;
     - incomplete roleplay blocks remain buffered until their closing delimiter;
-    - a plain chat block containing the literal lowercase marker ``says:`` is IC.
+    - a plain chat block containing the literal case-sensitive marker ``Says:`` is IC.
     """
 
     def __init__(self, pending_text: str = "") -> None:
@@ -107,9 +107,9 @@ def _plain_messages(
 ) -> tuple[list[ParsedChatMessage], str]:
     """Classifies non-``(* ... *)`` text without changing legacy OOC rules.
 
-    The only additional IC rule is the literal lowercase marker ``says:``.
+    The only additional IC rule is the literal case-sensitive marker ``Says:``.
     A line that ends exactly at that marker is kept pending until its first
-    non-empty continuation line arrives, so fragmented ``Name says:`` blocks
+    non-empty continuation line arrives, so fragmented ``Name Says:`` blocks
     remain a single IC message.
     """
 
@@ -130,12 +130,12 @@ def _plain_messages(
             index += 1
             continue
 
-        if "says:" not in line:
+        if "Says:" not in line:
             parsed.append(ParsedChatMessage(channel=OOC_CHANNEL, text=line.strip()))
             index += 1
             continue
 
-        _, after_marker = line.split("says:", 1)
+        _, after_marker = line.split("Says:", 1)
         if after_marker.strip() or final_boundary:
             parsed.append(ParsedChatMessage(channel=IC_CHANNEL, text=line.strip()))
             index += 1

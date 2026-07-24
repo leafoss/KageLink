@@ -20,7 +20,8 @@ class ChatChannelParser:
     The IC grammar is intentionally strict and deterministic:
     - an IC block starts at ``(*``;
     - it ends at the next ``*)``;
-    - incomplete IC blocks remain buffered until their closing delimiter arrives.
+    - incomplete IC blocks remain buffered until their closing delimiter arrives;
+    - a plain line containing the exact case-sensitive marker ``Says:`` is IC.
     """
 
     def __init__(self, pending_text: str = "") -> None:
@@ -46,13 +47,13 @@ class ChatChannelParser:
             if ic_start < 0:
                 # Keep a trailing '(' because the '*' may arrive in the next poll.
                 keep = 1 if self._buffer.endswith("(") else 0
-                ooc_text = self._buffer[:-keep] if keep else self._buffer
+                plain_text = self._buffer[:-keep] if keep else self._buffer
                 self._buffer = self._buffer[-keep:] if keep else ""
-                parsed.extend(_ooc_messages(ooc_text))
+                parsed.extend(_plain_messages(plain_text))
                 break
 
             if ic_start > 0:
-                parsed.extend(_ooc_messages(self._buffer[:ic_start]))
+                parsed.extend(_plain_messages(self._buffer[:ic_start]))
                 self._buffer = self._buffer[ic_start:]
 
             ic_end = self._buffer.find("*)", 2)
@@ -95,7 +96,26 @@ def _normalize(text: str) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n").rstrip("\x00")
 
 
+def _plain_messages(text: str) -> list[ParsedChatMessage]:
+    """Classifies non-``(* ... *)`` lines.
+
+    ``Says:`` is deliberately literal and case-sensitive because that is the
+    exact marker emitted by Shinobi Story Online for IC speech. Lowercase
+    ``says:`` and any other capitalization remain OOC.
+    """
+
+    return [
+        ParsedChatMessage(
+            channel=IC_CHANNEL if "Says:" in line else OOC_CHANNEL,
+            text=line.strip(),
+        )
+        for line in text.splitlines()
+        if line.strip()
+    ]
+
+
 def _ooc_messages(text: str) -> list[ParsedChatMessage]:
+    # Retained as a compatibility helper for callers/tests outside the parser.
     return [
         ParsedChatMessage(channel=OOC_CHANNEL, text=line.strip())
         for line in text.splitlines()

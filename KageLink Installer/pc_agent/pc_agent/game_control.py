@@ -89,11 +89,32 @@ KEYS: dict[str, KeyDefinition] = {
     "down": KeyDefinition(win32con.VK_DOWN, True),
     "left": KeyDefinition(win32con.VK_LEFT, True),
     "right": KeyDefinition(win32con.VK_RIGHT, True),
-    "e": KeyDefinition(ord("E")),
+    **{chr(code).lower(): KeyDefinition(code) for code in range(ord("A"), ord("Z") + 1)},
+    **{str(number): KeyDefinition(ord(str(number))) for number in range(10)},
     "space": KeyDefinition(win32con.VK_SPACE),
-    "g": KeyDefinition(ord("G")),
-    "v": KeyDefinition(ord("V")),
+    "enter": KeyDefinition(win32con.VK_RETURN),
+    "escape": KeyDefinition(win32con.VK_ESCAPE),
+    "tab": KeyDefinition(win32con.VK_TAB),
+    "shift": KeyDefinition(win32con.VK_SHIFT),
+    "ctrl": KeyDefinition(win32con.VK_CONTROL),
+    "alt": KeyDefinition(win32con.VK_MENU),
+    "backspace": KeyDefinition(win32con.VK_BACK),
+    "insert": KeyDefinition(win32con.VK_INSERT, True),
+    "delete": KeyDefinition(win32con.VK_DELETE, True),
+    "home": KeyDefinition(win32con.VK_HOME, True),
+    "end": KeyDefinition(win32con.VK_END, True),
+    "pageup": KeyDefinition(win32con.VK_PRIOR, True),
+    "pagedown": KeyDefinition(win32con.VK_NEXT, True),
+    **{
+        f"f{number}": KeyDefinition(win32con.VK_F1 + number - 1)
+        for number in range(1, 13)
+    },
 }
+
+if set(KEYS) != set(ALLOWED_KEYS):
+    missing = sorted(set(ALLOWED_KEYS).difference(KEYS))
+    extra = sorted(set(KEYS).difference(ALLOWED_KEYS))
+    raise RuntimeError(f"GAME_KEY_TABLE_MISMATCH missing={missing} extra={extra}")
 
 
 class GameControlError(RuntimeError):

@@ -16,7 +16,7 @@ import time
 import urllib.request
 import webbrowser
 from pathlib import Path
-from tkinter import BOTH, END, LEFT, RIGHT, X, BooleanVar, Button, Entry, Frame, Label, Menu, StringVar, Tk, Toplevel, messagebox, ttk
+from tkinter import BOTH, END, LEFT, RIGHT, X, BooleanVar, Button, Entry, Frame, Label, Menu, StringVar, Tk, Toplevel, filedialog, messagebox, ttk
 
 from pc_agent.config import CONFIG_PATH, PROJECT_DIR, ensure_config, load_config, update_server_port, update_user_settings
 from pc_agent.logging_setup import configure_logging
@@ -512,7 +512,7 @@ class KageLinkAgentUI:
         temp = path.with_suffix(".download")
         if temp.exists():
             temp.unlink()
-        request = urllib.request.Request(CLOUDFLARED_URL, headers={"User-Agent": "KageLink/3.3.0"})
+        request = urllib.request.Request(CLOUDFLARED_URL, headers={"User-Agent": "KageLink/3.4.0"})
         with urllib.request.urlopen(request, timeout=120) as response, temp.open("wb") as output:
             while True:
                 chunk = response.read(1024 * 1024)
@@ -699,17 +699,121 @@ class KageLinkAgentUI:
     def open_settings(self) -> None:
         window = Toplevel(self.root)
         window.title(self.t["settings"])
-        window.geometry("430x300")
+        window.geometry("620x650")
+        window.minsize(560, 610)
         window.transient(self.root)
         window.grab_set()
+
         language = StringVar(value=self.lang)
         port = StringVar(value=str(self.config.port))
         regenerate = BooleanVar(value=False)
+        leafos_enabled = BooleanVar(value=self.config.leafos_enabled)
+        leafos_vault = StringVar(value=str(self.config.leafos_vault_path or ""))
+        leafos_raw = StringVar(value=str(self.config.leafos_raw_output_path or ""))
+        leafos_export_ic = BooleanVar(value=self.config.leafos_export_ic)
+        leafos_export_ooc = BooleanVar(value=self.config.leafos_export_ooc)
+
         Label(window, text="Idioma / Language").pack(anchor="w", padx=24, pady=(24, 5))
-        ttk.Combobox(window, textvariable=language, values=["pt-BR", "en-US"], state="readonly").pack(fill=X, padx=24)
+        ttk.Combobox(
+            window,
+            textvariable=language,
+            values=["pt-BR", "en-US"],
+            state="readonly",
+        ).pack(fill=X, padx=24)
         Label(window, text="Porta / Port").pack(anchor="w", padx=24, pady=(18, 5))
         Entry(window, textvariable=port).pack(fill=X, padx=24)
-        ttk.Checkbutton(window, text="Gerar nova chave / Generate new key", variable=regenerate).pack(anchor="w", padx=24, pady=18)
+        ttk.Checkbutton(
+            window,
+            text="Gerar nova chave / Generate new key",
+            variable=regenerate,
+        ).pack(anchor="w", padx=24, pady=(14, 16))
+
+        ttk.Separator(window, orient="horizontal").pack(fill=X, padx=24, pady=(0, 14))
+        Label(
+            window,
+            text="LEAFOS / OBSIDIAN",
+            font=("Segoe UI", 11, "bold"),
+        ).pack(anchor="w", padx=24, pady=(0, 8))
+        ttk.Checkbutton(
+            window,
+            text="Ativar integração LeafOS / Enable LeafOS integration",
+            variable=leafos_enabled,
+        ).pack(anchor="w", padx=24, pady=(0, 10))
+
+        Label(window, text="Vault LeafOS").pack(anchor="w", padx=24, pady=(0, 5))
+        vault_row = Frame(window)
+        vault_row.pack(fill=X, padx=24)
+        Entry(vault_row, textvariable=leafos_vault).pack(side=LEFT, fill=X, expand=True)
+
+        initial_suggested = (
+            str(Path(leafos_vault.get()) / "90 - KageAgent" / "Raw")
+            if leafos_vault.get().strip()
+            else ""
+        )
+        suggested_raw = {"value": initial_suggested}
+
+        def choose_vault() -> None:
+            selected = filedialog.askdirectory(
+                parent=window,
+                title="Selecionar Vault LeafOS / Select LeafOS Vault",
+                initialdir=leafos_vault.get().strip() or str(Path.home()),
+            )
+            if not selected:
+                return
+            previous_suggestion = suggested_raw["value"]
+            leafos_vault.set(selected)
+            new_suggestion = str(Path(selected) / "90 - KageAgent" / "Raw")
+            if not leafos_raw.get().strip() or leafos_raw.get().strip() == previous_suggestion:
+                leafos_raw.set(new_suggestion)
+            suggested_raw["value"] = new_suggestion
+
+        Button(
+            vault_row,
+            text="Procurar / Browse",
+            command=choose_vault,
+            padx=8,
+        ).pack(side=LEFT, padx=(8, 0))
+
+        Label(window, text="Pasta RAW / RAW folder").pack(anchor="w", padx=24, pady=(14, 5))
+        raw_row = Frame(window)
+        raw_row.pack(fill=X, padx=24)
+        Entry(raw_row, textvariable=leafos_raw).pack(side=LEFT, fill=X, expand=True)
+
+        def choose_raw() -> None:
+            selected = filedialog.askdirectory(
+                parent=window,
+                title="Selecionar pasta RAW / Select RAW folder",
+                initialdir=leafos_raw.get().strip() or leafos_vault.get().strip() or str(Path.home()),
+            )
+            if selected:
+                leafos_raw.set(selected)
+
+        Button(
+            raw_row,
+            text="Procurar / Browse",
+            command=choose_raw,
+            padx=8,
+        ).pack(side=LEFT, padx=(8, 0))
+
+        ttk.Checkbutton(
+            window,
+            text="Exportar IC / Export IC",
+            variable=leafos_export_ic,
+        ).pack(anchor="w", padx=24, pady=(14, 3))
+        ttk.Checkbutton(
+            window,
+            text="Exportar OOC / Export OOC",
+            variable=leafos_export_ooc,
+        ).pack(anchor="w", padx=24, pady=(0, 12))
+        Label(
+            window,
+            text=(
+                "RAW é append-only. O Processor roda isolado e lê a pasta RAW configurada. "
+                "Git continua sendo responsabilidade do Obsidian Git."
+            ),
+            wraplength=560,
+            justify="left",
+        ).pack(anchor="w", padx=24, pady=(0, 14))
 
         def save() -> None:
             try:
@@ -719,13 +823,33 @@ class KageLinkAgentUI:
             except ValueError:
                 messagebox.showerror("KageLink", "Porta inválida / Invalid port", parent=window)
                 return
-            if regenerate.get() and not messagebox.askyesno("KageLink", "Gerar uma nova chave desconectará os perfis atuais. Continuar?\nGenerating a new key will disconnect current profiles. Continue?", parent=window):
+            if regenerate.get() and not messagebox.askyesno(
+                "KageLink",
+                "Gerar uma nova chave desconectará os perfis atuais. Continuar?\n"
+                "Generating a new key will disconnect current profiles. Continue?",
+                parent=window,
+            ):
                 return
-            update_user_settings(language=language.get(), port=value, regenerate_token=regenerate.get())
+
+            vault_value = leafos_vault.get().strip()
+            raw_value = leafos_raw.get().strip()
+            if vault_value and not raw_value:
+                raw_value = str(Path(vault_value) / "90 - KageAgent" / "Raw")
+
+            update_user_settings(
+                language=language.get(),
+                port=value,
+                regenerate_token=regenerate.get(),
+                leafos_enabled=leafos_enabled.get(),
+                leafos_vault_path=vault_value,
+                leafos_raw_output_path=raw_value,
+                leafos_export_ic=leafos_export_ic.get(),
+                leafos_export_ooc=leafos_export_ooc.get(),
+            )
             messagebox.showinfo("KageLink", self.t["restart_needed"], parent=window)
             self._restart_application()
 
-        Button(window, text="Salvar / Save", command=save).pack(pady=10)
+        Button(window, text="Salvar / Save", command=save).pack(pady=8)
 
     def _restart_application(self) -> None:
         executable = [sys.executable]

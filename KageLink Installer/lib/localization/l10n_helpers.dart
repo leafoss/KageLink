@@ -49,6 +49,13 @@ String localizedClientError(AppLocalizations l10n, String? rawMessage) {
   if (lower.contains('foreground_failed')) {
     return l10n.foregroundFailedForSend;
   }
+  if (lower.contains('message_too_long')) {
+    return l10n.messageTooLongError;
+  }
+  if (lower.contains('game_input_truncated') ||
+      lower.contains('game_input_write_failed')) {
+    return l10n.gameInputTruncatedError;
+  }
   if (lower.contains('token') || lower.contains('401')) {
     return l10n.invalidToken;
   }

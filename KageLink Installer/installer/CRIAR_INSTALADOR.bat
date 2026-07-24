@@ -10,7 +10,7 @@ set "PYTHON_EXE="
 set "ISCC="
 
  echo ================================================================
- echo KAGELINK 3.3.0 - CRIADOR DO INSTALADOR FINAL
+ echo KAGELINK 3.4.1 - CRIADOR DO INSTALADOR FINAL
  echo ================================================================
  echo.
  echo Este processo gera um unico programa KageLink.exe e depois cria
@@ -84,7 +84,7 @@ echo [6/6] Compilando o instalador final...
 "!ISCC!" "%~dp0KageLink_PC_Agent.iss"
 if errorlevel 1 goto :error
 
-set "OUTPUT=%~dp0output\KageLink-PC-Agent-Setup-v3.3.0.exe"
+set "OUTPUT=%~dp0output\KageLink-PC-Agent-Setup-v3.4.1.exe"
 if not exist "%OUTPUT%" goto :error
 
 echo.

@@ -129,6 +129,52 @@ class HistoryStore:
             connection.commit()
 
 
+    def get_runtime_state(self, key: str, default: str = "") -> str:
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT value FROM runtime_state WHERE key = ?",
+                (str(key),),
+            ).fetchone()
+        return str(row["value"]) if row is not None else str(default)
+
+    def set_runtime_state(self, key: str, value: str) -> None:
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO runtime_state(key, value)
+                VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                (str(key), str(value)),
+            )
+            connection.commit()
+
+    def incoming_after_id(self, after_id: int, limit: int = 2000) -> list[dict]:
+        safe_after_id = max(0, int(after_id))
+        safe_limit = max(1, min(int(limit), 5000))
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, timestamp, direction, channel, text, resynchronized
+                FROM messages
+                WHERE direction = 'incoming' AND id > ?
+                ORDER BY id ASC
+                LIMIT ?
+                """,
+                (safe_after_id, safe_limit),
+            ).fetchall()
+        return [
+            {
+                "id": int(row["id"]),
+                "timestamp": str(row["timestamp"]),
+                "direction": str(row["direction"]),
+                "channel": self._channel(row["channel"]),
+                "text": str(row["text"]),
+                "resynchronized": bool(row["resynchronized"]),
+            }
+            for row in rows
+        ]
+
     def recent_incoming_records(self, limit: int = 500) -> list[tuple[str, str]]:
         safe_limit = max(1, min(int(limit), 2000))
         with self._lock, self._connect() as connection:

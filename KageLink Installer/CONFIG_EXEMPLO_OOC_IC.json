@@ -4,7 +4,7 @@
   "input_class": "Edit",
   "access_token": "GERADO_AUTOMATICAMENTE_NA_PRIMEIRA_EXECUCAO",
   "poll_interval_seconds": 0.75,
-  "max_message_length": 400,
+  "max_message_length": 32000,
   "min_send_interval_seconds": 1.0,
   "database_path": "data/chat_history.db",
   "input_control": {

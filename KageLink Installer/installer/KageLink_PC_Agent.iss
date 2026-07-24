@@ -1,5 +1,5 @@
 ﻿#define MyAppName "KageLink PC Agent"
-#define MyAppVersion "3.3.0"
+#define MyAppVersion "3.4.1"
 #define MyAppPublisher "KageLink"
 #define MyAppExeName "KageLink.exe"
 
@@ -15,7 +15,7 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=output
-OutputBaseFilename=KageLink-PC-Agent-Setup-v3.3.0
+OutputBaseFilename=KageLink-PC-Agent-Setup-v3.4.1
 SetupIconFile=assets\kagelink.ico
 WizardImageFile=assets\wizard_large.bmp
 WizardSmallImageFile=assets\wizard_small.bmp
@@ -24,7 +24,7 @@ SolidCompression=yes
 ShowLanguageDialog=yes
 LanguageDetectionMethod=uilanguage
 UninstallDisplayIcon={app}\KageLink.exe
-VersionInfoVersion=3.3.0.0
+VersionInfoVersion=3.4.1.0
 AppMutex=Local\KageLinkPcAgent_v3
 CloseApplications=yes
 RestartApplications=no
@@ -62,8 +62,8 @@ Source: "build_output\KageLink.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "payload\cloudflared.exe"; DestDir: "{app}\tools"; Flags: ignoreversion
 Source: "payload\cloudflared.sha256"; DestDir: "{app}\tools"; Flags: ignoreversion
 Source: "assets\kagelink.ico"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\README_pt-BR.md"; DestDir: "{app}"; DestName: "README_pt-BR.txt"; Flags: ignoreversion
-Source: "..\README_en-US.md"; DestDir: "{app}"; DestName: "README_en-US.txt"; Flags: ignoreversion
+Source: "..\..\README.pt-BR.md"; DestDir: "{app}"; DestName: "README_pt-BR.txt"; Flags: ignoreversion
+Source: "..\..\README.md"; DestDir: "{app}"; DestName: "README_en-US.txt"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\KageLink"; Filename: "{app}\KageLink.exe"; WorkingDir: "{app}"; IconFilename: "{app}\KageLink.exe"

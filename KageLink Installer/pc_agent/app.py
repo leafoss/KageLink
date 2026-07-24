@@ -23,14 +23,17 @@ from pc_agent.chat_reader import ChatReader
 from pc_agent.chat_sender import ChatSender
 from pc_agent.config import RESOURCE_DIR, load_config, update_input_preference
 from pc_agent.history import HistoryStore
+from pc_agent.leafos import LeafOSProcessor, LeafOSRawExporter
 from pc_agent.game_protocol import parse_control_message, normalize_view_mode
 from pc_agent.game_runtime import GameRuntime
+from pc_agent.stats_protocol import parse_stats_control_message
+from pc_agent.stats_runtime import StatsRuntime
 from pc_agent.runtime import ConnectionManager, RuntimeStatus
 from pc_agent.security import TokenSecurity
 from pc_agent.windows import find_game_window, input_candidates, is_game_window_foreground, window_scan_snapshot
 
 
-APP_VERSION = "3.3.0"
+APP_VERSION = "3.4.1"
 
 config = load_config()
 security = TokenSecurity(config.access_token)
@@ -45,7 +48,30 @@ sender = ChatSender(
 manager = ConnectionManager()
 runtime_status = RuntimeStatus()
 game_runtime = GameRuntime("Shinobi Story Online")
+stats_runtime = StatsRuntime("Shinobi Story Online")
 monitor_task: asyncio.Task | None = None
+leafos_processor_task: asyncio.Task | None = None
+leafos_exporter = (
+    LeafOSRawExporter(
+        config.leafos_raw_output_path,
+        export_ic=config.leafos_export_ic,
+        export_ooc=config.leafos_export_ooc,
+    )
+    if config.leafos_enabled
+    else None
+)
+leafos_processor = (
+    LeafOSProcessor(
+        config.leafos_vault_path,
+        config.leafos_raw_output_path,
+        session_idle_seconds=config.leafos_session_idle_seconds,
+    )
+    if config.leafos_enabled
+    and config.leafos_export_ic
+    and config.leafos_vault_path is not None
+    and config.leafos_raw_output_path is not None
+    else None
+)
 WEB_DIR = RESOURCE_DIR / "web"
 
 
@@ -56,6 +82,10 @@ class AuthRequest(BaseModel):
 class SendRequest(BaseModel):
     message: str = Field(min_length=1)
     channel: Literal["ooc", "ic"] = "ooc"
+
+
+class ChannelMessageRequest(BaseModel):
+    message: str = Field(min_length=1)
 
 
 class InputPreferenceRequest(BaseModel):
@@ -80,6 +110,15 @@ async def monitor_chat_loop() -> None:
     last_status_broadcast = 0.0
     last_window_scan = 0.0
     logger = logging.getLogger("kagelink")
+
+    if leafos_exporter is not None:
+        logger.info("[LeafOS] Integration enabled")
+        logger.info("[LeafOS] Vault: %s", config.leafos_vault_path or "(not configured)")
+        logger.info("[LeafOS] RAW path: %s", config.leafos_raw_output_path or "(not configured)")
+        try:
+            await asyncio.to_thread(leafos_exporter.sync, history)
+        except Exception:
+            logger.exception("[LeafOS ERROR] Initial RAW export failed")
 
     while True:
         try:
@@ -142,6 +181,12 @@ async def monitor_chat_loop() -> None:
                 runtime_status.last_chat_update = time.time()
                 await manager.broadcast({"type": "message", "message": record})
 
+            if parsed_messages and leafos_exporter is not None:
+                try:
+                    await asyncio.to_thread(leafos_exporter.sync, history)
+                except Exception:
+                    logger.exception("[LeafOS ERROR] RAW exporter failed")
+
             if current:
                 previous_text = current
                 await asyncio.to_thread(
@@ -163,18 +208,43 @@ async def monitor_chat_loop() -> None:
         await asyncio.sleep(config.poll_interval_seconds)
 
 
+async def leafos_processor_loop() -> None:
+    if leafos_processor is None:
+        return
+    logger = logging.getLogger("kagelink")
+    while True:
+        try:
+            await asyncio.to_thread(leafos_processor.run_once)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # Processor is deliberately isolated from chat, GAME, STATS and tunnel.
+            logger.exception("[LeafOS Processor ERROR] Processor iteration failed")
+        await asyncio.sleep(config.leafos_processor_interval_seconds)
+
+
 @contextlib.asynccontextmanager
 async def lifespan(_: FastAPI):
-    global monitor_task
+    global monitor_task, leafos_processor_task
     monitor_task = asyncio.create_task(monitor_chat_loop(), name="shinobi-chat-monitor")
+    if leafos_processor is not None:
+        leafos_processor_task = asyncio.create_task(
+            leafos_processor_loop(),
+            name="leafos-processor",
+        )
     try:
         yield
     finally:
+        if leafos_processor_task:
+            leafos_processor_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await leafos_processor_task
         if monitor_task:
             monitor_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await monitor_task
         await asyncio.to_thread(game_runtime.close)
+        await asyncio.to_thread(stats_runtime.close)
 
 
 app = FastAPI(
@@ -275,18 +345,18 @@ async def set_input_preference(request: InputPreferenceRequest) -> dict[str, Any
     }
 
 
-@app.post("/api/send", dependencies=[Depends(security.require_authorization)])
-async def send_message(request: SendRequest) -> dict[str, Any]:
-    message = request.message.replace("\r", " ").replace("\n", " ").strip()
+async def _send_channel_message(message_value: str, channel: Literal["ooc", "ic"]) -> dict[str, Any]:
+    message = message_value.replace("\r", " ").replace("\n", " ").strip()
     if not message:
         raise HTTPException(status_code=400, detail="EMPTY_MESSAGE")
     if len(message) > config.max_message_length:
         raise HTTPException(status_code=400, detail="MESSAGE_TOO_LONG")
 
-    runtime_status.send_state = f"preparing_{request.channel}"
+    runtime_status.send_state = f"preparing_{channel}"
     await manager.broadcast({"type": "status", "status": runtime_status.to_dict()})
     try:
-        result = await asyncio.to_thread(sender.send, message, request.channel)
+        send_function = sender.send_ooc if channel == "ooc" else sender.send_ic
+        result = await asyncio.to_thread(send_function, message)
     except (ValueError, RuntimeError) as error:
         runtime_status.send_state = "failed"
         runtime_status.last_error = str(error)
@@ -302,7 +372,7 @@ async def send_message(request: SendRequest) -> dict[str, Any]:
         "outgoing",
         message,
         False,
-        request.channel,
+        channel,
     )
     runtime_status.last_send = time.time()
     runtime_status.last_error = None
@@ -313,10 +383,27 @@ async def send_message(request: SendRequest) -> dict[str, Any]:
     return {
         "ok": True,
         "message": record,
-        "channel": request.channel,
+        "channel": channel,
         "input": result["input"],
         "focus": result["focus"],
     }
+
+
+@app.post("/api/send/ooc", dependencies=[Depends(security.require_authorization)])
+async def send_ooc_message(request: ChannelMessageRequest) -> dict[str, Any]:
+    return await _send_channel_message(request.message, "ooc")
+
+
+@app.post("/api/send/ic", dependencies=[Depends(security.require_authorization)])
+async def send_ic_message(request: ChannelMessageRequest) -> dict[str, Any]:
+    return await _send_channel_message(request.message, "ic")
+
+
+@app.post("/api/send", dependencies=[Depends(security.require_authorization)])
+async def send_message(request: SendRequest) -> dict[str, Any]:
+    # Compatibility endpoint for the existing web client. The Android app uses
+    # the channel-specific endpoints above so OOC and IC cannot be conflated.
+    return await _send_channel_message(request.message, request.channel)
 
 
 @app.get("/api/game/status", dependencies=[Depends(security.require_authorization)])
@@ -495,6 +582,199 @@ async def game_control_endpoint(
         logging.getLogger("kagelink.game").exception("Game control disconnected")
     finally:
         await asyncio.to_thread(game_runtime.deactivate_control)
+
+
+@app.get("/api/stats/status", dependencies=[Depends(security.require_authorization)])
+async def get_stats_status() -> dict[str, Any]:
+    return await asyncio.to_thread(stats_runtime.status)
+
+
+@app.websocket("/ws/stats/stream")
+async def stats_stream_endpoint(
+    websocket: WebSocket,
+    token: str | None = Query(default=None),
+) -> None:
+    if not security.valid(token):
+        await websocket.close(code=1008, reason="INVALID_TOKEN")
+        return
+
+    await websocket.accept()
+    frame_interval = 0.2
+    last_metadata_at = 0.0
+    last_state = ""
+    try:
+        while True:
+            started = time.monotonic()
+            try:
+                frame, metadata = await asyncio.to_thread(stats_runtime.capture_frame)
+                now = time.monotonic()
+                await websocket.send_json(metadata)
+                last_metadata_at = now
+                last_state = "live"
+                await websocket.send_bytes(frame)
+            except Exception as error:
+                message = str(error)
+                state = (
+                    "not_found"
+                    if "STATS_NOT_FOUND" in message
+                    else "minimized"
+                    if "STATS_MINIMIZED" in message
+                    else "error"
+                )
+                if state != last_state or time.monotonic() - last_metadata_at >= 1.0:
+                    await websocket.send_json(
+                        {
+                            "type": "stats_stream_status",
+                            "state": state,
+                            "message": message,
+                            "timestamp": time.time(),
+                        }
+                    )
+                    last_state = state
+                    last_metadata_at = time.monotonic()
+                await asyncio.sleep(0.5)
+
+            elapsed = time.monotonic() - started
+            if elapsed < frame_interval:
+                await asyncio.sleep(frame_interval - elapsed)
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        logging.getLogger("kagelink.stats").exception("Stats stream disconnected")
+
+
+@app.websocket("/ws/stats/control")
+async def stats_control_endpoint(
+    websocket: WebSocket,
+    token: str | None = Query(default=None),
+) -> None:
+    if not security.valid(token):
+        await websocket.close(code=1008, reason="INVALID_TOKEN")
+        return
+
+    await websocket.accept()
+    last_signal = time.monotonic()
+    activated = False
+    try:
+        await websocket.send_json(
+            {
+                "type": "stats_control_status",
+                "state": "connected",
+                "timestamp": time.time(),
+            }
+        )
+        while True:
+            try:
+                raw = await asyncio.wait_for(websocket.receive_text(), timeout=1.0)
+            except asyncio.TimeoutError:
+                if time.monotonic() - last_signal > 8.0:
+                    await asyncio.to_thread(stats_runtime.deactivate_control)
+                    await websocket.send_json(
+                        {
+                            "type": "stats_control_status",
+                            "state": "heartbeat_timeout",
+                        }
+                    )
+                    await websocket.close(code=1011, reason="HEARTBEAT_TIMEOUT")
+                    return
+                continue
+
+            last_signal = time.monotonic()
+            try:
+                payload = json.loads(raw)
+                command = parse_stats_control_message(payload)
+                if command.kind == "active":
+                    if command.active:
+                        await asyncio.to_thread(stats_runtime.activate_control)
+                        activated = True
+                        state = "active"
+                    else:
+                        await asyncio.to_thread(stats_runtime.deactivate_control)
+                        activated = False
+                        state = "inactive"
+                    await websocket.send_json(
+                        {
+                            "type": "stats_control_status",
+                            "state": state,
+                            "timestamp": time.time(),
+                        }
+                    )
+                    continue
+
+                if not activated:
+                    raise ValueError("STATS_CONTROL_INACTIVE")
+
+                if command.kind == "open_stats":
+                    try:
+                        result = await asyncio.to_thread(stats_runtime.open_stats)
+                        await websocket.send_json(
+                            {
+                                "type": "stats_open_status",
+                                "state": "opened" if result["opened"] else "already_open",
+                                "timestamp": time.time(),
+                            }
+                        )
+                    except Exception as error:
+                        await websocket.send_json(
+                            {
+                                "type": "stats_open_status",
+                                "state": "error",
+                                "message": str(error),
+                                "timestamp": time.time(),
+                            }
+                        )
+                    continue
+
+                if command.kind == "click":
+                    try:
+                        await asyncio.to_thread(
+                            stats_runtime.click,
+                            float(command.x),
+                            float(command.y),
+                            str(command.button),
+                            int(command.window_id),
+                        )
+                        await websocket.send_json(
+                            {
+                                "type": "stats_click_status",
+                                "state": "clicked",
+                                "button": command.button,
+                                "timestamp": time.time(),
+                            }
+                        )
+                    except Exception as error:
+                        await websocket.send_json(
+                            {
+                                "type": "stats_click_status",
+                                "state": "error",
+                                "message": str(error),
+                                "timestamp": time.time(),
+                            }
+                        )
+                    continue
+
+                if command.kind == "heartbeat":
+                    await websocket.send_json(
+                        {
+                            "type": "pong",
+                            "timestamp": command.timestamp,
+                            "server_time": time.time(),
+                        }
+                    )
+            except Exception as error:
+                await websocket.send_json(
+                    {
+                        "type": "stats_control_error",
+                        "message": str(error),
+                        "timestamp": time.time(),
+                    }
+                )
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        logging.getLogger("kagelink.stats").exception("Stats control disconnected")
+    finally:
+        await asyncio.to_thread(stats_runtime.deactivate_control)
 
 
 @app.websocket("/ws")

@@ -102,7 +102,7 @@
   "calibrationSection": "Calibração do agente",
   "openCalibration": "Abrir varredura de entrada",
   "aboutSection": "Sobre",
-  "versionLabel": "KageLink 3.3.0 — Chat + Game",
+  "versionLabel": "KageLink 3.4.1 — Chat + Game + STATUS",
   "changeRoute": "Trocar rota de conexão",
   "secureChannel": "Canal de chakra protegido",
   "insecureChannel": "Canal local sem criptografia",
@@ -207,5 +207,45 @@
   "gameHideControls": "Ocultar controles",
   "gameViewModeTooltip": "Modo de visualização",
   "gameFullScreenMode": "Tela inteira",
-  "gameZoomMode": "Aproximado"
+  "gameZoomMode": "Aproximado",
+  "messageTooLongError": "A mensagem ultrapassa o limite operacional de 32.000 caracteres.",
+  "gameInputTruncatedError": "O campo do jogo não aceitou o post completo. Nada foi enviado. Reduza ou divida a mensagem e tente novamente.",
+  "statsTab": "STATUS",
+  "gameControlsTitle": "Controles do jogo",
+  "gameControlsSettingsSubtitle": "Configure os botões de ação ABCD e ZXVU.",
+  "gameControlsDescription": "Escolha qual tecla do teclado será enviada por cada botão de ação. Os nomes dos botões permanecem iguais e somente teclas validadas são aceitas.",
+  "buttonSetAbcd": "Conjunto de botões ABCD",
+  "buttonSetZxvu": "Conjunto de botões ZXVU",
+  "restoreDefaults": "Restaurar padrão",
+  "restoreAllControls": "Restaurar todos os controles",
+  "restoreAllControlsConfirmation": "Restaurar os dois conjuntos de botões e voltar ao conjunto ABCD?",
+  "restore": "Restaurar",
+  "gameControlsSecurityNotice": "Os mapeamentos são limitados a teclas de teclado validadas. Não é possível cadastrar scripts, programas, URLs ou comandos do sistema.",
+  "gameButtonLabel": "Botão {button}",
+  "assignedKey": "Tecla configurada: {key}",
+  "statsOpenToStart": "Abra a aba STATUS para iniciar",
+  "statsConnecting": "Conectando ao STATUS...",
+  "statsWindowNotOpenTitle": "Status | Inventory não está aberta",
+  "statsWindowMinimizedTitle": "Status | Inventory está minimizada",
+  "statsStreamUnavailable": "Transmissão do STATUS indisponível",
+  "statsLoadingFrame": "Carregando STATUS...",
+  "statsWindowNotOpenDescription": "O KageLink tentou abrir Status | Inventory pelo jogo. Abra a janela do jogo e tente novamente caso ela não tenha aparecido.",
+  "statsWindowMinimizedDescription": "Restaure a janela Status | Inventory no computador para continuar.",
+  "statsRetryDescription": "A conexão do STATUS será tentada novamente sem interromper o chat ou a aba Game.",
+  "statsWaitingAgent": "Aguardando o PC Agent...",
+  "tryAgain": "Tentar novamente",
+  "@gameButtonLabel": {
+    "placeholders": {
+      "button": {
+        "type": "String"
+      }
+    }
+  },
+  "@assignedKey": {
+    "placeholders": {
+      "key": {
+        "type": "String"
+      }
+    }
+  }
 }

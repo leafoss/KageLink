@@ -157,7 +157,7 @@
   "calibrationSection": "Agent calibration",
   "openCalibration": "Open input scan",
   "aboutSection": "About",
-  "versionLabel": "KageLink 3.3.0 — Chat + Game",
+  "versionLabel": "KageLink 3.4.1 — Chat + Game + Stats",
   "changeRoute": "Change connection route",
   "secureChannel": "Secure chakra channel",
   "insecureChannel": "Unencrypted local channel",
@@ -262,5 +262,45 @@
   "gameHideControls": "Hide controls",
   "gameViewModeTooltip": "View mode",
   "gameFullScreenMode": "Full screen",
-  "gameZoomMode": "Zoomed"
+  "gameZoomMode": "Zoomed",
+  "messageTooLongError": "The message exceeds the 32,000-character operational limit.",
+  "gameInputTruncatedError": "The game input did not accept the complete post. Nothing was sent. Shorten or split the message and try again.",
+  "statsTab": "STATS",
+  "gameControlsTitle": "Game Controls",
+  "gameControlsSettingsSubtitle": "Configure the ABCD and ZXVU action buttons.",
+  "gameControlsDescription": "Choose the keyboard key sent by each action button. Button names stay the same and only validated keys are accepted.",
+  "buttonSetAbcd": "ABCD button set",
+  "buttonSetZxvu": "ZXVU button set",
+  "restoreDefaults": "Restore defaults",
+  "restoreAllControls": "Restore all controls",
+  "restoreAllControlsConfirmation": "Restore both button sets and return to the ABCD set?",
+  "restore": "Restore",
+  "gameControlsSecurityNotice": "Mappings are limited to validated keyboard keys. Scripts, programs, URLs, and system commands cannot be assigned.",
+  "gameButtonLabel": "Button {button}",
+  "assignedKey": "Assigned key: {key}",
+  "statsOpenToStart": "Open the Stats tab to start",
+  "statsConnecting": "Connecting to Stats...",
+  "statsWindowNotOpenTitle": "Status | Inventory is not open",
+  "statsWindowMinimizedTitle": "Status | Inventory is minimized",
+  "statsStreamUnavailable": "Stats stream unavailable",
+  "statsLoadingFrame": "Loading Stats...",
+  "statsWindowNotOpenDescription": "KageLink tried to open Status | Inventory from the game. Open the game window and try again if it did not appear.",
+  "statsWindowMinimizedDescription": "Restore the Status | Inventory window on the computer to continue.",
+  "statsRetryDescription": "The Stats connection will retry without interrupting chat or Game.",
+  "statsWaitingAgent": "Waiting for the PC Agent...",
+  "tryAgain": "Try again",
+  "@gameButtonLabel": {
+    "placeholders": {
+      "button": {
+        "type": "String"
+      }
+    }
+  },
+  "@assignedKey": {
+    "placeholders": {
+      "key": {
+        "type": "String"
+      }
+    }
+  }
 }

@@ -118,6 +118,12 @@ function scrollToBottom(force = false) {
   }
 }
 
+function scrollToBottomAfterLayout() {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => scrollToBottom(true));
+  });
+}
+
 function formatTime(isoString) {
   try {
     return new Intl.DateTimeFormat('pt-BR', {
@@ -170,7 +176,7 @@ async function loadHistory() {
   const payload = await api('/api/history?limit=800');
   for (const message of payload.messages) appendMessage(message, false);
   renderEmptyState();
-  requestAnimationFrame(() => scrollToBottom(true));
+  scrollToBottomAfterLayout();
 }
 
 function updateStatus(status) {

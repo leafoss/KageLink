@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 
+import '../controllers/game_controls_controller.dart';
 import '../controllers/session_controller.dart';
 import '../localization/l10n_helpers.dart';
 import '../localization/locale_controller.dart';
 import '../ui/theme/kage_colors.dart';
 import '../widgets/chakra_seal.dart';
 import '../widgets/language_selector.dart';
+import 'game_controls_settings_screen.dart';
 import 'input_calibration_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -13,10 +15,12 @@ class SettingsScreen extends StatelessWidget {
     super.key,
     required this.controller,
     required this.localeController,
+    required this.gameControlsController,
   });
 
   final SessionController controller;
   final LocaleController localeController;
+  final GameControlsController gameControlsController;
 
   @override
   Widget build(BuildContext context) {
@@ -64,6 +68,30 @@ class SettingsScreen extends StatelessWidget {
                 leading: const Icon(Icons.dark_mode_outlined, color: KageColors.chakraCyan),
                 title: Text(l10n.visualTheme),
                 subtitle: Text(l10n.chakraNight),
+              ),
+            ),
+            const SizedBox(height: 22),
+            _SectionTitle(
+              icon: Icons.sports_esports_rounded,
+              title: l10n.gameControlsTitle,
+            ),
+            _SettingsCard(
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(
+                  Icons.gamepad_outlined,
+                  color: KageColors.emberOrange,
+                ),
+                title: Text(l10n.gameControlsTitle),
+                subtitle: Text(l10n.gameControlsSettingsSubtitle),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => GameControlsSettingsScreen(
+                      controller: gameControlsController,
+                    ),
+                  ),
+                ),
               ),
             ),
             const SizedBox(height: 22),

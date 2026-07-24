@@ -1,14 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../models/server_profile.dart';
 import 'shinobi_api.dart';
 
-enum GameViewMode { full, zoom }
-
-enum GameStreamState {
+enum StatsStreamState {
   idle,
   connecting,
   live,
@@ -17,8 +16,8 @@ enum GameStreamState {
   error,
 }
 
-class GameConnection extends ChangeNotifier {
-  GameConnection(this.profile);
+class StatsConnection extends ChangeNotifier {
+  StatsConnection(this.profile);
 
   final ServerProfile profile;
 
@@ -26,60 +25,58 @@ class GameConnection extends ChangeNotifier {
   WebSocketChannel? _controlChannel;
   StreamSubscription<dynamic>? _streamSubscription;
   StreamSubscription<dynamic>? _controlSubscription;
-  Timer? _heartbeatTimer;
   Timer? _streamReconnectTimer;
   Timer? _controlReconnectTimer;
+  Timer? _heartbeatTimer;
   Timer? _fpsTimer;
 
   Uint8List? _frame;
-  GameViewMode _viewMode = GameViewMode.full;
-  GameStreamState _streamState = GameStreamState.idle;
-  String? _streamMessage;
+  StatsStreamState _streamState = StatsStreamState.idle;
+  String? _message;
   bool _active = false;
   bool _controlConnected = false;
   bool _controlActive = false;
-  bool _controlsHidden = false;
+  bool _openPending = false;
+  int _frameWidth = 0;
+  int _frameHeight = 0;
+  int? _windowId;
   int _fps = 0;
   int _framesThisSecond = 0;
   int? _latencyMs;
-  Set<String> _movement = <String>{};
-  final Map<String, String> _actions = <String, String>{};
-  Set<String> _lastSentPressed = <String>{};
-  bool _focusClickPending = false;
 
   Uint8List? get frame => _frame;
-  GameViewMode get viewMode => _viewMode;
-  GameStreamState get streamState => _streamState;
-  String? get streamMessage => _streamMessage;
+  StatsStreamState get streamState => _streamState;
+  String? get message => _message;
   bool get controlConnected => _controlConnected;
   bool get controlActive => _controlActive;
-  bool get controlsHidden => _controlsHidden;
+  int get frameWidth => _frameWidth;
+  int get frameHeight => _frameHeight;
   int get fps => _fps;
   int? get latencyMs => _latencyMs;
-  bool get isLive => _streamState == GameStreamState.live && _frame != null;
+  bool get isLive => _streamState == StatsStreamState.live && _frame != null;
 
-  Uri _webSocketUri(String path, [Map<String, String>? extraQuery]) {
+  Uri _webSocketUri(String path) {
     final base = ShinobiApi.normalizeAddress(profile.address);
     return base.replace(
       scheme: base.scheme == 'https' ? 'wss' : 'ws',
       path: path,
-      queryParameters: <String, String>{
-        'token': profile.token,
-        ...?extraQuery,
-      },
+      queryParameters: <String, String>{'token': profile.token},
     );
   }
 
   Future<void> setActive(bool value) async {
-    if (_active == value) return;
+    if (_active == value) {
+      if (value) requestOpen();
+      return;
+    }
     _active = value;
     if (value) {
-      _focusClickPending = true;
+      _openPending = true;
       _startFpsCounter();
-      _connectStream();
       _connectControl();
+      _connectStream();
     } else {
-      await releaseAndDisconnect();
+      await disconnect();
     }
   }
 
@@ -98,16 +95,12 @@ class GameConnection extends ChangeNotifier {
   void _connectStream() {
     if (!_active || _streamChannel != null) return;
     _streamReconnectTimer?.cancel();
-    _streamState = GameStreamState.connecting;
-    _streamMessage = null;
+    _streamState = StatsStreamState.connecting;
+    _message = null;
     notifyListeners();
-
     try {
       final channel = WebSocketChannel.connect(
-        _webSocketUri(
-          '/ws/game/stream',
-          <String, String>{'mode': _viewMode.name},
-        ),
+        _webSocketUri('/ws/stats/stream'),
       );
       _streamChannel = channel;
       _streamSubscription = channel.stream.listen(
@@ -126,8 +119,8 @@ class GameConnection extends ChangeNotifier {
     if (payload is List<int>) {
       _frame = Uint8List.fromList(payload);
       _framesThisSecond += 1;
-      _streamState = GameStreamState.live;
-      _streamMessage = null;
+      _streamState = StatsStreamState.live;
+      _message = null;
       notifyListeners();
       return;
     }
@@ -135,35 +128,46 @@ class GameConnection extends ChangeNotifier {
     try {
       final decoded = jsonDecode(payload.toString());
       if (decoded is! Map) return;
-      final message = Map<String, dynamic>.from(decoded);
-      if (message['type']?.toString() != 'stream_status') return;
-      switch (message['state']?.toString()) {
+      final packet = Map<String, dynamic>.from(decoded);
+      if (packet['type']?.toString() != 'stats_stream_status') return;
+      final width = int.tryParse(packet['output_width']?.toString() ?? '');
+      final windowId = int.tryParse(packet['window_hwnd']?.toString() ?? '');
+      final height = int.tryParse(packet['output_height']?.toString() ?? '');
+      final geometryChanged =
+          (width != null && width > 0 && width != _frameWidth) ||
+          (height != null && height > 0 && height != _frameHeight) ||
+          (windowId != null && windowId > 0 && windowId != _windowId);
+      if (geometryChanged) _frame = null;
+      if (width != null && width > 0) _frameWidth = width;
+      if (height != null && height > 0) _frameHeight = height;
+      if (windowId != null && windowId > 0) _windowId = windowId;
+      switch (packet['state']?.toString()) {
         case 'live':
-          _streamState = GameStreamState.live;
-          _streamMessage = null;
+          _streamState = StatsStreamState.live;
+          _message = null;
           break;
         case 'not_found':
-          _streamState = GameStreamState.notFound;
-          _streamMessage = message['message']?.toString();
+          _streamState = StatsStreamState.notFound;
+          _message = packet['message']?.toString();
           _frame = null;
-          _releaseLocalControls();
+          _windowId = null;
           break;
         case 'minimized':
-          _streamState = GameStreamState.minimized;
-          _streamMessage = message['message']?.toString();
+          _streamState = StatsStreamState.minimized;
+          _message = packet['message']?.toString();
           _frame = null;
-          _releaseLocalControls();
+          _windowId = null;
           break;
         default:
-          _streamState = GameStreamState.error;
-          _streamMessage = message['message']?.toString();
+          _streamState = StatsStreamState.error;
+          _message = packet['message']?.toString();
           _frame = null;
-          _releaseLocalControls();
+          _windowId = null;
           break;
       }
       notifyListeners();
     } catch (_) {
-      // Unknown stream packets do not interrupt the game session.
+      // Ignore future protocol packets without interrupting the session.
     }
   }
 
@@ -172,12 +176,12 @@ class GameConnection extends ChangeNotifier {
     _streamSubscription = null;
     _streamChannel = null;
     if (!_active) return;
-    _releaseLocalControls();
-    if (_streamState != GameStreamState.notFound &&
-        _streamState != GameStreamState.minimized) {
-      _streamState = GameStreamState.error;
-      _streamMessage = error?.toString();
+    if (_streamState != StatsStreamState.notFound &&
+        _streamState != StatsStreamState.minimized) {
+      _streamState = StatsStreamState.error;
+      _message = error?.toString();
       _frame = null;
+      _windowId = null;
       notifyListeners();
     }
     _streamReconnectTimer?.cancel();
@@ -192,7 +196,7 @@ class GameConnection extends ChangeNotifier {
     _controlReconnectTimer?.cancel();
     try {
       final channel = WebSocketChannel.connect(
-        _webSocketUri('/ws/game/control'),
+        _webSocketUri('/ws/stats/control'),
       );
       _controlChannel = channel;
       _controlSubscription = channel.stream.listen(
@@ -205,7 +209,7 @@ class GameConnection extends ChangeNotifier {
       _sendControl(<String, dynamic>{'type': 'active', 'value': true});
       _heartbeatTimer?.cancel();
       _heartbeatTimer = Timer.periodic(
-        const Duration(seconds: 1),
+        const Duration(seconds: 2),
         (_) => _sendHeartbeat(),
       );
       notifyListeners();
@@ -218,29 +222,42 @@ class GameConnection extends ChangeNotifier {
     try {
       final decoded = jsonDecode(payload.toString());
       if (decoded is! Map) return;
-      final message = Map<String, dynamic>.from(decoded);
-      switch (message['type']?.toString()) {
-        case 'control_status':
-          final state = message['state']?.toString();
+      final packet = Map<String, dynamic>.from(decoded);
+      switch (packet['type']?.toString()) {
+        case 'stats_control_status':
+          final state = packet['state']?.toString();
           _controlConnected = state != 'heartbeat_timeout';
           _controlActive = state == 'active';
-          if (_controlActive && _focusClickPending) {
-            _focusClickPending = false;
-            _sendControl(<String, dynamic>{'type': 'focus_click'});
+          if (_controlActive && _openPending) {
+            _openPending = false;
+            _sendControl(<String, dynamic>{'type': 'open_stats'});
+          }
+          break;
+        case 'stats_open_status':
+          final state = packet['state']?.toString();
+          if (state == 'error') {
+            _message = packet['message']?.toString();
+          } else {
+            _message = null;
+          }
+          break;
+        case 'stats_click_status':
+          if (packet['state']?.toString() == 'error') {
+            _message = packet['message']?.toString();
           }
           break;
         case 'pong':
-          final timestamp = double.tryParse(message['timestamp']?.toString() ?? '');
+          final timestamp =
+              double.tryParse(packet['timestamp']?.toString() ?? '');
           if (timestamp != null) {
-            _latencyMs = DateTime.now().millisecondsSinceEpoch - timestamp.round();
+            _latencyMs =
+                DateTime.now().millisecondsSinceEpoch - timestamp.round();
           }
           _controlConnected = true;
           break;
-        case 'control_error':
+        case 'stats_control_error':
           _controlActive = false;
-          _movement = <String>{};
-          _actions.clear();
-          _lastSentPressed = <String>{};
+          _message = packet['message']?.toString();
           break;
       }
       notifyListeners();
@@ -257,10 +274,8 @@ class GameConnection extends ChangeNotifier {
     _controlChannel = null;
     _controlConnected = false;
     _controlActive = false;
-    if (_active) _focusClickPending = true;
-    _movement = <String>{};
-    _actions.clear();
-    _lastSentPressed = <String>{};
+    if (_active) _openPending = true;
+    if (error != null) _message = error.toString();
     notifyListeners();
     if (!_active) return;
     _controlReconnectTimer?.cancel();
@@ -270,61 +285,32 @@ class GameConnection extends ChangeNotifier {
     );
   }
 
-  void _releaseLocalControls() {
-    final hadPressed = _movement.isNotEmpty || _actions.isNotEmpty;
-    _movement = <String>{};
-    _actions.clear();
-    if (hadPressed || _lastSentPressed.isNotEmpty) {
-      _sendPressedState(force: true);
-    }
-  }
-
-  void setMovement(Set<String> directions) {
-    final safe = directions
-        .where((key) => const {'up', 'down', 'left', 'right'}.contains(key))
-        .toSet();
-    if (setEquals(_movement, safe)) return;
-    _movement = safe;
-    _sendPressedState();
-  }
-
-  void setAction(String button, String key, bool pressed) {
-    final safeButton = button.trim().toUpperCase();
-    final safeKey = key.trim().toLowerCase();
-    if (!const {'A', 'B', 'C', 'D', 'Z', 'X', 'V', 'U'}
-        .contains(safeButton)) {
-      return;
-    }
-    if (safeKey.isEmpty) return;
-
-    var changed = false;
-    if (pressed) {
-      changed = _actions[safeButton] != safeKey;
-      _actions[safeButton] = safeKey;
+  void requestOpen() {
+    if (!_active) return;
+    _openPending = true;
+    if (_controlActive) {
+      _openPending = false;
+      _sendControl(<String, dynamic>{'type': 'open_stats'});
     } else {
-      changed = _actions.remove(safeButton) != null;
+      _connectControl();
     }
-    if (changed) _sendPressedState();
+    if (_streamChannel == null) _connectStream();
   }
 
-  void releaseActions() {
-    if (_actions.isEmpty) return;
-    _actions.clear();
-    _sendPressedState(force: true);
-  }
-
-  Set<String> _pressedKeys() => <String>{
-        ..._movement,
-        ..._actions.values,
-      };
-
-  void _sendPressedState({bool force = false}) {
-    final pressed = _pressedKeys();
-    if (!force && setEquals(pressed, _lastSentPressed)) return;
-    _lastSentPressed = Set<String>.from(pressed);
+  void sendClick({
+    required double x,
+    required double y,
+    required String button,
+  }) {
+    if (!_active || !_controlActive || _windowId == null) return;
+    if (x < 0 || x > 1 || y < 0 || y > 1) return;
+    if (button != 'left' && button != 'right') return;
     _sendControl(<String, dynamic>{
-      'type': 'keys',
-      'pressed': pressed.toList(growable: false),
+      'type': 'click',
+      'x': x,
+      'y': y,
+      'button': button,
+      'window_id': _windowId,
     });
   }
 
@@ -334,10 +320,8 @@ class GameConnection extends ChangeNotifier {
       _sendControl(<String, dynamic>{'type': 'active', 'value': true});
       return;
     }
-    final pressed = _pressedKeys();
     _sendControl(<String, dynamic>{
       'type': 'heartbeat',
-      'pressed': pressed.toList(growable: false),
       'timestamp': DateTime.now().millisecondsSinceEpoch,
     });
   }
@@ -350,44 +334,18 @@ class GameConnection extends ChangeNotifier {
     }
   }
 
-  Future<void> setViewMode(GameViewMode mode) async {
-    if (_viewMode == mode) return;
-    _viewMode = mode;
-    if (!_active) {
-      notifyListeners();
-      return;
-    }
-    await _closeStream();
-    _frame = null;
-    _connectStream();
-    notifyListeners();
-  }
-
-  void toggleControls() {
-    _controlsHidden = !_controlsHidden;
-    if (_controlsHidden) {
-      _movement = <String>{};
-      _actions.clear();
-      _sendPressedState(force: true);
-    }
-    notifyListeners();
-  }
-
-  Future<void> releaseAndDisconnect() async {
+  Future<void> disconnect() async {
     _active = false;
-    _focusClickPending = false;
+    _openPending = false;
     _streamReconnectTimer?.cancel();
     _controlReconnectTimer?.cancel();
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
-
-    _movement = <String>{};
-    _actions.clear();
-    _lastSentPressed = <String>{};
-    _sendControl(<String, dynamic>{'type': 'keys', 'pressed': <String>[]});
     _sendControl(<String, dynamic>{'type': 'active', 'value': false});
-
-    await _closeStream();
+    await _streamSubscription?.cancel();
+    _streamSubscription = null;
+    await _streamChannel?.sink.close();
+    _streamChannel = null;
     await _controlSubscription?.cancel();
     _controlSubscription = null;
     await _controlChannel?.sink.close();
@@ -397,23 +355,18 @@ class GameConnection extends ChangeNotifier {
     _latencyMs = null;
     _fps = 0;
     _framesThisSecond = 0;
-    _streamState = GameStreamState.idle;
+    _streamState = StatsStreamState.idle;
+    _message = null;
+    _frame = null;
+    _frameWidth = 0;
+    _frameHeight = 0;
+    _windowId = null;
     notifyListeners();
-  }
-
-  Future<void> _closeStream() async {
-    await _streamSubscription?.cancel();
-    _streamSubscription = null;
-    await _streamChannel?.sink.close();
-    _streamChannel = null;
   }
 
   @override
   void dispose() {
     _active = false;
-    _movement = <String>{};
-    _actions.clear();
-    _sendControl(<String, dynamic>{'type': 'keys', 'pressed': <String>[]});
     _sendControl(<String, dynamic>{'type': 'active', 'value': false});
     _fpsTimer?.cancel();
     _heartbeatTimer?.cancel();

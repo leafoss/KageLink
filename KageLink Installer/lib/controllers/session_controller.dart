@@ -132,7 +132,24 @@ class SessionController extends ChangeNotifier {
     }
   }
 
-  Future<void> sendMessage(String rawMessage, ChatChannel channel) async {
+  Future<void> sendOocMessage(String rawMessage) {
+    return _sendChannelMessage(rawMessage, ChatChannel.ooc);
+  }
+
+  Future<void> sendIcMessage(String rawMessage) {
+    return _sendChannelMessage(rawMessage, ChatChannel.ic);
+  }
+
+  Future<void> sendMessage(String rawMessage, ChatChannel channel) {
+    return channel == ChatChannel.ic
+        ? sendIcMessage(rawMessage)
+        : sendOocMessage(rawMessage);
+  }
+
+  Future<void> _sendChannelMessage(
+    String rawMessage,
+    ChatChannel channel,
+  ) async {
     final message = rawMessage.trim();
     if (message.isEmpty || _sending) return;
 
@@ -140,7 +157,13 @@ class SessionController extends ChangeNotifier {
     _errorMessage = null;
     notifyListeners();
     try {
-      final sent = await _requireApi().sendMessage(message, channel);
+      final api = _requireApi();
+      final sent = channel == ChatChannel.ic
+          ? await api.sendIcMessage(message)
+          : await api.sendOocMessage(message);
+      if (sent.channel != channel) {
+        throw const ShinobiApiException('O servidor confirmou o canal incorreto.');
+      }
       _messagesById[sent.id] = sent;
       notifyListeners();
     } catch (error) {

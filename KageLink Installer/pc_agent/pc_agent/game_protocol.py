@@ -4,7 +4,29 @@ from dataclasses import dataclass
 from typing import Any, Iterable
 
 GAME_WINDOW_TITLE = "Shinobi Story Online"
-ALLOWED_KEYS = frozenset({"up", "down", "left", "right", "e", "space", "g", "v"})
+MOVEMENT_KEYS = frozenset({"up", "down", "left", "right"})
+ACTION_KEYS = frozenset(
+    {
+        *(chr(code) for code in range(ord("a"), ord("z") + 1)),
+        *(str(number) for number in range(10)),
+        "space",
+        "enter",
+        "escape",
+        "tab",
+        "shift",
+        "ctrl",
+        "alt",
+        "backspace",
+        "insert",
+        "delete",
+        "home",
+        "end",
+        "pageup",
+        "pagedown",
+        *(f"f{number}" for number in range(1, 13)),
+    }
+)
+ALLOWED_KEYS = frozenset(MOVEMENT_KEYS | ACTION_KEYS)
 VIEW_MODES = frozenset({"full", "zoom"})
 
 

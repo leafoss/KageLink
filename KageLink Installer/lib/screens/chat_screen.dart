@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../controllers/game_controls_controller.dart';
 import '../controllers/session_controller.dart';
 import '../localization/l10n_helpers.dart';
 import '../localization/locale_controller.dart';
@@ -17,6 +18,7 @@ import '../widgets/status_badge.dart';
 import 'game_screen.dart';
 import 'input_calibration_screen.dart';
 import 'settings_screen.dart';
+import 'stats_screen.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({
@@ -35,6 +37,7 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
+  late final GameControlsController _gameControlsController;
   final Map<ChatChannel, TextEditingController> _messageControllers = {
     ChatChannel.ooc: TextEditingController(),
     ChatChannel.ic: TextEditingController(),
@@ -62,7 +65,8 @@ class _ChatScreenState extends State<ChatScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _gameControlsController = GameControlsController();
+    _tabController = TabController(length: 4, vsync: this);
     _tabController.addListener(_onTabChanged);
     widget.controller.addListener(_onControllerChanged);
 
@@ -85,6 +89,7 @@ class _ChatScreenState extends State<ChatScreen>
     widget.controller.removeListener(_onControllerChanged);
     _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
+    _gameControlsController.dispose();
     for (final controller in _messageControllers.values) {
       controller.dispose();
     }
@@ -112,52 +117,69 @@ class _ChatScreenState extends State<ChatScreen>
 
   void _onTabChanged() {
     final index = _tabController.index;
-    if (index == _activeTabIndex) return;
-    final leavingGame = _activeTabIndex == 2;
-    final enteringGame = index == 2;
+    final indexChanged = index != _activeTabIndex;
 
-    setState(() {
-      _activeTabIndex = index;
-      if (!enteringGame) {
-        _activeChannel = ChatChannel.values[index];
-        _unreadBelow[_activeChannel] = 0;
+    if (indexChanged) {
+      final leavingRemote = _activeTabIndex >= 2;
+      final enteringRemote = index >= 2;
+
+      setState(() {
+        _activeTabIndex = index;
+        if (!enteringRemote) {
+          _activeChannel = ChatChannel.values[index];
+          _unreadBelow[_activeChannel] = 0;
+        }
+      });
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!enteringRemote && (_nearBottom[_activeChannel] ?? true)) {
+          _scrollToBottom(_activeChannel);
+        }
+      });
+
+      if (leavingRemote && !enteringRemote) {
+        FocusManager.instance.primaryFocus?.unfocus();
+        unawaited(_refreshHistory());
       }
-    });
-
-    if (enteringGame) {
-      SystemChrome.setPreferredOrientations(const [
-        DeviceOrientation.landscapeLeft,
-        DeviceOrientation.landscapeRight,
-      ]);
-    } else {
-      SystemChrome.setPreferredOrientations(const [
-        DeviceOrientation.portraitUp,
-      ]);
     }
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!enteringGame && (_nearBottom[_activeChannel] ?? true)) {
-        _scrollToBottom(_activeChannel);
-      }
-    });
+    // Do not rotate the viewport while TabBarView is still animating between
+    // pages. In 3.4.1 the STATS -> GAME transition changed orientation during
+    // the 3 -> 2 page animation, which could desynchronize the PageView from
+    // the TabController and leave the IC page visible until a second tap.
+    if (!_tabController.indexIsChanging) {
+      _applyOrientationForTab(index);
+    }
+  }
 
-    if (leavingGame && !enteringGame) {
-      FocusManager.instance.primaryFocus?.unfocus();
-      unawaited(_refreshHistory());
+  void _applyOrientationForTab(int index) {
+    if (index == 2) {
+      unawaited(
+        SystemChrome.setPreferredOrientations(const [
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ]),
+      );
+    } else {
+      unawaited(
+        SystemChrome.setPreferredOrientations(const [
+          DeviceOrientation.portraitUp,
+        ]),
+      );
     }
   }
 
   void _onScroll(ChatChannel channel) {
     final scrollController = _scrollControllers[channel]!;
     if (!scrollController.hasClients) return;
-    final remaining = scrollController.position.maxScrollExtent -
-        scrollController.position.pixels;
-    final near = remaining < 88;
+    final distanceFromLatest = scrollController.position.pixels -
+        scrollController.position.minScrollExtent;
+    final near = distanceFromLatest < 88;
     if (near != _nearBottom[channel] ||
         (near && (_unreadBelow[channel] ?? 0) > 0)) {
       setState(() {
         _nearBottom[channel] = near;
-        if (near && _activeTabIndex != 2 && channel == _activeChannel) {
+        if (near && _activeTabIndex < 2 && channel == _activeChannel) {
           _unreadBelow[channel] = 0;
         }
       });
@@ -182,7 +204,7 @@ class _ChatScreenState extends State<ChatScreen>
       _lastMessageCounts[channel] = count;
       messagesChanged = true;
 
-      final isActive = _activeTabIndex != 2 && channel == _activeChannel;
+      final isActive = _activeTabIndex < 2 && channel == _activeChannel;
       if (isActive && (_nearBottom[channel] ?? true)) {
         WidgetsBinding.instance.addPostFrameCallback(
           (_) => _scrollToBottom(channel, animate: true),
@@ -200,7 +222,7 @@ class _ChatScreenState extends State<ChatScreen>
   void _scrollToBottom(ChatChannel channel, {bool animate = false}) {
     final scrollController = _scrollControllers[channel]!;
     if (!scrollController.hasClients) return;
-    final target = scrollController.position.maxScrollExtent;
+    final target = scrollController.position.minScrollExtent;
     if (animate) {
       scrollController.animateTo(
         target,
@@ -233,7 +255,11 @@ class _ChatScreenState extends State<ChatScreen>
     }
 
     try {
-      await widget.controller.sendMessage(message, channel);
+      if (channel == ChatChannel.ic) {
+        await widget.controller.sendIcMessage(message);
+      } else {
+        await widget.controller.sendOocMessage(message);
+      }
       messageController.clear();
       if (!mounted) return;
       FocusScope.of(context).unfocus();
@@ -280,6 +306,7 @@ class _ChatScreenState extends State<ChatScreen>
             builder: (_) => SettingsScreen(
               controller: widget.controller,
               localeController: widget.localeController,
+              gameControlsController: _gameControlsController,
             ),
           ),
         );
@@ -298,6 +325,8 @@ class _ChatScreenState extends State<ChatScreen>
     final status = controller.status;
     final reconnecting = controller.phase == ConnectionPhase.reconnecting;
     final gameSelected = _activeTabIndex == 2;
+    final statsSelected = _activeTabIndex == 3;
+    final remoteSelected = gameSelected || statsSelected;
 
     final pages = <Widget>[
       _buildChannelView(ChatChannel.ooc),
@@ -305,6 +334,11 @@ class _ChatScreenState extends State<ChatScreen>
       GameScreen(
         profile: profile,
         selected: gameSelected,
+        controlsController: _gameControlsController,
+      ),
+      StatsScreen(
+        profile: profile,
+        selected: statsSelected,
       ),
     ];
 
@@ -315,7 +349,7 @@ class _ChatScreenState extends State<ChatScreen>
           bottom: false,
           child: Column(
             children: [
-              if (gameSelected)
+              if (remoteSelected)
                 _GameNavigationBar(
                   profileName: profile.name,
                   connected: controller.isConnected,
@@ -323,6 +357,7 @@ class _ChatScreenState extends State<ChatScreen>
                   controller: _tabController,
                   unreadOoc: _unreadBelow[ChatChannel.ooc] ?? 0,
                   unreadIc: _unreadBelow[ChatChannel.ic] ?? 0,
+                  compact: MediaQuery.orientationOf(context) == Orientation.portrait,
                   onMenu: _handleMenu,
                 )
               else ...[
@@ -373,7 +408,7 @@ class _ChatScreenState extends State<ChatScreen>
                   children: pages,
                 ),
               ),
-              if (!gameSelected) ...[
+              if (!remoteSelected) ...[
                 _ActiveChannelStrip(channel: _activeChannel),
                 ChatComposer(
                   controller: _messageControllers[_activeChannel]!,
@@ -407,11 +442,13 @@ class _ChatScreenState extends State<ChatScreen>
         else
           ListView.builder(
             controller: _scrollControllers[channel],
+            reverse: true,
             keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             padding: const EdgeInsets.fromLTRB(14, 16, 14, 74),
             itemCount: messages.length,
-            itemBuilder: (context, index) =>
-                ChatMessageTile(message: messages[index]),
+            itemBuilder: (context, index) => ChatMessageTile(
+              message: messages[messages.length - 1 - index],
+            ),
           ),
         Positioned(
           right: 16,
@@ -439,6 +476,7 @@ class _GameNavigationBar extends StatelessWidget {
     required this.controller,
     required this.unreadOoc,
     required this.unreadIc,
+    required this.compact,
     required this.onMenu,
   });
 
@@ -448,32 +486,38 @@ class _GameNavigationBar extends StatelessWidget {
   final TabController controller;
   final int unreadOoc;
   final int unreadIc;
+  final bool compact;
   final ValueChanged<String> onMenu;
 
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final navigationHeight = compact ? 44.0 : 48.0;
+    final tabHeight = compact ? 42.0 : 46.0;
     return Container(
-      height: 48,
+      height: navigationHeight,
       color: KageColors.charcoal.withValues(alpha: 0.98),
       child: Row(
         children: [
-          const SizedBox(width: 10),
-          const ChakraSeal(size: 31),
-          const SizedBox(width: 8),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 150),
-            child: Text(
-              profileName,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w900,
+          if (!compact) ...[
+            const SizedBox(width: 10),
+            const ChakraSeal(size: 31),
+            const SizedBox(width: 8),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 150),
+              child: Text(
+                profileName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w900,
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 8),
+            const SizedBox(width: 8),
+          ] else
+            const SizedBox(width: 4),
           Container(
             width: 8,
             height: 8,
@@ -486,7 +530,7 @@ class _GameNavigationBar extends StatelessWidget {
                       : KageColors.danger,
             ),
           ),
-          const SizedBox(width: 8),
+          SizedBox(width: compact ? 4 : 8),
           Expanded(
             child: TabBar(
               controller: controller,
@@ -496,9 +540,26 @@ class _GameNavigationBar extends StatelessWidget {
               unselectedLabelColor: KageColors.textMuted,
               labelPadding: const EdgeInsets.symmetric(horizontal: 8),
               tabs: [
-                _ChannelTab(label: l10n.chatOoc, unread: unreadOoc, height: 46),
-                _ChannelTab(label: l10n.chatIc, unread: unreadIc, height: 46),
-                const _ChannelTab(label: 'GAME', unread: 0, height: 46),
+                _ChannelTab(
+                  label: l10n.chatOoc,
+                  unread: unreadOoc,
+                  height: tabHeight,
+                ),
+                _ChannelTab(
+                  label: l10n.chatIc,
+                  unread: unreadIc,
+                  height: tabHeight,
+                ),
+                _ChannelTab(
+                  label: 'GAME',
+                  unread: 0,
+                  height: tabHeight,
+                ),
+                _ChannelTab(
+                  label: l10n.statsTab,
+                  unread: 0,
+                  height: tabHeight,
+                ),
               ],
             ),
           ),
@@ -561,6 +622,7 @@ class _ChannelTabs extends StatelessWidget {
           _ChannelTab(label: l10n.chatOoc, unread: unreadOoc),
           _ChannelTab(label: l10n.chatIc, unread: unreadIc),
           const _ChannelTab(label: 'GAME', unread: 0),
+          _ChannelTab(label: l10n.statsTab, unread: 0),
         ],
       ),
     );
@@ -585,7 +647,15 @@ class _ChannelTab extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text(label, style: const TextStyle(fontWeight: FontWeight.w900)),
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                label,
+                style: const TextStyle(fontWeight: FontWeight.w900),
+              ),
+            ),
+          ),
           if (unread > 0) ...[
             const SizedBox(width: 7),
             Container(

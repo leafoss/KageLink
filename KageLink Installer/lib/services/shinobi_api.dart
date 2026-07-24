@@ -82,23 +82,54 @@ class ShinobiApi {
         .toList(growable: false);
   }
 
-  Future<ChatMessage> sendMessage(String message, ChatChannel channel) async {
+  Future<ChatMessage> sendOocMessage(String message) {
+    return _sendChannelMessage(
+      message: message,
+      channel: ChatChannel.ooc,
+      path: '/api/send/ooc',
+    );
+  }
+
+  Future<ChatMessage> sendIcMessage(String message) {
+    return _sendChannelMessage(
+      message: message,
+      channel: ChatChannel.ic,
+      path: '/api/send/ic',
+    );
+  }
+
+  Future<ChatMessage> sendMessage(String message, ChatChannel channel) {
+    return channel == ChatChannel.ic
+        ? sendIcMessage(message)
+        : sendOocMessage(message);
+  }
+
+  Future<ChatMessage> _sendChannelMessage({
+    required String message,
+    required ChatChannel channel,
+    required String path,
+  }) async {
     final response = await http
         .post(
-          endpoint('/api/send'),
+          endpoint(path),
           headers: _headers,
-          body: jsonEncode({
-            'message': message,
-            'channel': channel.apiValue,
-          }),
+          body: jsonEncode({'message': message}),
         )
         .timeout(const Duration(seconds: 15));
     final json = _decodeObject(response, fallback: 'Falha ao enviar a mensagem.');
+    final returnedChannel = json['channel']?.toString().toLowerCase();
+    if (returnedChannel != channel.apiValue) {
+      throw const ShinobiApiException('O servidor confirmou o canal incorreto.');
+    }
     final rawMessage = json['message'];
     if (rawMessage is! Map) {
       throw const ShinobiApiException('O servidor não confirmou a mensagem enviada.');
     }
-    return ChatMessage.fromJson(Map<String, dynamic>.from(rawMessage));
+    final parsed = ChatMessage.fromJson(Map<String, dynamic>.from(rawMessage));
+    if (parsed.channel != channel) {
+      throw const ShinobiApiException('A mensagem retornou no canal incorreto.');
+    }
+    return parsed;
   }
 
   Future<InputCandidateResult> fetchInputCandidates() async {

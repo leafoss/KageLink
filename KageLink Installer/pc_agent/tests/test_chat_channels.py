@@ -29,36 +29,52 @@ class ChatChannelParserTests(unittest.TestCase):
             [("ooc", "OOC Rafael: hello")],
         )
 
-    def test_exact_says_marker_is_ic(self) -> None:
-        parser = ChatChannelParser()
-        result = parser.feed("Uchiha, Leafos Says: Hello")
-        self.assertEqual(
-            [(item.channel, item.text) for item in result],
-            [("ic", "Uchiha, Leafos Says: Hello")],
-        )
-
-    def test_exact_says_marker_with_markdown_speaker_is_ic(self) -> None:
-        parser = ChatChannelParser()
-        result = parser.feed("**Anbu** Says: test")
-        self.assertEqual(
-            [(item.channel, item.text) for item in result],
-            [("ic", "**Anbu** Says: test")],
-        )
-
-    def test_lowercase_says_marker_remains_ooc(self) -> None:
-        parser = ChatChannelParser()
-        result = parser.feed("**Anbu** says: test")
-        self.assertEqual(
-            [(item.channel, item.text) for item in result],
-            [("ooc", "**Anbu** says: test")],
-        )
-
     def test_ic_simple(self) -> None:
         parser = ChatChannelParser()
         result = parser.feed("(*Uchiha, Leafos nods.*)")
         self.assertEqual(
             [(item.channel, item.text) for item in result],
             [("ic", "(*Uchiha, Leafos nods.*)")],
+        )
+
+    def test_literal_says_marker_classifies_as_ic(self) -> None:
+        cases = [
+            "Leafos says: Hello",
+            "Uchiha, Leafos says: We should move.",
+            "Tekuza says: Making sure none of you die..",
+            "Uchiha, Akuma says: Wait!",
+        ]
+        for text in cases:
+            with self.subTest(text=text):
+                result = ChatChannelParser().feed(text)
+                self.assertEqual(
+                    [(item.channel, item.text) for item in result],
+                    [("ic", text)],
+                )
+
+    def test_says_marker_is_literal_and_case_sensitive(self) -> None:
+        cases = [
+            "Leafos Says: Hello",
+            "Leafos SAYS: Hello",
+            "Leafos said: Hello",
+            "Leafos says Hello",
+            "Server Information: Test",
+        ]
+        for text in cases:
+            with self.subTest(text=text):
+                result = ChatChannelParser().feed(text)
+                self.assertEqual(
+                    [(item.channel, item.text) for item in result],
+                    [("ooc", text)],
+                )
+
+    def test_says_fragmented_multiline_is_one_logical_ic_block(self) -> None:
+        parser = ChatChannelParser()
+        self.assertEqual(parser.feed("Uchiha, Leafos says:"), [])
+        result = parser.feed("\nWe should move before nightfall.")
+        self.assertEqual(
+            [(item.channel, item.text) for item in result],
+            [("ic", "Uchiha, Leafos says:\nWe should move before nightfall.")],
         )
 
     def test_ic_multiline_is_one_message(self) -> None:
@@ -89,22 +105,6 @@ class ChatChannelParserTests(unittest.TestCase):
                 ("ooc", "Server Information: Test"),
                 ("ic", "(*Leafos looks around.*)"),
                 ("ooc", "OOC Rafael: test"),
-            ],
-        )
-
-    def test_mixed_plain_says_and_ooc_content(self) -> None:
-        parser = ChatChannelParser()
-        result = parser.feed(
-            "Server Information: Test\n"
-            "**Anbu** Says: ???\n"
-            "**Anbu** says: lowercase"
-        )
-        self.assertEqual(
-            [(item.channel, item.text) for item in result],
-            [
-                ("ooc", "Server Information: Test"),
-                ("ic", "**Anbu** Says: ???"),
-                ("ooc", "**Anbu** says: lowercase"),
             ],
         )
 
@@ -262,6 +262,63 @@ class ConfigMigrationTests(unittest.TestCase):
             self.assertEqual(raw["input_controls"]["ooc"]["preferred_width"], 777)
             self.assertEqual(raw["input_controls"]["ooc"]["preferred_height"], 44)
             self.assertEqual(raw["input_controls"]["ic"]["candidate_index"], 2)
+
+    def test_legacy_400_character_limit_is_upgraded(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config_path = root / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "access_token": "x" * 32,
+                        "max_message_length": 400,
+                        "server": {"host": "0.0.0.0", "port": 8765},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch.object(config_module, "PROJECT_DIR", root), patch.object(
+                config_module, "CONFIG_PATH", config_path
+            ):
+                raw = config_module.ensure_config()
+
+            self.assertEqual(
+                raw["max_message_length"],
+                config_module.DEFAULT_MAX_MESSAGE_LENGTH,
+            )
+
+    def test_leafos_defaults_and_raw_path_migration(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config_path = root / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "access_token": "x" * 32,
+                        "server": {"host": "0.0.0.0", "port": 8765},
+                        "leafos": {
+                            "enabled": True,
+                            "vault_path": str(root / "LeafOS-Vault"),
+                            "export_ic": True,
+                            "export_ooc": False,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch.object(config_module, "PROJECT_DIR", root), patch.object(
+                config_module, "CONFIG_PATH", config_path
+            ):
+                raw = config_module.ensure_config()
+
+            self.assertTrue(raw["leafos"]["enabled"])
+            self.assertTrue(raw["leafos"]["export_ic"])
+            self.assertFalse(raw["leafos"]["export_ooc"])
+            self.assertEqual(
+                Path(raw["leafos"]["raw_output_path"]),
+                root / "LeafOS-Vault" / "90 - KageAgent" / "Raw",
+            )
+
 
 
 if __name__ == "__main__":

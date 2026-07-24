@@ -39,10 +39,12 @@ class ChatChannelParserTests(unittest.TestCase):
 
     def test_literal_says_marker_classifies_as_ic(self) -> None:
         cases = [
-            "Leafos says: Hello",
-            "Uchiha, Leafos says: We should move.",
-            "Tekuza says: Making sure none of you die..",
-            "Uchiha, Akuma says: Wait!",
+            "Leafos Says: Hello",
+            "Uchiha, Leafos Says: We should move.",
+            "Tekuza Says: Making sure none of you die..",
+            "Uchiha, Akuma Says: Wait!",
+            "**Anbu** Says: test",
+            "**Anbu** Says: ???",
         ]
         for text in cases:
             with self.subTest(text=text):
@@ -54,10 +56,11 @@ class ChatChannelParserTests(unittest.TestCase):
 
     def test_says_marker_is_literal_and_case_sensitive(self) -> None:
         cases = [
-            "Leafos Says: Hello",
+            "Leafos says: Hello",
             "Leafos SAYS: Hello",
+            "Leafos sAyS: Hello",
             "Leafos said: Hello",
-            "Leafos says Hello",
+            "Leafos Says Hello",
             "Server Information: Test",
         ]
         for text in cases:
@@ -70,11 +73,11 @@ class ChatChannelParserTests(unittest.TestCase):
 
     def test_says_fragmented_multiline_is_one_logical_ic_block(self) -> None:
         parser = ChatChannelParser()
-        self.assertEqual(parser.feed("Uchiha, Leafos says:"), [])
+        self.assertEqual(parser.feed("Uchiha, Leafos Says:"), [])
         result = parser.feed("\nWe should move before nightfall.")
         self.assertEqual(
             [(item.channel, item.text) for item in result],
-            [("ic", "Uchiha, Leafos says:\nWe should move before nightfall.")],
+            [("ic", "Uchiha, Leafos Says:\nWe should move before nightfall.")],
         )
 
     def test_ic_multiline_is_one_message(self) -> None:
@@ -97,6 +100,8 @@ class ChatChannelParserTests(unittest.TestCase):
         result = parser.feed(
             "Server Information: Test\n"
             "(*Leafos looks around.*)\n"
+            "**Anbu** Says: test\n"
+            "**Anbu** says: lowercase stays OOC\n"
             "OOC Rafael: test"
         )
         self.assertEqual(
@@ -104,6 +109,8 @@ class ChatChannelParserTests(unittest.TestCase):
             [
                 ("ooc", "Server Information: Test"),
                 ("ic", "(*Leafos looks around.*)"),
+                ("ic", "**Anbu** Says: test"),
+                ("ooc", "**Anbu** says: lowercase stays OOC"),
                 ("ooc", "OOC Rafael: test"),
             ],
         )
@@ -318,7 +325,6 @@ class ConfigMigrationTests(unittest.TestCase):
                 Path(raw["leafos"]["raw_output_path"]),
                 root / "LeafOS-Vault" / "90 - KageAgent" / "Raw",
             )
-
 
 
 if __name__ == "__main__":

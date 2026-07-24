@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextlib import closing
+
 import json
 import sqlite3
 import tempfile
@@ -175,7 +177,7 @@ class LeafOSProcessorTests(unittest.TestCase):
             vault, raw, history, exporter = self._setup(root)
             row = history.add("incoming", "Leafos Says: Hold.", channel="ic")
             start = datetime(2026, 7, 24, 20, 0, tzinfo=timezone.utc)
-            with sqlite3.connect(root / "history.db") as connection:
+            with closing(sqlite3.connect(root / "history.db")) as connection:
                 connection.execute("UPDATE messages SET timestamp = ? WHERE id = ?", (start.isoformat(), row["id"]))
                 connection.commit()
             exporter.sync(history)
@@ -197,7 +199,7 @@ class LeafOSProcessorTests(unittest.TestCase):
             first = history.add("incoming", "Leafos Says: One", channel="ic")
             second = history.add("incoming", "Urahara Says: Two", channel="ic")
             start = datetime(2026, 7, 24, 20, 0, tzinfo=timezone.utc)
-            with sqlite3.connect(root / "history.db") as connection:
+            with closing(sqlite3.connect(root / "history.db")) as connection:
                 connection.execute("UPDATE messages SET timestamp = ? WHERE id = ?", (start.isoformat(), first["id"]))
                 connection.execute("UPDATE messages SET timestamp = ? WHERE id = ?", ((start + timedelta(minutes=16)).isoformat(), second["id"]))
                 connection.commit()

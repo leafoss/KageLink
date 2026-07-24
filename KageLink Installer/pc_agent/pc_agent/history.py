@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,7 +23,7 @@ class HistoryStore:
         return connection
 
     def _initialize(self) -> None:
-        with self._connect() as connection:
+        with closing(self._connect()) as connection, connection:
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS messages (
@@ -81,7 +82,7 @@ class HistoryStore:
     ) -> dict:
         timestamp = datetime.now(timezone.utc).isoformat()
         safe_channel = self._channel(channel)
-        with self._lock, self._connect() as connection:
+        with self._lock, closing(self._connect()) as connection, connection:
             cursor = connection.execute(
                 """
                 INSERT INTO messages(timestamp, direction, channel, text, resynchronized)
@@ -102,7 +103,7 @@ class HistoryStore:
         }
 
     def monitor_state(self) -> tuple[str | None, str]:
-        with self._lock, self._connect() as connection:
+        with self._lock, closing(self._connect()) as connection, connection:
             rows = connection.execute(
                 """
                 SELECT key, value
@@ -114,7 +115,7 @@ class HistoryStore:
         return values.get("chat_snapshot"), values.get("channel_parser_pending", "")
 
     def save_monitor_state(self, snapshot: str, pending_text: str) -> None:
-        with self._lock, self._connect() as connection:
+        with self._lock, closing(self._connect()) as connection, connection:
             connection.executemany(
                 """
                 INSERT INTO runtime_state(key, value)
@@ -130,7 +131,7 @@ class HistoryStore:
 
 
     def get_runtime_state(self, key: str, default: str = "") -> str:
-        with self._lock, self._connect() as connection:
+        with self._lock, closing(self._connect()) as connection, connection:
             row = connection.execute(
                 "SELECT value FROM runtime_state WHERE key = ?",
                 (str(key),),
@@ -138,7 +139,7 @@ class HistoryStore:
         return str(row["value"]) if row is not None else str(default)
 
     def set_runtime_state(self, key: str, value: str) -> None:
-        with self._lock, self._connect() as connection:
+        with self._lock, closing(self._connect()) as connection, connection:
             connection.execute(
                 """
                 INSERT INTO runtime_state(key, value)
@@ -152,7 +153,7 @@ class HistoryStore:
     def incoming_after_id(self, after_id: int, limit: int = 2000) -> list[dict]:
         safe_after_id = max(0, int(after_id))
         safe_limit = max(1, min(int(limit), 5000))
-        with self._lock, self._connect() as connection:
+        with self._lock, closing(self._connect()) as connection, connection:
             rows = connection.execute(
                 """
                 SELECT id, timestamp, direction, channel, text, resynchronized
@@ -177,7 +178,7 @@ class HistoryStore:
 
     def recent_incoming_records(self, limit: int = 500) -> list[tuple[str, str]]:
         safe_limit = max(1, min(int(limit), 2000))
-        with self._lock, self._connect() as connection:
+        with self._lock, closing(self._connect()) as connection, connection:
             rows = connection.execute(
                 """
                 SELECT channel, text
@@ -195,7 +196,7 @@ class HistoryStore:
 
     def recent_incoming_texts(self, limit: int = 800) -> list[str]:
         safe_limit = max(1, min(int(limit), 2000))
-        with self._lock, self._connect() as connection:
+        with self._lock, closing(self._connect()) as connection, connection:
             rows = connection.execute(
                 """
                 SELECT text
@@ -210,7 +211,7 @@ class HistoryStore:
 
     def recent(self, limit: int = 500) -> list[dict]:
         safe_limit = max(1, min(int(limit), 2000))
-        with self._lock, self._connect() as connection:
+        with self._lock, closing(self._connect()) as connection, connection:
             rows = connection.execute(
                 """
                 SELECT id, timestamp, direction, channel, text, resynchronized

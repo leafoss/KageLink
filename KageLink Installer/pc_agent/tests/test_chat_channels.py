@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextlib import closing
+
 import json
 import sqlite3
 import tempfile
@@ -204,7 +206,7 @@ class HistoryMigrationTests(unittest.TestCase):
     def test_legacy_database_adds_channel_without_losing_rows(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             database = Path(temp_dir) / "history.db"
-            with sqlite3.connect(database) as connection:
+            with closing(sqlite3.connect(database)) as connection:
                 connection.execute(
                     """
                     CREATE TABLE messages (

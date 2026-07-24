@@ -14,6 +14,7 @@ from pc_agent.leafos import (
     LeafOSProcessor,
     LeafOSRawExporter,
     RawRecordReader,
+    extract_speaker,
 )
 
 
@@ -25,51 +26,57 @@ class LeafOSRawExporterTests(unittest.TestCase):
         history = HistoryStore(root / "history.db")
         return vault, raw, history
 
+    def test_speaker_extraction_uses_exact_says_marker(self) -> None:
+        self.assertEqual(extract_speaker("**Anbu** Says: test"), "**Anbu**")
+        self.assertEqual(extract_speaker("Uchiha, Leafos Says: Move."), "Uchiha, Leafos")
+        self.assertIsNone(extract_speaker("Leafos says: lowercase is not canonical"))
+        self.assertIsNone(extract_speaker("Leafos SAYS: uppercase is not canonical"))
+
     def test_first_ic_creates_file_second_appends_and_preserves_old_content(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             _, raw, history = self._paths(root)
-            first = history.add("incoming", "Leafos says: First", channel="ic")
+            first = history.add("incoming", "Leafos Says: First", channel="ic")
             exporter = LeafOSRawExporter(raw)
             self.assertEqual(exporter.sync(history)["ic"], 1)
             raw_file = next((raw / "IC").glob("*.md"))
             first_content = raw_file.read_text(encoding="utf-8")
-            self.assertIn("Leafos says: First", first_content)
+            self.assertIn("Leafos Says: First", first_content)
             self.assertIn(f'"id":{first["id"]}', first_content)
 
-            second = history.add("incoming", "Leafos says: Second", channel="ic")
+            second = history.add("incoming", "Leafos Says: Second", channel="ic")
             self.assertEqual(exporter.sync(history)["ic"], 1)
             content = raw_file.read_text(encoding="utf-8")
-            self.assertIn("Leafos says: First", content)
-            self.assertIn("Leafos says: Second", content)
+            self.assertIn("Leafos Says: First", content)
+            self.assertIn("Leafos Says: Second", content)
             self.assertIn(f'"id":{second["id"]}', content)
 
     def test_restart_does_not_duplicate(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             _, raw, history = self._paths(root)
-            history.add("incoming", "Leafos says: Once", channel="ic")
+            history.add("incoming", "Leafos Says: Once", channel="ic")
             LeafOSRawExporter(raw).sync(history)
             LeafOSRawExporter(raw).sync(HistoryStore(root / "history.db"))
             raw_file = next((raw / "IC").glob("*.md"))
-            self.assertEqual(raw_file.read_text(encoding="utf-8").count("Leafos says: Once"), 1)
+            self.assertEqual(raw_file.read_text(encoding="utf-8").count("Leafos Says: Once"), 1)
 
     def test_identical_text_with_different_ids_is_preserved_twice(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             _, raw, history = self._paths(root)
-            history.add("incoming", "Leafos says: Wait.", channel="ic")
-            history.add("incoming", "Leafos says: Wait.", channel="ic")
+            history.add("incoming", "Leafos Says: Wait.", channel="ic")
+            history.add("incoming", "Leafos Says: Wait.", channel="ic")
             LeafOSRawExporter(raw).sync(history)
             raw_file = next((raw / "IC").glob("*.md"))
-            self.assertEqual(raw_file.read_text(encoding="utf-8").count("Leafos says: Wait."), 2)
+            self.assertEqual(raw_file.read_text(encoding="utf-8").count("Leafos Says: Wait."), 2)
 
     def test_ic_enabled_ooc_disabled_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             _, raw, history = self._paths(root)
             history.add("incoming", "OOC line", channel="ooc")
-            history.add("incoming", "Leafos says: IC", channel="ic")
+            history.add("incoming", "Leafos Says: IC", channel="ic")
             counts = LeafOSRawExporter(raw).sync(history)
             self.assertEqual(counts, {"ic": 1, "ooc": 0})
             self.assertEqual(list((raw / "OOC").glob("*.md")), [])
@@ -87,7 +94,7 @@ class LeafOSRawExporterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             history = HistoryStore(root / "history.db")
-            history.add("incoming", "Leafos says: Path", channel="ic")
+            history.add("incoming", "Leafos Says: Path", channel="ic")
             raw = root / "folder with spaces" / "nested RAW"
             LeafOSRawExporter(raw).sync(history)
             self.assertTrue(raw.is_dir())
@@ -99,24 +106,24 @@ class LeafOSRawExporterTests(unittest.TestCase):
             history = HistoryStore(root / "history.db")
             raw_a = root / "RAW-A"
             raw_b = root / "RAW-B"
-            history.add("incoming", "Leafos says: Old", channel="ic")
+            history.add("incoming", "Leafos Says: Old", channel="ic")
             LeafOSRawExporter(raw_a).sync(history)
             old_file = next((raw_a / "IC").glob("*.md"))
             old_content = old_file.read_text(encoding="utf-8")
 
-            history.add("incoming", "Leafos says: New", channel="ic")
+            history.add("incoming", "Leafos Says: New", channel="ic")
             LeafOSRawExporter(raw_b).sync(history)
             new_file = next((raw_b / "IC").glob("*.md"))
             new_content = new_file.read_text(encoding="utf-8")
             self.assertEqual(old_file.read_text(encoding="utf-8"), old_content)
-            self.assertNotIn("Leafos says: Old", new_content)
-            self.assertIn("Leafos says: New", new_content)
+            self.assertNotIn("Leafos Says: Old", new_content)
+            self.assertIn("Leafos Says: New", new_content)
 
     def test_write_error_does_not_advance_cursor(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             _, raw, history = self._paths(root)
-            row = history.add("incoming", "Leafos says: Fail", channel="ic")
+            row = history.add("incoming", "Leafos Says: Fail", channel="ic")
             exporter = LeafOSRawExporter(raw)
             with patch.object(exporter, "append_record", side_effect=OSError("disk full")):
                 self.assertEqual(exporter.sync(history), {"ic": 0, "ooc": 0})
@@ -148,7 +155,7 @@ class LeafOSProcessorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             vault, raw, history, exporter = self._setup(root)
-            row = history.add("incoming", "Uchiha, Leafos says: Move.", channel="ic")
+            row = history.add("incoming", "Uchiha, Leafos Says: Move.", channel="ic")
             exporter.sync(history)
             processor = LeafOSProcessor(vault, raw)
             first = processor.run_once()
@@ -166,7 +173,7 @@ class LeafOSProcessorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             vault, raw, history, exporter = self._setup(root)
-            row = history.add("incoming", "Leafos says: Hold.", channel="ic")
+            row = history.add("incoming", "Leafos Says: Hold.", channel="ic")
             start = datetime(2026, 7, 24, 20, 0, tzinfo=timezone.utc)
             with sqlite3.connect(root / "history.db") as connection:
                 connection.execute("UPDATE messages SET timestamp = ? WHERE id = ?", (start.isoformat(), row["id"]))
@@ -187,8 +194,8 @@ class LeafOSProcessorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             vault, raw, history, exporter = self._setup(root)
-            first = history.add("incoming", "Leafos says: One", channel="ic")
-            second = history.add("incoming", "Urahara says: Two", channel="ic")
+            first = history.add("incoming", "Leafos Says: One", channel="ic")
+            second = history.add("incoming", "Urahara Says: Two", channel="ic")
             start = datetime(2026, 7, 24, 20, 0, tzinfo=timezone.utc)
             with sqlite3.connect(root / "history.db") as connection:
                 connection.execute("UPDATE messages SET timestamp = ? WHERE id = ?", (start.isoformat(), first["id"]))
@@ -211,12 +218,12 @@ class LeafOSProcessorTests(unittest.TestCase):
             history = HistoryStore(root / "history.db")
             raw_a = root / "A"
             raw_b = root / "B"
-            history.add("incoming", "Leafos says: A", channel="ic")
+            history.add("incoming", "Leafos Says: A", channel="ic")
             LeafOSRawExporter(raw_a).sync(history)
             processor = LeafOSProcessor(vault, raw_a)
             self.assertEqual(processor.run_once()["processed_ic"], 1)
 
-            history.add("incoming", "Urahara says: B", channel="ic")
+            history.add("incoming", "Urahara Says: B", channel="ic")
             LeafOSRawExporter(raw_b).sync(history)
             switched = LeafOSProcessor(vault, raw_b)
             self.assertEqual(switched.run_once()["processed_ic"], 1)
@@ -229,7 +236,7 @@ class LeafOSProcessorTests(unittest.TestCase):
             vault = root / "LeafOS-Vault"
             vault.mkdir()
             history = HistoryStore(root / "history.db")
-            row = history.add("incoming", "Leafos says: Chat survives", channel="ic")
+            row = history.add("incoming", "Leafos Says: Chat survives", channel="ic")
             with self.assertRaises(FileNotFoundError):
                 LeafOSProcessor(vault, root / "missing-raw").run_once()
             self.assertEqual(history.recent()[-1]["id"], row["id"])

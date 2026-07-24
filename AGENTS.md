@@ -1,44 +1,88 @@
 # KageLink — Bíblia de Desenvolvimento
 
+[English](AGENTS.en.md) · [README em Português](README.pt-BR.md) · [README in English](README.md)
+
 Este arquivo é a **fonte operacional de verdade para qualquer pessoa ou agente de IA que altere o KageLink**.
 
-O objetivo é impedir regressões, versões divergentes, refatorações desnecessárias e o antigo fluxo baseado em ZIPs. Antes de modificar qualquer código, leia este arquivo e os arquivos diretamente relacionados à tarefa.
+Ele descreve os contratos que devem ser preservados na versão oficial atual, **KageLink 3.4.1**, e o processo obrigatório para evitar regressões, versões divergentes e o antigo fluxo baseado em ZIPs.
 
 ---
 
-## 1. Fonte oficial do projeto
+## 1. Fonte oficial
 
-O repositório oficial é:
+Repositório oficial:
 
-`https://github.com/leafoss/KageLink`
+```text
+https://github.com/leafoss/KageLink
+```
 
 ### Regra absoluta
 
-**O GitHub é a única fonte oficial de código.**
+**O GitHub é a única fonte oficial do código.**
 
-Não considerar ZIPs, cópias em Desktop, builds antigos ou arquivos enviados isoladamente como versão principal do projeto.
+Não tratar como fonte principal:
 
-Se uma funcionalidade existir apenas localmente, ela deve ser levada para uma branch do GitHub antes de continuar o desenvolvimento.
+- ZIP antigo;
+- pasta no Desktop;
+- build instalado;
+- APK isolado;
+- EXE isolado;
+- arquivo enviado em conversa;
+- cópia local não commitada.
 
-### Nunca mais trabalhar assim
+Fluxo correto:
 
-- alterar um ZIP inteiro;
-- gerar um novo ZIP como “versão final”;
-- manter uma correção apenas em uma pasta local;
-- assumir que o arquivo anexado mais recente representa todo o projeto;
-- sobrescrever o projeto inteiro para corrigir um único bug.
+```text
+main
+  ↓
+branch de trabalho
+  ↓
+alteração mínima
+  ↓
+testes
+  ↓
+revisão do diff
+  ↓
+Pull Request
+  ↓
+validação real quando necessária
+  ↓
+merge
+```
 
-### Sempre trabalhar assim
-
-`main -> branch de trabalho -> alteração mínima -> testes -> revisão -> merge`
+Nunca usar um ZIP como substituto do versionamento Git.
 
 ---
 
-## 2. Filosofia principal
+## 2. Versão oficial atual
 
-KageLink é um projeto funcional em produção/uso real.
+A documentação desta Bíblia descreve:
 
-### Regra mais importante
+```text
+KageLink 3.4.1
+Flutter: 3.4.1+20
+```
+
+A versão deve permanecer coerente entre:
+
+- `pubspec.yaml`;
+- `APP_VERSION` do PC Agent;
+- `COMPILAR_APK.bat`;
+- `CRIAR_INSTALADOR.bat`;
+- `KageLink_PC_Agent.iss`;
+- nomes de artefatos;
+- textos de versão no app;
+- READMEs quando uma nova release for publicada.
+
+Não aumentar versão por uma alteração local ainda não validada sem uma decisão explícita de release.
+
+---
+
+## 3. Filosofia principal
+
+KageLink é usado em ambiente real.
+
+### Mandamento principal
 
 **Não quebrar o que já funciona.**
 
@@ -48,48 +92,48 @@ Toda alteração deve ser:
 - localizada;
 - rastreável;
 - testável;
-- compatível com o comportamento existente, salvo quando a tarefa explicitamente exigir mudança.
+- compatível com comportamento funcional não relacionado.
 
-### Não fazer
+### Proibido durante uma tarefa limitada
 
 - refatorar por estética;
-- renomear arquivos, classes, rotas ou funções sem necessidade;
-- reorganizar pastas durante correção de bug;
-- trocar bibliotecas sem necessidade;
-- mudar comportamento não relacionado;
-- “otimizar” código funcional sem solicitação explícita;
-- substituir um módulo inteiro quando uma correção localizada resolve;
-- alterar UI, protocolo, teclas ou persistência incidentalmente.
+- renomear arquivos/classes/rotas sem necessidade;
+- reorganizar pastas incidentalmente;
+- trocar bibliotecas sem motivo funcional;
+- alterar UI não relacionada;
+- alterar protocolo não relacionado;
+- mudar mapeamentos padrão sem solicitação;
+- apagar histórico/configuração para “resolver” bug;
+- substituir módulo inteiro quando uma mudança pequena resolve;
+- ampliar o escopo porque “seria melhor aproveitar”.
 
-Uma correção de parser não é autorização para alterar GAME.
-Uma correção de GAME não é autorização para alterar chat.
-Uma correção do instalador não é autorização para alterar o Agent.
+Quando o usuário disser **“mude somente X”**, isso é uma restrição dura.
 
 ---
 
-## 3. Arquitetura oficial
+## 4. Arquitetura oficial 3.4.1
 
-O projeto possui dois produtos que precisam continuar compatíveis entre si:
+Produtos principais:
 
-1. **KageLink Mobile App** — Flutter/Android.
+1. **KageLink Android App** — Flutter.
 2. **KageLink PC Agent** — Windows/Python.
+3. **Installer Windows** — empacota o PC Agent.
+4. **LeafOS integration** — módulo opcional dentro do Agent.
 
-O instalador Windows empacota o PC Agent para o usuário final.
-
-Estrutura principal conhecida:
+Estrutura principal:
 
 ```text
 KageLink/
+├── AGENTS.md
+├── AGENTS.en.md
 ├── README.md
 ├── README.pt-BR.md
-├── AGENTS.md
 ├── LICENSE
 └── KageLink Installer/
     ├── COMPILAR_APK.bat
     ├── DIAGNOSTICAR_KAGELINK.bat
     ├── android_overlay/
     ├── assets/
-    ├── docs/
     ├── installer/
     ├── lib/
     ├── pc_agent/
@@ -99,287 +143,484 @@ KageLink/
     └── pubspec.yaml
 ```
 
-Antes de alterar qualquer arquivo, descobrir qual componente é realmente responsável pelo comportamento observado.
+Antes de editar, identificar qual componente realmente controla o comportamento observado.
 
 ---
 
-## 4. Separação de responsabilidades
+## 5. Responsabilidades
 
-### Mobile App
+### Android App
 
-Responsável principalmente por:
+Responsável por:
 
-- interface OOC;
-- interface IC/RP;
-- interface GAME;
-- histórico apresentado ao usuário;
-- conexão com o Agent;
-- envio de comandos permitidos;
-- estado visual, navegação, drafts e preferências do app.
+- perfis de conexão;
+- armazenamento seguro do token;
+- OOC;
+- IC/RP;
+- GAME;
+- STATS;
+- apresentação do histórico;
+- conexão HTTP/WebSocket;
+- reconexão;
+- idioma;
+- navegação;
+- calibração solicitada ao Agent;
+- configuração dos controles GAME;
+- persistência do banco ativo `ABCD`/`ZXVU` e mapeamentos no Android.
 
 ### PC Agent
 
-Responsável principalmente por:
+Responsável por:
 
-- localizar o Shinobi Story Online;
-- ler/capturar chat;
-- classificar mensagens;
-- manter histórico/persistência do backend;
+- localizar `Shinobi Story Online`;
+- ler chat;
+- classificar OOC/IC;
+- persistir histórico;
+- persistir estado do parser;
+- localizar campos OOC/IC;
+- enviar texto ao jogo;
 - autenticação;
-- API/WebSocket;
-- envio de texto para o jogo;
-- captura GAME;
-- controle remoto permitido;
+- API/WebSockets;
+- servidor local;
 - Cloudflare Tunnel;
-- integração RAW/Obsidian quando habilitada.
+- captura GAME;
+- controle GAME;
+- foco da janela do jogo;
+- proteção contra teclas presas;
+- captura/controle STATS;
+- LeafOS RAW;
+- LeafOS Processor quando habilitado.
 
 ### Installer
 
 Responsável por:
 
-- empacotar o Agent;
-- incluir dependências necessárias;
-- preservar dados do usuário durante atualizações;
-- entregar uma instalação funcional sem exigir ambiente Python de desenvolvimento.
+- empacotar a fonte atual do Agent;
+- incluir runtime/dependências necessárias;
+- incluir `cloudflared` preparado/verificado;
+- instalar `KageLink.exe`;
+- preservar dados durante atualização normal;
+- permitir remoção deliberada de dados no uninstall.
 
-**Não corrigir comportamento do Agent apenas no instalador. Corrigir a fonte do Agent e garantir que o instalador empacote essa fonte.**
+**Nunca corrigir um bug do Agent somente no instalador. Corrigir a fonte e garantir que o instalador empacote essa fonte.**
 
 ---
 
-## 5. Regra de uma única fonte de lógica
+## 6. Regra de fonte única de lógica
 
-Quando uma mesma decisão aparece em várias partes do projeto, deve existir uma implementação canônica sempre que possível.
+Decisões de domínio devem ter implementação canônica.
 
 Exemplo crítico:
 
-**classificação de mensagens OOC/IC.**
+```text
+classificação OOC / IC
+```
 
-Não criar uma regra para o histórico, outra para WebSocket, outra para RAW e outra para o aplicativo.
-
-O fluxo correto deve ser conceitualmente:
+Fluxo correto:
 
 ```text
 texto capturado
     ↓
-parser/classificador canônico
+ChatChannelParser
     ↓
 mensagem classificada
-    ├── histórico
+    ├── SQLite/history
     ├── API/WebSocket
-    ├── aplicativo
-    └── RAW/Obsidian
+    ├── Android App
+    └── LeafOS RAW
 ```
 
-O RAW não deve reinterpretar a mensagem com uma segunda versão independente das regras de IC/OOC.
+O RAW não deve decidir novamente se a mensagem é OOC ou IC.
 
-Isso evita bugs em que uma mensagem aparece como IC no app, mas não é salva como IC no RAW.
+O campo `channel` exportado pelo LeafOS deve vir do registro persistido que já passou pelo parser canônico.
 
 ---
 
-## 6. Contrato do chat OOC / IC
+## 7. Contrato OOC / IC — REGRA PROTEGIDA
 
-O sistema OOC/IC é comportamento protegido.
+### 7.1 IC por bloco de roleplay
 
-### IC por bloco de roleplay
-
-Blocos no formato:
+Todo bloco iniciado por:
 
 ```text
-(* ... *)
+(*
 ```
 
-devem ser classificados como IC/RP.
-
-Blocos fragmentados precisam continuar sendo reconstruídos corretamente até o delimitador final.
-
-### IC por fala
-
-O jogo pode produzir falas como:
+e encerrado pelo próximo:
 
 ```text
-Uchiha, Leafos Says: Hello
-Uchiha, Leafos says: Hello
+*)
+```
+
+é IC/RP.
+
+Exemplo:
+
+```text
+(*Uchiha, Leafos nods.*)
+```
+
+Blocos podem chegar fragmentados. O parser deve manter o conteúdo pendente até receber `*)`.
+
+### 7.2 IC por fala `Says:`
+
+A regra oficial é **literal e case-sensitive**.
+
+O marcador válido é exatamente:
+
+```text
+Says:
+```
+
+Exemplos que DEVEM ser IC:
+
+```text
+**Anbu** Says: ???
 **Anbu** Says: test
-**Anbu** says: test
+Uchiha, Leafos Says: Hello
 Hozuki, Shin'ya Says: Hello
 ```
 
-O marcador `Says:` deve ser tratado de maneira **case-insensitive**.
+Exemplos que NÃO ativam essa regra:
 
-O nome do personagem não pode ser presumido como uma palavra simples. Ele pode conter:
+```text
+**Anbu** says: test
+**Anbu** SAYS: test
+Uchiha, Leafos sAyS: test
+Leafos Says Hello
+```
 
+Se nenhuma outra regra IC se aplicar, esses exemplos permanecem OOC.
+
+### Regra dura
+
+**Não tornar `Says:` case-insensitive sem uma nova decisão explícita do projeto.**
+
+Essa regra deve permanecer alinhada em:
+
+- `pc_agent/chat_channels.py`;
+- testes do parser;
+- `pc_agent/leafos.py` para extração de `speaker`;
+- testes LeafOS;
+- READMEs;
+- esta Bíblia.
+
+### Nome do falante
+
+Não assumir nome simples. Pode conter:
+
+- espaços;
 - vírgulas;
 - apóstrofos;
-- espaços;
 - clã + nome;
-- Markdown/asteriscos, como `**Anbu**`;
-- outras formas emitidas pelo jogo.
+- Markdown/asteriscos como `**Anbu**`.
 
-### Importante
-
-A regra não deve transformar qualquer linha contendo uma sequência incidental em IC.
-
-Testes devem cobrir falsos positivos e falsos negativos.
-
-### OOC
-
-Tudo que não satisfizer uma regra IC válida continua seguindo as regras OOC já existentes.
-
-Não alterar comportamento OOC durante uma correção exclusiva de IC.
+O parser não deve depender de uma regex rígida de nome para decidir o canal. A decisão de canal depende do marcador canônico.
 
 ---
 
-## 7. RAW / Obsidian — contrato obrigatório
+## 8. Contrato de envio OOC / IC
 
-A integração RAW serve como memória bruta do Shinobi Story Online.
+OOC e IC são destinos diferentes.
 
-Ela deve ser independente do Obsidian estar aberto.
-
-O Obsidian apenas lê os arquivos que o Agent grava no diretório configurado.
-
-### Diretório
-
-O caminho de RAW deve ser configurável pelo usuário.
-
-Exemplo atualmente utilizado em desenvolvimento:
+O Android 3.4.1 utiliza endpoints dedicados:
 
 ```text
-C:\Users\Rafael\Desktop\Obsidian\LeafOS-Vault\03 - Leafos e Shinobi Story\RAW
+/api/send/ooc
+/api/send/ic
 ```
 
-**Nunca hardcode esse caminho como padrão universal do aplicativo.**
+`/api/send` permanece apenas para compatibilidade.
 
-### Organização
+O Agent deve:
 
-Preferência atual:
+1. receber o canal explicitamente;
+2. trazer/confirmar o jogo em condição válida;
+3. localizar novamente os controles;
+4. escolher somente o controle do canal solicitado;
+5. recusar envio se o controle não for encontrado;
+6. nunca usar o outro canal como fallback silencioso.
 
-- um arquivo por dia;
-- append de novos registros;
-- UTF-8;
-- preservar o texto bruto;
-- não reescrever registros antigos sem necessidade;
-- metadados suficientes para rastrear origem, timestamp e canal.
+O mesmo HWND não pode representar simultaneamente OOC e IC.
 
-Formato atualmente esperado:
+---
+
+## 9. Histórico e parser
+
+Histórico padrão:
+
+```text
+%LocalAppData%\KageLink PC Agent\data\chat_history.db
+```
+
+Preservar:
+
+- IDs;
+- timestamps;
+- direção incoming/outgoing;
+- `channel`;
+- estado do monitor/parser;
+- comportamento de replay/resync.
+
+Não “consertar” histórico apagando banco como comportamento padrão.
+
+O limite configurado de mensagem na 3.4.1 é `32000`. A migração de configurações antigas com limite 400 deve ser preservada.
+
+---
+
+## 10. LeafOS / RAW — contrato oficial 3.4.1
+
+A integração LeafOS existe na fonte oficial e é **desativada por padrão**.
+
+Configuração padrão:
+
+```text
+enabled: false
+export_ic: true
+export_ooc: false
+processor_interval_seconds: 30
+session_idle_seconds: 900
+```
+
+O usuário pode configurar:
+
+- Vault;
+- diretório RAW;
+- exportação IC;
+- exportação OOC.
+
+Se Vault existe e RAW está vazio, a migração pode usar:
+
+```text
+<Vault>\90 - KageAgent\Raw
+```
+
+Nunca hardcode uma Vault pessoal como padrão universal.
+
+### Estrutura RAW
+
+```text
+RAW/
+├── IC/
+│   └── YYYY-MM-DD.md
+└── OOC/
+    └── YYYY-MM-DD.md
+```
+
+Formato:
 
 ```html
-<!-- kagelink-raw-begin {"id":7538,"timestamp":"...","channel":"ic","speaker":null} -->
-mensagem original
+<!-- kagelink-raw-begin {"id":7538,"timestamp":"...","channel":"ic","speaker":"**Anbu**"} -->
+**Anbu** Says: test
 <!-- kagelink-raw-end -->
 ```
 
-### Regra fundamental
+Regras:
 
-O campo `channel` do RAW deve vir da **mesma classificação canônica** utilizada pelo restante do KageLink.
+- append-only;
+- UTF-8;
+- um arquivo diário por canal;
+- IDs são identidade primária;
+- não duplicar após restart;
+- não reexportar histórico antigo ao trocar caminho;
+- erro de escrita não deve avançar cursor;
+- `channel` vem do histórico canônico;
+- `speaker` reconhece a forma literal `Says:`;
+- bloco `(* ... *)` pode ter `speaker: null`;
+- Obsidian não precisa estar aberto.
 
-Não duplicar parsing dentro do writer RAW.
+### Processor
+
+Quando habilitado e configurado, o processador:
+
+- consome RAW;
+- mantém `last_processed_id`;
+- identifica participantes quando possível;
+- cria sessões;
+- fecha sessão por inatividade conforme `session_idle_seconds`;
+- não deve reprocessar IDs antigos;
+- deve permanecer isolado de chat/GAME/STATS/túnel.
 
 ### Privacidade
 
-RAW pode conter roleplay privado, histórico e informações não destinadas ao repositório.
+Nunca commitar:
 
-**Nunca commitar arquivos RAW no GitHub.**
-
-Também nunca commitar:
-
+- RAW pessoal;
+- `config.json` pessoal;
 - tokens;
-- chaves;
-- URLs temporárias privadas;
-- arquivos de configuração pessoais;
-- logs com credenciais;
-- histórico pessoal do usuário.
+- URLs privadas/temporárias;
+- banco de histórico;
+- logs sensíveis;
+- Vault privada.
 
 ---
 
-## 8. Isolamento do módulo GAME
+## 11. GAME — contrato 3.4.1
 
-GAME é deliberadamente isolado do chat.
-
-Falha em GAME não pode derrubar:
-
-- OOC;
-- IC/RP;
-- histórico;
-- autenticação;
-- envio de chat;
-- parser.
-
-O inverso também deve ser respeitado sempre que possível.
-
-### Janela alvo
-
-A janela alvo do jogo é:
+Janela alvo:
 
 ```text
 Shinobi Story Online
 ```
 
-Não transformar KageLink em ferramenta genérica de controle do desktop.
+Captura padrão:
 
-### Captura
+```text
+JPEG
+960 × 540
+qualidade 70
+~10 FPS
+sem áudio
+```
 
-Contrato conhecido do GAME V1:
+Modos:
 
-- 960×540;
-- JPEG;
-- alvo aproximado de 8–12 FPS;
-- sem áudio;
-- evitar fila crescente de frames;
-- capturar a janela/janela-filho adequada, não o desktop inteiro.
+```text
+full
+zoom
+```
+
+GAME deve permanecer isolado do chat.
+
+Falha de captura/controle não pode derrubar:
+
+- OOC;
+- IC;
+- histórico;
+- autenticação;
+- LeafOS;
+- STATS.
+
+### Foco e segurança operacional
+
+Ao ativar controle:
+
+- validar janela do jogo;
+- rejeitar jogo minimizado;
+- focar a janela antes de key-down quando necessário;
+- liberar teclas ao desativar;
+- liberar teclas em erro/desconexão;
+- evitar estado de tecla preso.
 
 ---
 
-## 9. Controles GAME protegidos
+## 12. Controles GAME configuráveis
 
-Mapeamento padrão atualmente aprovado:
+Bancos:
 
 ```text
-Joystick -> setas
+ABCD
+ZXVU
+```
+
+Padrões:
+
+```text
 A -> E
 B -> Space
 C -> G
 D -> V
+
+Z -> Z
+X -> X
+V -> V
+U -> U
 ```
 
-Mudanças futuras de configuração não devem destruir o padrão existente.
-
-O protocolo atual deve continuar rejeitando controle arbitrário do computador.
-
-Whitelist histórica do GAME V1:
+Banco inicial:
 
 ```text
-up, down, left, right, e, space, g, v
+ABCD
 ```
 
-Se a whitelist for expandida futuramente por uma funcionalidade aprovada, fazê-lo de forma explícita e testada.
+Mapeamentos são persistidos no Android.
 
-Não adicionar silenciosamente:
+Whitelist atual do protocolo:
 
-- Alt+F4;
-- tecla Windows;
-- Ctrl+Esc;
-- comandos arbitrários;
-- macros genéricas;
-- execução de programas;
-- controle amplo do desktop.
+```text
+A-Z
+0-9
+up, down, left, right
+space
+enter
+escape
+tab
+shift
+ctrl
+alt
+backspace
+insert
+delete
+home
+end
+pageup
+pagedown
+F1-F12
+```
+
+Não ampliar essa lista incidentalmente.
+
+Como modificadores e teclas de função fazem parte da whitelist atual, mudanças de UI/protocolo que alterem combinações devem ser revisadas com cuidado.
+
+O KageLink não deve virar um sistema genérico de execução de comandos/programas.
 
 ---
 
-## 10. APIs e protocolo
+## 13. STATS — contrato 3.4.1
 
-Rotas de chat conhecidas:
+STATS é independente de GAME.
+
+Alvo:
 
 ```text
+Título: Status | Inventory
+Classe: #32770
+```
+
+A janela deve:
+
+- existir;
+- estar visível;
+- pertencer ao mesmo PID do Shinobi Story Online;
+- corresponder ao título/classe esperados.
+
+Target atual:
+
+```text
+5 FPS
+```
+
+Controles permitidos:
+
+```text
+left click
+right click
+```
+
+O clique usa coordenadas normalizadas e o `window_id` do último frame válido.
+
+Não transformar STATS em controle genérico do desktop.
+
+---
+
+## 14. API e protocolo
+
+Rotas principais de chat:
+
+```text
+/api/health
 /api/auth
 /api/status
 /api/history
-/api/send
 /api/input-candidates
 /api/input-preference
+/api/send/ooc
+/api/send/ic
+/api/send        # compatibilidade
 /ws
 ```
 
-Rotas GAME conhecidas:
+GAME:
 
 ```text
 /api/game/status
@@ -387,58 +628,44 @@ Rotas GAME conhecidas:
 /ws/game/control
 ```
 
-Não mudar nomes, payloads ou semântica dessas interfaces incidentalmente.
+STATS possui protocolo/stream próprios no Agent e no app.
 
-Mudança de protocolo exige:
+Mudança de rota, payload ou semântica exige:
 
 1. motivo explícito;
 2. atualização coordenada Agent + App;
-3. testes de compatibilidade;
+3. testes;
 4. documentação.
 
 ---
 
-## 11. Persistência e atualização
+## 15. Persistência e atualização
 
-Uma atualização do KageLink não deve apagar dados do usuário.
+Atualização normal deve preservar, quando aplicável:
 
-Preservar sempre que aplicável:
-
-- configuração;
+- `config.json`;
 - token;
 - histórico;
-- preferências;
-- logs necessários;
-- estado persistente do parser;
-- configurações de integração RAW.
+- calibração OOC/IC;
+- logs úteis;
+- estado do parser;
+- configuração LeafOS.
 
-Nunca resolver um bug apagando banco, configuração ou histórico como comportamento padrão.
+O Android preserva:
+
+- perfis;
+- tokens em secure storage;
+- favoritos;
+- banco GAME ativo;
+- mapeamentos GAME.
 
 Migração destrutiva exige autorização explícita.
 
 ---
 
-## 12. Versionamento
-
-Versão do projeto deve permanecer coerente entre:
-
-- Flutter/App;
-- PC Agent;
-- instalador;
-- nomes de artefatos de build;
-- documentação de release quando aplicável.
-
-Não aumentar versão por uma alteração local ainda não validada, salvo decisão explícita de release.
-
-Uma correção pode permanecer em branch até ser validada.
-
----
-
-## 13. Fluxo obrigatório para mudanças
+## 16. Fluxo obrigatório de mudança
 
 ### 1. Atualizar contexto
-
-Antes de editar:
 
 ```bash
 git checkout main
@@ -451,45 +678,47 @@ Exemplos:
 
 ```text
 fix/ic-says-parser
-fix/raw-channel-classification
-feat/raw-obsidian
-feat/game-controls-config
+fix/leafos-speaker
+fix/stats-click
+feat/game-controls
 chore/installer-build
+docs/3.4.1
 ```
 
 Não desenvolver diretamente no `main` para mudanças relevantes.
 
-### 3. Reproduzir o problema
+### 3. Reproduzir
 
-Antes de corrigir, registrar:
+Registrar:
 
 - comportamento observado;
 - comportamento esperado;
 - entrada que causa o erro;
 - componente responsável;
-- teste que demonstrará a correção.
+- teste de regressão.
 
 ### 4. Localizar todas as implementações relacionadas
 
-Antes de editar, procurar por:
+Pesquisar:
 
-- função;
-- constante;
+- funções;
+- constantes;
 - regex;
-- string usada como marcador;
-- rota;
-- modelo de dados;
-- teste existente.
+- strings marcadoras;
+- modelos;
+- rotas;
+- testes;
+- documentação.
 
-Uma correção parcial é pior do que uma busca completa por implementações duplicadas.
+O bug de `Says:` em 3.4.1 mostrou por que isso é obrigatório: parser, testes e extrator LeafOS precisam compartilhar o mesmo contrato.
 
 ### 5. Alteração mínima
 
-Modificar apenas o necessário.
+Modificar somente o necessário.
 
 ### 6. Testar
 
-Rodar testes existentes e adicionar regressão quando possível.
+Executar testes disponíveis.
 
 ### 7. Revisar diff
 
@@ -504,250 +733,220 @@ Se sim, remover.
 Exemplos:
 
 ```text
-Fix case-insensitive Says parsing for IC chat
-Use canonical channel classification for RAW writer
-Preserve GAME controls when switching tabs
+Restore exact Says marker classification
+Align LeafOS speaker extraction with Says marker
+Document KageLink 3.4.1
 ```
 
 ### 9. Pull Request
 
-PR deve explicar:
+Explicar:
 
 - problema;
 - causa;
-- alteração;
-- arquivos afetados;
-- testes executados;
-- teste manual ainda necessário.
+- mudança;
+- arquivos;
+- testes;
+- validação manual ainda necessária.
 
-### 10. Merge somente depois da validação
+### 10. Merge após validação
 
-Para bugs que dependem de Shinobi Story/Windows real, validação manual pode ser obrigatória antes do merge.
+Bugs dependentes de BYOND/Windows real podem exigir teste manual antes do merge.
 
 ---
 
-## 14. Testes mínimos por área
+## 17. Testes mínimos
 
 ### Parser/chat
 
-Testar pelo menos:
+Obrigatório cobrir:
 
 ```text
-(*Roleplay*)
-**Anbu** Says: test
-**Anbu** says: test
-Uchiha, Leafos Says: hello
-Hozuki, Shin'ya Says: hello
-texto OOC normal
-bloco IC fragmentado
-fala fragmentada
+(*Roleplay*)                         -> IC
+**Anbu** Says: test                  -> IC
+**Anbu** Says: ???                   -> IC
+Uchiha, Leafos Says: hello           -> IC
+Hozuki, Shin'ya Says: hello          -> IC
+**Anbu** says: test                  -> OOC
+**Anbu** SAYS: test                  -> OOC
+texto OOC normal                     -> OOC
+bloco IC fragmentado                 -> preservado
+fala Says: fragmentada               -> uma mensagem lógica
 ```
 
-Também testar falsos positivos.
-
-### RAW
+### LeafOS
 
 Validar:
 
-- diretório configurado;
-- criação automática;
-- arquivo diário;
+- `Says:` extrai speaker;
+- `says:` não extrai speaker;
+- Markdown no nome;
+- RAW diário;
+- IC/OOC separados;
 - append;
-- UTF-8;
-- timestamp;
-- id;
-- canal correto;
-- reinício do Agent;
-- duplicação/replay;
-- mensagem multiline;
-- `Says:` em diferentes capitalizações;
-- personagem com Markdown/asteriscos;
-- funcionamento com Obsidian fechado.
+- restart sem duplicação;
+- IDs iguais/textos diferentes;
+- textos iguais/IDs diferentes;
+- troca de caminho;
+- erro de escrita não avança cursor;
+- processor não reprocessa;
+- sessão fecha por gap;
+- falha do processor é isolada.
 
 ### GAME
 
 Validar:
 
-- jogo aberto;
-- jogo fechado;
-- minimizado;
-- maximizado;
-- captura;
-- zoom;
+- janela aberta/fechada/minimizada;
+- captura Full/Zoom;
 - joystick;
 - diagonais;
-- A/B/C/D;
-- tap;
-- hold;
-- multitouch;
+- bancos ABCD/ZXVU;
+- custom mapping;
+- reset de mapping;
+- hold/multitouch;
 - troca de aba;
-- desconexão segurando tecla;
-- nenhuma tecla presa;
-- OOC/IC permanecendo funcionais durante falha GAME.
+- desconexão com tecla pressionada;
+- nenhuma tecla presa.
 
-### App Flutter
+### STATS
 
-Quando ambiente disponível:
+Validar:
+
+- janela `Status | Inventory` fechada/aberta/minimizada;
+- auto/open request;
+- stream;
+- frame dimensions;
+- clique esquerdo;
+- clique direito;
+- coordenadas fora de faixa rejeitadas;
+- `window_id` divergente rejeitado;
+- processo errado rejeitado;
+- falha STATS não afeta chat/GAME.
+
+### Python
+
+Da pasta apropriada do PC Agent:
+
+```bash
+python -m unittest discover -s tests -v
+python -m compileall .
+```
+
+### Flutter
 
 ```bash
 flutter analyze
 flutter test
 ```
 
-### Python
-
-Quando aplicável:
-
-```bash
-python -m pytest
-python -m compileall .
-```
-
-Os comandos exatos podem depender da estrutura atual da branch; não inventar resultados de teste.
+Nunca afirmar que um teste passou se ele não foi executado.
 
 ---
 
-## 15. Build
+## 18. Build
 
 ### Android
-
-O fluxo oficial documentado usa:
 
 ```text
 KageLink Installer\COMPILAR_APK.bat
 ```
 
-O script de build é responsável por preparar o workspace e gerar o APK.
+Saída 3.4.1:
+
+```text
+KageLink Installer\KageLink-v3.4.1.apk
+```
+
+O script valida localização, roda `flutter analyze` e gera o APK release.
 
 **O installer Windows não gera o APK.**
 
 ### PC Agent
 
-O fluxo oficial documentado usa:
-
 ```text
 KageLink Installer\installer\CRIAR_INSTALADOR.bat
 ```
 
-O usuário final não deve precisar instalar manualmente Python ou dependências de desenvolvimento apenas para executar o Agent empacotado.
-
----
-
-## 16. Como investigar bugs corretamente
-
-Quando um bug parece persistir mesmo após alterar um arquivo:
-
-**não assumir imediatamente que a alteração “não funcionou”.**
-
-Investigar nesta ordem:
-
-1. o arquivo alterado realmente está sendo importado/executado?
-2. existe uma segunda implementação da mesma regra?
-3. o instalador empacotou a fonte nova?
-4. o EXE executado é realmente o build novo?
-5. existe cache/workspace intermediário?
-6. App e Agent estão na mesma revisão/protocolo?
-7. o problema acontece antes ou depois do parser?
-8. o dado salvo vem da mensagem classificada ou do texto bruto reprocessado?
-
-### Regra para bugs de regra duplicada
-
-Se duas partes diferentes classificam a mesma coisa, preferir eliminar a duplicação arquitetural em vez de corrigir a mesma regex em vários lugares sem controle.
-
----
-
-## 17. Problema em investigação — IC `Says:` x RAW
-
-Existe um problema observado em desenvolvimento onde mensagens como:
+Saída 3.4.1:
 
 ```text
-**Anbu** Says: ???
-**Anbu** Says: test
+KageLink Installer\installer\output\KageLink-PC-Agent-Setup-v3.4.1.exe
 ```
 
-não chegaram ao RAW como esperado, enquanto blocos como:
-
-```text
-(***Anbu** picks up Chilli Powder*)
-(*Hozuki, Shin'ya picks up Gold Ring*)
-```
-
-foram gravados corretamente.
-
-Uma implementação de parser foi encontrada tratando `says:` de forma literal/minúscula, mas uma correção isolada nesse ponto não resolveu o comportamento completo.
-
-### Portanto
-
-Antes da próxima correção:
-
-- localizar todas as ocorrências de `says:` / `Says:` / classificação IC;
-- localizar todos os writers RAW;
-- rastrear a mensagem desde a captura até o arquivo RAW;
-- confirmar qual código está dentro do EXE instalado;
-- criar teste de integração que garanta que uma mensagem `**Anbu** Says: test` termine no RAW como `channel: ic`.
-
-Não aplicar outra correção pontual até esse rastreamento estar completo.
+O builder pode instalar ferramentas de build como Python/Inno Setup. O usuário final do Setup empacotado não deve precisar de Python para executar o Agent.
 
 ---
 
-## 18. GitHub é também a memória técnica
+## 19. Como investigar um bug que “continuou” após correção
 
-Decisões importantes devem ficar registradas no próprio repositório através de:
+Verificar nesta ordem:
 
-- `AGENTS.md` para regras permanentes;
-- README para uso/instalação;
-- commits para histórico de alterações;
-- Pull Requests para contexto e validação;
-- Issues para bugs e funcionalidades ainda não resolvidos.
+1. o arquivo alterado é realmente importado?
+2. existe implementação duplicada?
+3. testes antigos contradizem o novo contrato?
+4. outro módulo reinterpreta o dado?
+5. o instalador empacotou a fonte nova?
+6. o EXE instalado é realmente o novo build?
+7. existe cache/workspace intermediário?
+8. APK e Agent são compatíveis?
+9. o problema ocorre antes ou depois do parser?
+10. RAW consome `channel` persistido ou reprocessa texto?
 
-Conversas no ChatGPT podem ajudar no desenvolvimento, mas não devem ser a única memória de uma decisão crítica do projeto.
-
----
-
-## 19. Regra para agentes de IA
-
-Ao receber uma tarefa sobre KageLink:
-
-1. considerar este repositório como fonte oficial;
-2. ler este `AGENTS.md`;
-3. inspecionar os arquivos atuais da branch antes de propor código;
-4. procurar testes e implementações duplicadas;
-5. preservar comportamento funcional não relacionado;
-6. trabalhar em branch;
-7. produzir diff pequeno;
-8. executar testes disponíveis;
-9. declarar claramente o que foi e o que não foi validado;
-10. não inventar que um teste passou;
-11. não gerar um ZIP como substituto do versionamento Git;
-12. não fazer merge de uma mudança dependente de teste real sem registrar essa necessidade.
-
-### Quando houver dúvida
-
-Preferir preservar o comportamento existente e registrar a dúvida no PR/Issue.
-
-### Quando o usuário disser “mude somente X”
-
-Isso é uma restrição dura.
-
-Não usar a tarefa como oportunidade para alterar Y ou Z.
+Nunca declarar “corrigido” somente porque um arquivo foi editado.
 
 ---
 
-## 20. Definição de pronto
+## 20. GitHub como memória técnica
 
-Uma tarefa só está realmente pronta quando:
+Registrar decisões em:
 
-- a causa foi identificada ou a mudança foi claramente justificada;
-- o código está no GitHub;
-- a alteração está limitada ao escopo;
-- testes relevantes passaram ou limitações foram explicitamente registradas;
-- não houve regressão conhecida;
-- documentação foi atualizada quando necessária;
-- build real foi validado quando a tarefa depende dele;
-- não existe uma “versão certa” fora do repositório.
+- `AGENTS.md` / `AGENTS.en.md` — contratos permanentes;
+- `README.pt-BR.md` / `README.md` — instalação e uso;
+- commits — alterações;
+- Pull Requests — contexto e validação;
+- Issues — problemas/funções ainda pendentes.
+
+Conversas com IA podem ajudar, mas não devem ser a única memória de uma decisão crítica.
+
+---
+
+## 21. Regra para agentes de IA
+
+Ao receber tarefa sobre KageLink:
+
+1. usar este repositório como fonte oficial;
+2. ler `AGENTS.md` ou `AGENTS.en.md`;
+3. verificar versão atual do `main`;
+4. inspecionar arquivos diretamente relacionados;
+5. pesquisar implementações duplicadas;
+6. preservar comportamento não relacionado;
+7. trabalhar em branch;
+8. produzir diff focado;
+9. executar testes disponíveis;
+10. declarar honestamente limitações de validação;
+11. atualizar documentação quando o contrato mudar;
+12. não gerar ZIP como “versão oficial”;
+13. não fazer merge de mudança dependente de teste real sem registrar a necessidade.
+
+---
+
+## 22. Definição de pronto
+
+Uma tarefa está pronta quando:
+
+- causa identificada ou mudança claramente justificada;
+- código está no GitHub;
+- escopo está controlado;
+- regras duplicadas foram verificadas;
+- testes passaram ou limitações foram registradas;
+- não há regressão conhecida;
+- documentação relevante está atualizada;
+- build real foi validado quando necessário;
+- não existe uma “versão certa” somente fora do repositório.
 
 ---
 
 # Mandamento final
 
-> **KageLink deve evoluir sem perder o que já funciona. O GitHub é a memória oficial; mudanças são mínimas, rastreáveis, testadas e nunca dependem de um ZIP perdido em uma pasta local.**
+> **KageLink deve evoluir sem perder o que já funciona. O GitHub é a memória oficial; `Says:` é um contrato exato; chat, GAME, STATS e LeafOS devem permanecer coerentes, isolados e rastreáveis.**

@@ -13,12 +13,12 @@ from pc_agent.history import HistoryStore
 RAW_STATE_KEY = "leafos_raw_last_exported_id"
 _RAW_BEGIN_PREFIX = "<!-- kagelink-raw-begin "
 _RAW_END = "<!-- kagelink-raw-end -->"
-_SAYS_SPEAKER = re.compile(r"^\s*(?P<speaker>[^\r\n]{1,160}?)\s+says:")
+_SAYS_SPEAKER = re.compile(r"^\s*(?P<speaker>[^\r\n]{1,160}?)\s+Says:")
 _INVALID_FILENAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 
 def extract_speaker(text: str) -> str | None:
-    """Extracts only speakers exposed by the literal deterministic ``says:`` form."""
+    """Extracts only speakers exposed by the literal deterministic ``Says:`` form."""
 
     first_line = str(text or "").splitlines()[0] if text else ""
     match = _SAYS_SPEAKER.search(first_line)

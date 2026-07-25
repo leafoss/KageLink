@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import tkinter as tk
 from copy import deepcopy
 from pathlib import Path
@@ -18,11 +19,12 @@ class MemoryReviewerApp(tk.Tk):
         super().__init__()
         self.reviewer = reviewer
         self.title("LeafOS Memory Reviewer v1")
-        self.geometry("1220x760")
-        self.minsize(980, 620)
+        self.geometry("1320x780")
+        self.minsize(1080, 640)
         self.configure(bg="#0b1510")
         self._session_rows: dict[str, dict[str, Any]] = {}
         self._candidate_rows: dict[str, dict[str, Any]] = {}
+        self._sort_reverse: dict[tuple[str, str], bool] = {}
         self._build_ui()
         self.refresh()
 
@@ -32,19 +34,54 @@ class MemoryReviewerApp(tk.Tk):
             style.theme_use("clam")
         except tk.TclError:
             pass
-        style.configure("Treeview", rowheight=28)
+        style.configure("Treeview", rowheight=28, font=("Segoe UI", 9))
+        style.configure("Treeview.Heading", font=("Segoe UI Semibold", 9), padding=(6, 6))
         style.configure("TButton", padding=7)
 
         top = tk.Frame(self, bg="#0b1510")
         top.pack(fill="x", padx=14, pady=(12, 6))
+
+        title_block = tk.Frame(top, bg="#0b1510")
+        title_block.pack(side="left", fill="x", expand=True)
         tk.Label(
-            top,
+            title_block,
             text="LeafOS Memory Reviewer v1",
             bg="#0b1510",
             fg="#b8f5c8",
             font=("Segoe UI Semibold", 17),
-        ).pack(side="left")
-        ttk.Button(top, text="Atualizar", command=self.refresh).pack(side="right")
+        ).pack(anchor="w")
+        tk.Label(
+            title_block,
+            text="Revisão humana antes da memória canônica",
+            bg="#0b1510",
+            fg="#789486",
+            font=("Segoe UI", 9),
+        ).pack(anchor="w", pady=(1, 0))
+
+        header_actions = tk.Frame(top, bg="#0b1510")
+        header_actions.pack(side="right")
+        ttk.Button(header_actions, text="Atualizar", command=self.refresh).pack(side="left", padx=(0, 6))
+
+        menu_button = ttk.Menubutton(header_actions, text="⋮", width=3)
+        menu = tk.Menu(menu_button, tearoff=False)
+        menu.add_command(label="Atualizar", command=self.refresh)
+        menu.add_separator()
+        menu.add_command(
+            label="Abrir pasta da Canonical Memory",
+            command=lambda: self._open_path(self.reviewer.canonical_root),
+        )
+        menu.add_command(
+            label="Abrir memory.json",
+            command=lambda: self._open_path(self.reviewer.canonical_memory_path),
+        )
+        menu.add_command(
+            label="Abrir MEMORY.md",
+            command=lambda: self._open_path(self.reviewer.canonical_markdown_path),
+        )
+        menu.add_separator()
+        menu.add_command(label="Fechar Reviewer", command=self.destroy)
+        menu_button.configure(menu=menu)
+        menu_button.pack(side="left")
 
         body = tk.PanedWindow(self, orient="horizontal", sashwidth=5, bg="#1a2a20")
         body.pack(fill="both", expand=True, padx=14, pady=(4, 10))
@@ -52,38 +89,79 @@ class MemoryReviewerApp(tk.Tk):
         left = tk.Frame(body, bg="#101e16")
         middle = tk.Frame(body, bg="#101e16")
         right = tk.Frame(body, bg="#101e16")
-        body.add(left, minsize=260)
-        body.add(middle, minsize=360)
-        body.add(right, minsize=420)
+        body.add(left, minsize=310)
+        body.add(middle, minsize=430)
+        body.add(right, minsize=430)
 
-        tk.Label(left, text="Sessões pendentes", bg="#101e16", fg="#d7e7dc", font=("Segoe UI Semibold", 11)).pack(anchor="w", padx=10, pady=10)
-        self.sessions_tree = ttk.Treeview(left, columns=("character", "pending"), show="tree headings", selectmode="browse")
-        self.sessions_tree.heading("#0", text="Sessão")
-        self.sessions_tree.heading("character", text="Personagem")
-        self.sessions_tree.heading("pending", text="Pendentes")
-        self.sessions_tree.column("#0", width=160)
-        self.sessions_tree.column("character", width=150)
-        self.sessions_tree.column("pending", width=70, anchor="center")
+        tk.Label(
+            left,
+            text="Sessões pendentes",
+            bg="#101e16",
+            fg="#d7e7dc",
+            font=("Segoe UI Semibold", 11),
+        ).pack(anchor="w", padx=10, pady=10)
+        self.sessions_tree = ttk.Treeview(
+            left,
+            columns=("session", "character", "pending"),
+            show="headings",
+            selectmode="browse",
+        )
+        self._sortable_heading(self.sessions_tree, "session", "Sessão")
+        self._sortable_heading(self.sessions_tree, "character", "Personagem")
+        self._sortable_heading(self.sessions_tree, "pending", "Pendentes", numeric=True, anchor="center")
+        self.sessions_tree.column("session", width=150, minwidth=110, anchor="w", stretch=True)
+        self.sessions_tree.column("character", width=145, minwidth=110, anchor="w", stretch=True)
+        self.sessions_tree.column("pending", width=75, minwidth=70, anchor="center", stretch=False)
         self.sessions_tree.pack(fill="both", expand=True, padx=10, pady=(0, 10))
         self.sessions_tree.bind("<<TreeviewSelect>>", self._on_session_selected)
 
-        self.primary_label = tk.Label(middle, text="Personagem principal: —", bg="#101e16", fg="#8cd9a4", font=("Segoe UI Semibold", 10))
+        self.primary_label = tk.Label(
+            middle,
+            text="Personagem principal: —",
+            bg="#101e16",
+            fg="#8cd9a4",
+            font=("Segoe UI Semibold", 10),
+        )
         self.primary_label.pack(anchor="w", padx=10, pady=(10, 4))
-        tk.Label(middle, text="Candidatos", bg="#101e16", fg="#d7e7dc", font=("Segoe UI Semibold", 11)).pack(anchor="w", padx=10, pady=(2, 8))
-        self.candidates_tree = ttk.Treeview(middle, columns=("category", "confidence", "perspective"), show="tree headings", selectmode="browse")
-        self.candidates_tree.heading("#0", text="Candidato")
-        self.candidates_tree.heading("category", text="Categoria")
-        self.candidates_tree.heading("confidence", text="Conf.")
-        self.candidates_tree.heading("perspective", text="Perspectiva")
-        self.candidates_tree.column("#0", width=240)
-        self.candidates_tree.column("category", width=105)
-        self.candidates_tree.column("confidence", width=60, anchor="center")
-        self.candidates_tree.column("perspective", width=90, anchor="center")
+        tk.Label(
+            middle,
+            text="Candidatos",
+            bg="#101e16",
+            fg="#d7e7dc",
+            font=("Segoe UI Semibold", 11),
+        ).pack(anchor="w", padx=10, pady=(2, 8))
+        self.candidates_tree = ttk.Treeview(
+            middle,
+            columns=("candidate", "category", "confidence", "perspective"),
+            show="headings",
+            selectmode="browse",
+        )
+        self._sortable_heading(self.candidates_tree, "candidate", "Candidato")
+        self._sortable_heading(self.candidates_tree, "category", "Categoria")
+        self._sortable_heading(self.candidates_tree, "confidence", "Conf.", numeric=True, anchor="center")
+        self._sortable_heading(self.candidates_tree, "perspective", "Perspectiva", anchor="center")
+        self.candidates_tree.column("candidate", width=230, minwidth=150, anchor="w", stretch=True)
+        self.candidates_tree.column("category", width=100, minwidth=85, anchor="w", stretch=False)
+        self.candidates_tree.column("confidence", width=65, minwidth=60, anchor="center", stretch=False)
+        self.candidates_tree.column("perspective", width=90, minwidth=80, anchor="center", stretch=False)
         self.candidates_tree.pack(fill="both", expand=True, padx=10, pady=(0, 10))
         self.candidates_tree.bind("<<TreeviewSelect>>", self._on_candidate_selected)
 
-        tk.Label(right, text="Candidato e evidência", bg="#101e16", fg="#d7e7dc", font=("Segoe UI Semibold", 11)).pack(anchor="w", padx=10, pady=10)
-        self.detail = ScrolledText(right, bg="#08110c", fg="#d7e7dc", insertbackground="#b8f5c8", font=("Consolas", 9), wrap="word")
+        tk.Label(
+            right,
+            text="Candidato e evidência",
+            bg="#101e16",
+            fg="#d7e7dc",
+            font=("Segoe UI Semibold", 11),
+        ).pack(anchor="w", padx=10, pady=10)
+        self.detail = ScrolledText(
+            right,
+            bg="#08110c",
+            fg="#d7e7dc",
+            insertbackground="#b8f5c8",
+            font=("Consolas", 9),
+            wrap="word",
+        )
         self.detail.pack(fill="both", expand=True, padx=10, pady=(0, 10))
         self.detail.configure(state="disabled")
 
@@ -91,13 +169,78 @@ class MemoryReviewerApp(tk.Tk):
         actions.pack(fill="x", padx=10, pady=(0, 10))
         self.approve_button = ttk.Button(actions, text="Aprovar", command=self._approve, state="disabled")
         self.approve_button.pack(side="left")
-        self.edit_button = ttk.Button(actions, text="Editar + aprovar", command=self._edit_and_approve, state="disabled")
+        self.edit_button = ttk.Button(
+            actions,
+            text="Editar + aprovar",
+            command=self._edit_and_approve,
+            state="disabled",
+        )
         self.edit_button.pack(side="left", padx=7)
         self.reject_button = ttk.Button(actions, text="Rejeitar", command=self._reject, state="disabled")
         self.reject_button.pack(side="left")
 
-        self.status = tk.Label(self, text="", anchor="w", bg="#0b1510", fg="#8aa598", font=("Segoe UI", 9))
+        self.status = tk.Label(
+            self,
+            text="",
+            anchor="w",
+            bg="#0b1510",
+            fg="#8aa598",
+            font=("Segoe UI", 9),
+        )
         self.status.pack(fill="x", padx=16, pady=(0, 10))
+
+    def _sortable_heading(
+        self,
+        tree: ttk.Treeview,
+        column: str,
+        text: str,
+        *,
+        numeric: bool = False,
+        anchor: str = "w",
+    ) -> None:
+        tree.heading(
+            column,
+            text=text,
+            anchor=anchor,
+            command=lambda: self._sort_tree(tree, column, numeric=numeric),
+        )
+
+    def _sort_tree(self, tree: ttk.Treeview, column: str, *, numeric: bool = False) -> None:
+        state_key = (str(tree), column)
+        reverse = self._sort_reverse.get(state_key, False)
+
+        def value_for(item_id: str) -> tuple[int, float] | tuple[int, str]:
+            raw = tree.set(item_id, column)
+            if numeric:
+                try:
+                    return (0, float(raw))
+                except (TypeError, ValueError):
+                    return (1, 0.0)
+            return (0, str(raw).casefold())
+
+        items = list(tree.get_children(""))
+        items.sort(key=value_for, reverse=reverse)
+        for index, item_id in enumerate(items):
+            tree.move(item_id, "", index)
+        self._sort_reverse[state_key] = not reverse
+
+    def _open_path(self, path: Path) -> None:
+        path = Path(path)
+        if not path.exists():
+            messagebox.showinfo(
+                "LeafOS Reviewer",
+                f"Este caminho ainda não existe:\n\n{path}",
+                parent=self,
+            )
+            return
+        try:
+            os.startfile(str(path))
+        except (AttributeError, OSError) as error:
+            messagebox.showerror(
+                "LeafOS Reviewer",
+                f"Não foi possível abrir:\n\n{path}\n\n{error}",
+                parent=self,
+            )
 
     def _set_detail(self, text: str) -> None:
         self.detail.configure(state="normal")
@@ -112,13 +255,36 @@ class MemoryReviewerApp(tk.Tk):
             self.candidates_tree.delete(item)
         self._session_rows.clear()
         self._candidate_rows.clear()
-        sessions = self.reviewer.list_sessions()
+        try:
+            sessions = self.reviewer.list_sessions()
+        except ReviewerError as error:
+            self.primary_label.configure(text="Personagem principal: —")
+            self._set_detail(
+                f"ESTADO DO REVIEWER INVÁLIDO\n\n{error}\n\n"
+                "O processamento foi bloqueado para proteger a memória persistida."
+            )
+            self._set_action_state(False)
+            self.status.configure(text="Reviewer bloqueado por estado persistido inválido")
+            messagebox.showerror("LeafOS Reviewer", str(error), parent=self)
+            return
         for row in sessions:
             session_id = row["session_id"]
             self._session_rows[session_id] = row
-            self.sessions_tree.insert("", "end", iid=session_id, text=session_id, values=(row.get("primary_character") or "—", row.get("pending_count", 0)))
+            self.sessions_tree.insert(
+                "",
+                "end",
+                iid=session_id,
+                values=(
+                    session_id,
+                    row.get("primary_character") or "—",
+                    row.get("pending_count", 0),
+                ),
+            )
         self.primary_label.configure(text="Personagem principal: —")
-        self._set_detail("Selecione uma sessão e um candidato.\n\nA promoção só é liberada quando a evidência chega até o RAW.")
+        self._set_detail(
+            "Selecione uma sessão e um candidato.\n\n"
+            "A promoção só é liberada quando a evidência chega até o RAW."
+        )
         self._set_action_state(False)
         self.status.configure(text=f"{len(sessions)} sessão(ões) com candidatos pendentes")
 
@@ -142,7 +308,8 @@ class MemoryReviewerApp(tk.Tk):
         try:
             candidates = self.reviewer.list_candidates(session_id)
         except ReviewerError as error:
-            messagebox.showerror("LeafOS Reviewer", str(error))
+            messagebox.showerror("LeafOS Reviewer", str(error), parent=self)
+            self.status.configure(text="Não foi possível carregar os candidatos da sessão")
             return
         for candidate in candidates:
             candidate_id = candidate["candidate_id"]
@@ -156,8 +323,12 @@ class MemoryReviewerApp(tk.Tk):
                 "",
                 "end",
                 iid=candidate_id,
-                text=_display_candidate(candidate["candidate"]),
-                values=(candidate["canonical_category"], confidence_text, candidate.get("perspective") or "—"),
+                values=(
+                    _display_candidate(candidate["candidate"]),
+                    candidate["canonical_category"],
+                    confidence_text,
+                    candidate.get("perspective") or "—",
+                ),
             )
         self._set_detail(row.get("summary") or "Sessão sem resumo.")
         self._set_action_state(False)
@@ -174,7 +345,10 @@ class MemoryReviewerApp(tk.Tk):
         try:
             detail = self.reviewer.candidate_detail(candidate_id)
         except ReviewerError as error:
-            self._set_detail(f"EVIDÊNCIA INVÁLIDA\n\n{error}\n\nAprovação bloqueada. Rejeição continua disponível para registrar a decisão humana.")
+            self._set_detail(
+                f"EVIDÊNCIA INVÁLIDA\n\n{error}\n\n"
+                "Aprovação bloqueada. Rejeição continua disponível para registrar a decisão humana."
+            )
             self._set_action_state(False, reject_enabled=True)
             self.status.configure(text="Promoção bloqueada; rejeição auditável disponível")
             return
@@ -202,7 +376,7 @@ class MemoryReviewerApp(tk.Tk):
         try:
             entry = self.reviewer.approve(candidate_id)
         except ReviewerError as error:
-            messagebox.showerror("LeafOS Reviewer", str(error))
+            messagebox.showerror("LeafOS Reviewer", str(error), parent=self)
             return
         self.status.configure(text=f"Aprovado: {entry['memory_id']}")
         self.refresh()
@@ -221,7 +395,11 @@ class MemoryReviewerApp(tk.Tk):
         dialog.geometry("760x560")
         dialog.transient(self)
         dialog.grab_set()
-        tk.Label(dialog, text="Edite somente o conteúdo sem alterar source_message_ids/confidence.", anchor="w").pack(fill="x", padx=12, pady=(12, 6))
+        tk.Label(
+            dialog,
+            text="Edite somente o conteúdo sem alterar source_message_ids/confidence.",
+            anchor="w",
+        ).pack(fill="x", padx=12, pady=(12, 6))
         editor = ScrolledText(dialog, font=("Consolas", 10), wrap="none")
         editor.pack(fill="both", expand=True, padx=12, pady=6)
         editor.insert("1.0", json.dumps(original, ensure_ascii=False, indent=2))
@@ -253,19 +431,24 @@ class MemoryReviewerApp(tk.Tk):
         candidate_id = self._selected_candidate_id()
         if not candidate_id:
             return
-        if not messagebox.askyesno("LeafOS Reviewer", "Rejeitar este candidato? Ele ficará registrado como revisado."):
+        if not messagebox.askyesno(
+            "LeafOS Reviewer",
+            "Rejeitar este candidato? Ele ficará registrado como revisado.",
+        ):
             return
         try:
             self.reviewer.reject(candidate_id)
         except ReviewerError as error:
-            messagebox.showerror("LeafOS Reviewer", str(error))
+            messagebox.showerror("LeafOS Reviewer", str(error), parent=self)
             return
         self.status.configure(text="Candidato rejeitado e registrado")
         self.refresh()
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Review LeafOS Interpreter candidates and promote human-approved canonical memory.")
+    parser = argparse.ArgumentParser(
+        description="Review LeafOS Interpreter candidates and promote human-approved canonical memory."
+    )
     parser.add_argument("--vault", required=True, help="Path to the LeafOS Obsidian vault")
     parser.add_argument("--list", action="store_true", help="Print pending sessions as JSON instead of opening the UI")
     args = parser.parse_args()

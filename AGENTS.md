@@ -441,6 +441,37 @@ Quando habilitado e configurado, o processador:
 - não deve reprocessar IDs antigos;
 - deve permanecer isolado de chat/GAME/STATS/túnel.
 
+### Interpreter / Memory Reviewer / Canonical Memory
+
+O fluxo oficial de memória é:
+
+```text
+RAW imutável
+  ↓
+LeafOS Processor
+  ↓
+sessão fechada
+  ↓
+LeafOS Interpreter
+  ↓
+Interpretation Bundle (pending_review)
+  ↓
+LeafOS Memory Reviewer
+  ↓
+Canonical Memory
+```
+
+Regras permanentes:
+
+- o Interpreter produz candidatos, nunca verdade canônica automática;
+- nenhum candidato entra na memória canônica sem ação humana explícita de aprovar ou editar + aprovar;
+- RAW, sessão do Processor e bundle do Interpreter são somente leitura para o Reviewer;
+- promoção exige cadeia de evidência válida até o RAW;
+- `60 - Canonical Memory/memory.json` é a fonte canônica computável;
+- `60 - Canonical Memory/MEMORY.md` é somente uma projeção derivada e regenerável;
+- arquivos JSON existentes do Reviewer ou da Canonical Memory que estejam inválidos/corrompidos devem bloquear processamento e escrita;
+- é proibido tratar JSON existente mas inválido como estado vazio e sobrescrevê-lo silenciosamente.
+
 ### Privacidade
 
 Nunca commitar:
@@ -791,7 +822,10 @@ Validar:
 - erro de escrita não avança cursor;
 - processor não reprocessa;
 - sessão fecha por gap;
-- falha do processor é isolada.
+- falha do processor é isolada;
+- Reviewer exige evidência válida até o RAW antes de promover;
+- memória canônica exige revisão humana explícita;
+- JSON corrompido do Reviewer/Canonical Memory bloqueia escrita em vez de assumir estado vazio.
 
 ### GAME
 

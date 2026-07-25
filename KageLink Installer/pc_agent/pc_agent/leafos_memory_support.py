@@ -55,9 +55,11 @@ def _read_json(path: Path, default: dict[str, Any] | None = None) -> dict[str, A
         return dict(default or {})
     try:
         value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, json.JSONDecodeError):
-        return dict(default or {})
-    return value if isinstance(value, dict) else dict(default or {})
+    except (OSError, json.JSONDecodeError) as error:
+        raise ReviewerError(f"INVALID_JSON: {path}") from error
+    if not isinstance(value, dict):
+        raise ReviewerError(f"JSON_ROOT_MUST_BE_OBJECT: {path}")
+    return value
 
 
 def _atomic_json(path: Path, payload: dict[str, Any]) -> None:

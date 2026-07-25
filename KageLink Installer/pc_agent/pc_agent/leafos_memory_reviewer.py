@@ -122,11 +122,12 @@ class MemoryReviewerApp(tk.Tk):
         self._set_action_state(False)
         self.status.configure(text=f"{len(sessions)} sessão(ões) com candidatos pendentes")
 
-    def _set_action_state(self, enabled: bool) -> None:
-        state = "normal" if enabled else "disabled"
-        self.approve_button.configure(state=state)
-        self.edit_button.configure(state=state)
-        self.reject_button.configure(state=state)
+    def _set_action_state(self, promote_enabled: bool, *, reject_enabled: bool | None = None) -> None:
+        promote_state = "normal" if promote_enabled else "disabled"
+        reject_state = "normal" if (promote_enabled if reject_enabled is None else reject_enabled) else "disabled"
+        self.approve_button.configure(state=promote_state)
+        self.edit_button.configure(state=promote_state)
+        self.reject_button.configure(state=reject_state)
 
     def _on_session_selected(self, _event: Any = None) -> None:
         selected = self.sessions_tree.selection()
@@ -173,9 +174,9 @@ class MemoryReviewerApp(tk.Tk):
         try:
             detail = self.reviewer.candidate_detail(candidate_id)
         except ReviewerError as error:
-            self._set_detail(f"EVIDÊNCIA INVÁLIDA\n\n{error}")
-            self._set_action_state(False)
-            self.status.configure(text="Promoção bloqueada: cadeia de evidência inválida")
+            self._set_detail(f"EVIDÊNCIA INVÁLIDA\n\n{error}\n\nAprovação bloqueada. Rejeição continua disponível para registrar a decisão humana.")
+            self._set_action_state(False, reject_enabled=True)
+            self.status.configure(text="Promoção bloqueada; rejeição auditável disponível")
             return
         payload = {
             "candidate_id": candidate_id,

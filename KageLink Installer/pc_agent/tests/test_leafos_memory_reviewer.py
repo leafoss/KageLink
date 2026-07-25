@@ -157,6 +157,38 @@ class LeafOSMemoryReviewerTests(unittest.TestCase):
             with self.assertRaises(ReviewerError):
                 reviewer.approve(memory_candidate["candidate_id"])
 
+    def test_corrupted_canonical_memory_blocks_approval_without_modifying_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            vault = Path(temp_dir) / "Vault"
+            write_session_and_bundle(vault)
+            reviewer = LeafOSMemoryReviewer(vault)
+            candidate = reviewer.list_candidates("2026-07-24_001")[0]
+            reviewer.canonical_memory_path.parent.mkdir(parents=True, exist_ok=True)
+            corrupted = '{"type":"leafos_canonical_memory","entries":['
+            reviewer.canonical_memory_path.write_text(corrupted, encoding="utf-8")
+
+            with self.assertRaises(ReviewerError):
+                reviewer.approve(candidate["candidate_id"])
+
+            self.assertEqual(reviewer.canonical_memory_path.read_text(encoding="utf-8"), corrupted)
+            self.assertFalse(reviewer._review_path("2026-07-24_001").exists())
+
+    def test_corrupted_review_state_blocks_processing_without_modifying_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            vault = Path(temp_dir) / "Vault"
+            write_session_and_bundle(vault)
+            reviewer = LeafOSMemoryReviewer(vault)
+            review_path = reviewer._review_path("2026-07-24_001")
+            review_path.parent.mkdir(parents=True, exist_ok=True)
+            corrupted = '{"type":"leafos_memory_reviews","reviews":'
+            review_path.write_text(corrupted, encoding="utf-8")
+
+            with self.assertRaises(ReviewerError):
+                reviewer.list_candidates("2026-07-24_001")
+
+            self.assertEqual(review_path.read_text(encoding="utf-8"), corrupted)
+            self.assertFalse(reviewer.canonical_memory_path.exists())
+
     def test_markdown_is_explicitly_derived_from_memory_json(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             vault = Path(temp_dir) / "Vault"

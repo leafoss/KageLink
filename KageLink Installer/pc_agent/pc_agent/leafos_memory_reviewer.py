@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import argparse
-import base64
 import json
 import locale
 import os
-import tempfile
 import tkinter as tk
 from copy import deepcopy
 from pathlib import Path
@@ -78,7 +76,6 @@ TEXT = {
         "cat_lore":"Lore","cat_memories":"Memories","per_observed":"Observed","per_said":"Said","per_inferred":"Inferred",
     },
 }
-LOGO_GIF_BASE64 = "R0lGODlhQABAAIYAAAoaEQAAAHi3ZgsZEAADAxElGITGb1WHSmSZVQkbEQ8kF0x5RGulWgAGA3GqYzRXMXzCZxMpFRQoFyhGKDNVMDxlOFyTTylIKIG+bDJXMBozG0x4RQgaDUFpOlaGTRo2GypIKz1kOUJrOz1jN0d0PRcrIhszG3O0XhUpIiY2Jxk2GRw5ITRUMkdyPY/SeTNYMUhtSBEoFBg1JCE8HSI8IylIJ0ZrQSE8I0duQgAHARk4HRs1IiUrKClGI0RqOhs1IgD/ACkpDyA4GiA5JSQ8JCE+IyZFJyZMJTdXPTpiNEJoO0RrQkp3QFmGTmWVV////wMdDwodChYsIR9AIh1EJRxBIwBVVT8fHyo4HCQ/Hi5FFyxILFVVVUpzQlWqVX9/f2OPU2OOYGacYZnhgf//AP//fwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACH5BAEAAAAALAAAAABAAEAAQAj/AAMIHEiwoMGDCBMqVDgAgMOHECNCVCGQQAITEzJ0aNGiQ4UHM4gUIEAAQIGIJCWqHCCwocoSBB4YmCmgQoMAJ1XqBIAkwAQGBgRAEBAUBM4CCXayDODSYYAKAk4gMJEip84ECRSMjLBAQFSvYMOCxfAgAIoALWY6ASAh4tKGBQJQcCDAQ4OcA/ICyNtggYEDHB48aLDEK13ADTg0+IlB7IQAbQFkJeBjpgcCVt86LNCXgQObUpKaJPDBAgMLF2IiQFCWBgIHsB2cXr3aQVmrD0dSIIpgBwEFDzVDPKkBAYPjE7B+QLAgAYEKCGpwqHDAwoEDC0SQCKFAr8qRFxBY/2CNeWXLnQ4HJMBOoMGBFgRkEOiAIMSECx8iRIjxYcKDDCRcJ+ACg+GEHkTCHajgggzqlOBOcSUwAgMQVCgAAyQkwUICBJHUQAwU+LAAAwcAINAHDLggAAUGordUZA+VEMADXkEwQgBDKICVUnmVJINPCBjQ2FhCGiBGDASMMAYCDaSwl1vnmeSeVx3EJ5FeEXbgwJBhHWBCAAnYQJRYBlR5UlwgOKAiDQ0ooGMCmsVFAQMCLNBACQgGoMABDKz2QQAhnHBcnc51JRZYBmxwV3ADUNSFVxtA9uRSAUBEQHgkRoBZAVo9lykACvh03QM6EpCBAxRkQGJquA3XlwAYHP+waJ5MqRQAAT+AsNdSni4QAahaFXCmTgQMEMStFwh4wAPlKbVQQU8QZIVBPcBg7bU9FPSFFxQ96+234IYLLlwNfpeVm8EKW66LUS54FgEaMIGAUAZAMNO9+M40lAUVJJVCAEy4kESLztaqUwEwTeBAUBAgMAKHAfQAY0TnFiBBAGXoGeSYLLZ6Zbu5DRABUENR8BtWoilYwAA5pBVUjWOuMGNqwJkn0HDPecWABpUyWAAWAZjgAQZDHYroZQRsMBMCCqgggXd7RRnXTxca5TFECsDE1ZhRnUBUUF6T6cAWTLHkV6Jt7hh1rSOBQCECNBA8XABZBDmeWBjYmcECRlX/FpYBCHDQEFYKNOCECwaE0KabcJ4nJ10bNJtXXjwEkAECLwi+wgsxbCAAXR34tDAGXHqFQQUETCwnUR6YpVecBIAwrwUanLyZqXWGJ+uIfcY9gmGxBQ+BopziNpIHQ2XQc3pSExABnxasUB5WnFVA4gzrLQAcdMYdwLMCCyBwgPg7lE0xVhYQZRNSwYEMAAEZcdDe4px1wICvAXyAnQ5BP7DAAhe4gQgOcIFZ6YQDvLOTZCDSOIPlJgAXqMuITMapBDQgWQg4QhHwEwEFkKYGxZqcdyb3Iw2Mzzoyu8qDzCMEEozHAjpoFmbQpa50vc95exvQBFJ3NVo15WAEWAGf/xjQgSbNCDv/S2ISSUCC/4mgAhTwYLMaRClxWfGKWMyiFrfIxS66b10SSRkY2eVAMAprACRJYxoJggJ1DaeHHyvjgi4GJhZQh075CooDxAdF+S1QAmEywvJ2MpAfQugsJmgBheo1FBJ5wAMbeKQHxgerehlgAQCIFgXsZbUDFfJAWzkAIwVggRGYgAADcZqwVnnD2IUqAMVhJIsUtEKIwIRG98IfF5z0vgX1JJZeCQoL5GaziT1wAl8TALPgeLAUxIRrFSpKpWxnM0MCgAcE8EC9VkSAIWRFjAiKiDOfRxPSzQQDBnDAn2xggB1ebYUDUAACKnQAAmiBQXmhSJIWZv+0oLgAAc7ZAOJuJAOosQVkAYjAvAQQOmOqJClxIQAFNma0v0VqAMicyY1UACUHSoAAB/BKBQLAy4eiCwANeMDGwhYWloLFAURgSkKBIoBhdtQlIxGTAA6wMvQIC34UDQsCwLDQQ/3lSU9TwtIIl4CTJEgDFoAAAzpmEonERX9CootQNeAUAvjlb9zUkUM4YAHEFRBdDYQLAVhAJ8AMAC84haUFEseBCDxAq15ZQA5sEIbHdOBlwYwUDyQzmSbMJHJukkyc5AIpAuBpV3m52AOOk5oFOIADv9PqCGKyAcuWDgMWIEAQmrI6A7QuMwMxiVzoFLnMDOBiMxhfBm4CggH/ekYAkTNh6RDlgNrh5mJKYB1kXue4ALB1pxxgn0MutpsKRAEBkQtBn3bKsw4YxmgOmMJvInKWJlBJUsyrVVKe97kdummVpjpOnyiwntWw6K6xUa96BQA3YsZFoel0Z/sMNpLJkqipKNNKDkRAotrhoD6YsexrEOCB8FVnfDggwBW+8xx7HSApNVvb8kaCgz6hTl1N9dQBhBABEQiyBqvBzgV2sIQCXM46rKJwDWDlAOlleG0/tMgCLPCCH3DqvPMpsEAmcJ0LCOQGK+DABHQwvhoYMCIwuQADBBXjh6RVJQ34QAs2cFYFQMGyGXDe/yIQgBvgQFnVCbNDY5Te03xgxbs3jUh/BUCFKtSpAQAoQggicEHxHWEB2AlBBkSQOZKUzZpXHR9znPPQFa6sAdYjIg/vO6IQKKYBJRkACrZbkitpOgAz2PH4dkhGa4b3tXqaweUOgCQdoUushIQldQRU5YKZGiIfpU8HBuhOAmDEOSlxSBobEIEb5FBAIeAZM/d7a4j0hTUqLcsRm5hEEYRAO9QG9HUWkAFNLTvOoHQeBViA6b3E7gEv0I4Srf2CCYDglCRxY7mq6C0gHIQM9faivveNkIAAADs="
 
 
 def _default_language() -> str:
@@ -107,7 +104,7 @@ class _ScrollableList(tk.Frame):
     def _resize(self, event: tk.Event) -> None:
         self.canvas.itemconfigure(self.window_id, width=max(int(event.width), 1)); self.after_idle(self._sync)
     def _on_scroll(self, first: str, last: str) -> None:
-        self.scrollbar.set(first, last); self.after_idle(self._sync)
+        self.scrollbar.set(first, last)
     def _sync(self) -> None:
         self.canvas.configure(scrollregion=self.canvas.bbox("all")); bbox = self.canvas.bbox("all")
         content = 0 if not bbox else bbox[3] - bbox[1]; show = content > self.canvas.winfo_height() + 2
@@ -124,6 +121,8 @@ class MemoryReviewerApp(tk.Tk):
         self.reviewer = reviewer; self.language = language if language in TEXT else _default_language(); self.language_var = tk.StringVar(value=self.language)
         self._session_rows: dict[str, dict[str, Any]] = {}; self._candidate_rows: dict[str, dict[str, Any]] = {}
         self._session_order: list[str] = []; self._candidate_order: list[str] = []; self._selected_session_id: str | None = None; self._selected_candidate: str | None = None
+        self._session_sort_key: str | None = None; self._session_sort_reverse = False
+        self._candidate_sort_key: str | None = None; self._candidate_sort_reverse = False
         self._menu: tk.Menu | None = None
         self.geometry("1586x992"); self.minsize(1240, 760); self.configure(bg=COLORS["bg"])
         self._configure_styles(); self._load_brand_image(); self._build_ui(); self._apply_language(); self.refresh()
@@ -147,17 +146,12 @@ class MemoryReviewerApp(tk.Tk):
             style.map(name, background=[("disabled", "#151d18"), ("active", active)], foreground=[("disabled", COLORS["disabled"])])
 
     def _load_brand_image(self) -> None:
-        raw = base64.b64decode(LOGO_GIF_BASE64, validate=True); path: str | None = None
+        asset_path = Path(__file__).resolve().parent / "assets" / "leafos_emblem.png"
+        self._logo_image = tk.PhotoImage(file=str(asset_path))
         try:
-            with tempfile.NamedTemporaryFile(suffix=".gif", delete=False) as handle:
-                handle.write(raw); path = handle.name
-            self._logo_image = tk.PhotoImage(file=path, format="gif")
-        finally:
-            if path:
-                try: os.unlink(path)
-                except OSError: pass
-        try: self.iconphoto(True, self._logo_image)
-        except tk.TclError: pass
+            self.iconphoto(True, self._logo_image)
+        except tk.TclError:
+            pass
 
     def _card(self, parent: tk.Widget, *, bg: str | None = None) -> tk.Frame:
         return tk.Frame(parent, bg=bg or COLORS["card"], highlightthickness=1, highlightbackground=COLORS["border"])
@@ -165,8 +159,103 @@ class MemoryReviewerApp(tk.Tk):
         widget.bind("<Button-1>", lambda _e: callback())
         for child in widget.winfo_children(): self._bind_click(child, callback)
     def _header_label(self, parent: tk.Widget, key: str, anchor: str = "w") -> tk.Label:
-        label = tk.Label(parent, text="", bg=COLORS["surface_alt"], fg=COLORS["text"], font=("Segoe UI", 9), anchor=anchor, padx=6, pady=8)
-        setattr(label, "_key", key); return label
+        label = tk.Label(
+            parent,
+            text="",
+            bg=COLORS["surface_alt"],
+            fg=COLORS["text"],
+            font=("Segoe UI Semibold", 9),
+            anchor=anchor,
+            padx=6,
+            pady=8,
+            cursor="hand2",
+        )
+        setattr(label, "_key", key)
+        return label
+
+    def _sort_indicator(self, key: str, active_key: str | None, reverse: bool) -> str:
+        if key != active_key:
+            return ""
+        if key in {"pending", "confidence"}:
+            return "  ↓" if reverse else "  ↑"
+        return "  Z-A" if reverse else "  A-Z"
+
+    def _update_header_texts(self) -> None:
+        self.session_h.configure(
+            text=self._t("session") + self._sort_indicator("session", self._session_sort_key, self._session_sort_reverse)
+        )
+        self.character_h.configure(
+            text=self._t("character") + self._sort_indicator("character", self._session_sort_key, self._session_sort_reverse)
+        )
+        self.pending_h.configure(
+            text=self._t("pending") + self._sort_indicator("pending", self._session_sort_key, self._session_sort_reverse)
+        )
+        self.candidate_h.configure(
+            text=self._t("candidate") + self._sort_indicator("candidate", self._candidate_sort_key, self._candidate_sort_reverse)
+        )
+        self.category_h.configure(
+            text=self._t("category") + self._sort_indicator("category", self._candidate_sort_key, self._candidate_sort_reverse)
+        )
+        self.confidence_h.configure(
+            text=self._t("confidence") + self._sort_indicator("confidence", self._candidate_sort_key, self._candidate_sort_reverse)
+        )
+        self.perspective_h.configure(
+            text=self._t("perspective") + self._sort_indicator("perspective", self._candidate_sort_key, self._candidate_sort_reverse)
+        )
+
+    def _toggle_session_sort(self, key: str) -> None:
+        if self._session_sort_key == key:
+            self._session_sort_reverse = not self._session_sort_reverse
+        else:
+            self._session_sort_key = key
+            self._session_sort_reverse = False
+        self._apply_session_sort()
+        self._update_header_texts()
+        self._render_sessions()
+
+    def _toggle_candidate_sort(self, key: str) -> None:
+        if self._candidate_sort_key == key:
+            self._candidate_sort_reverse = not self._candidate_sort_reverse
+        else:
+            self._candidate_sort_key = key
+            self._candidate_sort_reverse = False
+        self._apply_candidate_sort()
+        self._update_header_texts()
+        self._render_candidates()
+
+    def _apply_session_sort(self) -> None:
+        if not self._session_sort_key:
+            return
+
+        def sort_value(session_id: str) -> Any:
+            row = self._session_rows[session_id]
+            if self._session_sort_key == "session":
+                return str(session_id).casefold()
+            if self._session_sort_key == "character":
+                return str(row.get("primary_character") or "").casefold()
+            if self._session_sort_key == "pending":
+                return int(row.get("pending_count") or 0)
+            return str(session_id).casefold()
+
+        self._session_order.sort(key=sort_value, reverse=self._session_sort_reverse)
+
+    def _apply_candidate_sort(self) -> None:
+        if not self._candidate_sort_key:
+            return
+
+        def sort_value(candidate_id: str) -> Any:
+            row = self._candidate_rows[candidate_id]
+            if self._candidate_sort_key == "candidate":
+                return _display_candidate(row["candidate"]).casefold()
+            if self._candidate_sort_key == "category":
+                return self._display_category(row.get("canonical_category") or "").casefold()
+            if self._candidate_sort_key == "confidence":
+                return float(row.get("confidence") or 0.0)
+            if self._candidate_sort_key == "perspective":
+                return self._display_perspective(row.get("perspective")).casefold()
+            return _display_candidate(row["candidate"]).casefold()
+
+        self._candidate_order.sort(key=sort_value, reverse=self._candidate_sort_reverse)
 
     def _build_ui(self) -> None:
         header = tk.Frame(self, bg=COLORS["header"]); header.pack(fill="x", padx=14, pady=(12, 10))
@@ -184,6 +273,9 @@ class MemoryReviewerApp(tk.Tk):
         lt = tk.Frame(left,bg=COLORS["card"]); lt.grid(row=0,column=0,sticky="ew",padx=15,pady=(15,10)); tk.Label(lt,text="●",bg=COLORS["card"],fg=COLORS["accent"],font=("Segoe UI",12)).pack(side="left",padx=(0,8)); self.sessions_title=tk.Label(lt,bg=COLORS["card"],fg=COLORS["text"],font=("Segoe UI Semibold",11)); self.sessions_title.pack(side="left")
         sh = tk.Frame(left,bg=COLORS["surface_alt"],highlightthickness=1,highlightbackground=COLORS["border_soft"]); sh.grid(row=1,column=0,sticky="ew",padx=12); sh.grid_columnconfigure(0,weight=42,uniform="s"); sh.grid_columnconfigure(1,weight=38,uniform="s"); sh.grid_columnconfigure(2,minsize=82)
         self.session_h=self._header_label(sh,"session"); self.character_h=self._header_label(sh,"character"); self.pending_h=self._header_label(sh,"pending","center"); self.session_h.grid(row=0,column=0,sticky="ew"); self.character_h.grid(row=0,column=1,sticky="ew"); self.pending_h.grid(row=0,column=2,sticky="ew")
+        self.session_h.bind("<Button-1>", lambda _e: self._toggle_session_sort("session"))
+        self.character_h.bind("<Button-1>", lambda _e: self._toggle_session_sort("character"))
+        self.pending_h.bind("<Button-1>", lambda _e: self._toggle_session_sort("pending"))
         self.sessions_list=_ScrollableList(left); self.sessions_list.grid(row=2,column=0,sticky="nsew",padx=12); self.pending_status=tk.Label(left,bg=COLORS["card"],fg=COLORS["muted"],font=("Segoe UI",9),anchor="w"); self.pending_status.grid(row=3,column=0,sticky="ew",padx=15,pady=(8,12))
 
         workspace=self._card(body); workspace.grid(row=0,column=1,sticky="nsew",padx=(7,0)); workspace.grid_rowconfigure(1,weight=1); workspace.grid_columnconfigure(0,weight=1)
@@ -193,11 +285,16 @@ class MemoryReviewerApp(tk.Tk):
         mt=tk.Frame(middle,bg=COLORS["surface"]); mt.grid(row=0,column=0,sticky="ew",padx=13,pady=(13,9)); tk.Label(mt,text="▣",bg=COLORS["surface"],fg=COLORS["accent"],font=("Segoe UI Symbol",15)).pack(side="left",padx=(0,8)); self.candidates_title=tk.Label(mt,bg=COLORS["surface"],fg=COLORS["text"],font=("Segoe UI Semibold",11)); self.candidates_title.pack(side="left")
         ch=tk.Frame(middle,bg=COLORS["surface_alt"],highlightthickness=1,highlightbackground=COLORS["border_soft"]); ch.grid(row=1,column=0,sticky="ew",padx=12); ch.grid_columnconfigure(0,minsize=34); ch.grid_columnconfigure(1,weight=55); ch.grid_columnconfigure(2,minsize=108); ch.grid_columnconfigure(3,minsize=82); ch.grid_columnconfigure(4,minsize=112); tk.Label(ch,bg=COLORS["surface_alt"]).grid(row=0,column=0,sticky="ew")
         self.candidate_h=self._header_label(ch,"candidate"); self.category_h=self._header_label(ch,"category"); self.confidence_h=self._header_label(ch,"confidence","center"); self.perspective_h=self._header_label(ch,"perspective","center"); self.candidate_h.grid(row=0,column=1,sticky="ew"); self.category_h.grid(row=0,column=2,sticky="ew"); self.confidence_h.grid(row=0,column=3,sticky="ew"); self.perspective_h.grid(row=0,column=4,sticky="ew")
+        self.candidate_h.bind("<Button-1>", lambda _e: self._toggle_candidate_sort("candidate"))
+        self.category_h.bind("<Button-1>", lambda _e: self._toggle_candidate_sort("category"))
+        self.confidence_h.bind("<Button-1>", lambda _e: self._toggle_candidate_sort("confidence"))
+        self.perspective_h.bind("<Button-1>", lambda _e: self._toggle_candidate_sort("perspective"))
         self.candidates_list=_ScrollableList(middle); self.candidates_list.grid(row=2,column=0,sticky="nsew",padx=12,pady=(0,12))
 
         right.grid_rowconfigure(3,weight=1); right.grid_columnconfigure(0,weight=1)
         rt=tk.Frame(right,bg=COLORS["surface"]); rt.grid(row=0,column=0,sticky="ew",padx=13,pady=(13,9)); tk.Label(rt,text="▤",bg=COLORS["surface"],fg=COLORS["text"],font=("Segoe UI Symbol",15)).pack(side="left",padx=(0,8)); self.detail_title=tk.Label(rt,bg=COLORS["surface"],fg=COLORS["text"],font=("Segoe UI Semibold",11)); self.detail_title.pack(side="left")
-        self.selected_card=tk.Frame(right,bg=COLORS["surface_alt"],highlightthickness=1,highlightbackground=COLORS["border"]); self.selected_card.grid(row=1,column=0,sticky="ew",padx=12,pady=(0,12)); self.selected_caption=tk.Label(self.selected_card,bg=COLORS["surface_alt"],fg=COLORS["muted"],font=("Segoe UI",9),anchor="w"); self.selected_caption.pack(fill="x",padx=13,pady=(10,3)); sl=tk.Frame(self.selected_card,bg=COLORS["surface_alt"]); sl.pack(fill="x",padx=13,pady=(0,11)); self.selected_title=tk.Label(sl,text="—",bg=COLORS["surface_alt"],fg=COLORS["accent"],font=("Segoe UI Semibold",10),anchor="w"); self.selected_title.pack(side="left",fill="x",expand=True)
+        self.selected_card=tk.Frame(right,bg=COLORS["surface_alt"],highlightthickness=1,highlightbackground=COLORS["border"]); self.selected_card.grid(row=1,column=0,sticky="ew",padx=12,pady=(0,12)); self.selected_caption=tk.Label(self.selected_card,bg=COLORS["surface_alt"],fg=COLORS["muted"],font=("Segoe UI",9),anchor="w"); self.selected_caption.pack(fill="x",padx=13,pady=(10,3)); sl=tk.Frame(self.selected_card,bg=COLORS["surface_alt"]); sl.pack(fill="x",padx=13,pady=(0,11)); self.selected_title=tk.Label(sl,text="—",bg=COLORS["surface_alt"],fg=COLORS["accent"],font=("Segoe UI Semibold",10),anchor="w",justify="left",wraplength=420); self.selected_title.pack(side="left",fill="x",expand=True)
+        self.selected_card.bind("<Configure>", lambda event: self.selected_title.configure(wraplength=max(event.width - 42, 220)))
         evidence=tk.Frame(right,bg=COLORS["surface"],highlightthickness=1,highlightbackground=COLORS["border"]); evidence.grid(row=2,column=0,rowspan=2,sticky="nsew",padx=12,pady=(0,12)); evidence.grid_rowconfigure(1,weight=1); evidence.grid_columnconfigure(0,weight=1); eh=tk.Frame(evidence,bg=COLORS["surface_alt"]); eh.grid(row=0,column=0,sticky="ew"); self.evidence_title=tk.Label(eh,bg=COLORS["surface_alt"],fg=COLORS["text"],font=("Segoe UI Semibold",10)); self.evidence_title.pack(side="left",padx=13,pady=10); self.raw_json_label=tk.Label(eh,bg=COLORS["surface_alt"],fg=COLORS["muted"],font=("Consolas",9)); self.raw_json_label.pack(side="right",padx=13,pady=10)
         self.detail=ScrolledText(evidence,bg=COLORS["surface"],fg=COLORS["text"],insertbackground=COLORS["accent"],selectbackground=COLORS["selected"],relief="flat",borderwidth=0,font=("Consolas",9),wrap="word",padx=12,pady=10); self.detail.grid(row=1,column=0,sticky="nsew"); self.detail.configure(state="disabled")
         ab=tk.Frame(right,bg=COLORS["surface"]); ab.grid(row=4,column=0,sticky="ew",padx=12,pady=(0,12)); [ab.grid_columnconfigure(i,weight=1) for i in range(3)]; self.approve_button=ttk.Button(ab,command=self._approve,state="disabled",style="Approve.TButton"); self.edit_button=ttk.Button(ab,command=self._edit_and_approve,state="disabled",style="Edit.TButton"); self.reject_button=ttk.Button(ab,command=self._reject,state="disabled",style="Reject.TButton"); self.approve_button.grid(row=0,column=0,sticky="ew",padx=(0,6)); self.edit_button.grid(row=0,column=1,sticky="ew",padx=6); self.reject_button.grid(row=0,column=2,sticky="ew",padx=(6,0))
@@ -212,7 +309,7 @@ class MemoryReviewerApp(tk.Tk):
         finally: self._menu.grab_release()
     def _apply_language(self) -> None:
         self.title(self._t("title")); self.title_label.configure(text=self._t("title")); self.subtitle_label.configure(text=self._t("subtitle")); self.refresh_button.configure(text=self._t("refresh")); self.sessions_title.configure(text=self._t("sessions_title")); self.primary_caption.configure(text=f"{self._t('primary_label')}:"); self.candidates_title.configure(text=self._t("candidates_title")); self.detail_title.configure(text=self._t("detail_title")); self.selected_caption.configure(text=self._t("selected_candidate")); self.evidence_title.configure(text=f"</>  {self._t('evidence')}"); self.raw_json_label.configure(text="{}  "+self._t("raw_json")); self.approve_button.configure(text=self._t("approve")); self.edit_button.configure(text=self._t("edit")); self.reject_button.configure(text=self._t("reject"));
-        for w in (self.session_h,self.character_h,self.pending_h,self.candidate_h,self.category_h,self.confidence_h,self.perspective_h): w.configure(text=self._t(getattr(w,"_key")))
+        self._update_header_texts()
         self._build_menu(); self._render_sessions(); self._render_candidates()
     def _set_language(self, language: str) -> None:
         if language in TEXT: self.language=language; self.language_var.set(language); self._apply_language(); self.refresh()
@@ -254,14 +351,14 @@ class MemoryReviewerApp(tk.Tk):
         try: sessions=self.reviewer.list_sessions()
         except ReviewerError as error: self._set_detail(f"{self._t('invalid_state')}\n\n{error}\n\n{self._t('invalid_state_body')}"); self._set_action_state(False); messagebox.showerror("LeafOS Reviewer",str(error),parent=self); return
         for row in sessions: self._session_rows[row["session_id"]]=row; self._session_order.append(row["session_id"])
-        self._render_sessions(); count=self._count_text(len(sessions)); self.pending_status.configure(text=f"●  {count}",fg=COLORS["accent"] if sessions else COLORS["muted"]); self.status.configure(text=count); self.primary_label.configure(text="—",fg=COLORS["muted"]); self.selected_title.configure(text="—",fg=COLORS["muted"]); self._set_detail(self._t("instructions")); self._set_action_state(False)
+        self._apply_session_sort(); self._update_header_texts(); self._render_sessions(); count=self._count_text(len(sessions)); self.pending_status.configure(text=f"●  {count}",fg=COLORS["accent"] if sessions else COLORS["muted"]); self.status.configure(text=count); self.primary_label.configure(text="—",fg=COLORS["muted"]); self.selected_title.configure(text="—",fg=COLORS["muted"]); self._set_detail(self._t("instructions")); self._set_action_state(False)
         if previous and previous in self._session_rows: self._select_session(previous)
     def _select_session(self,sid:str)->None:
         self._selected_session_id=sid; self._render_sessions(); row=self._session_rows[sid]; self.primary_label.configure(text=row.get("primary_character") or "—",fg=COLORS["accent"] if row.get("primary_character") else COLORS["muted"]); self._candidate_rows.clear(); self._candidate_order.clear(); self._selected_candidate=None
         try: candidates=self.reviewer.list_candidates(sid)
         except ReviewerError as error: messagebox.showerror("LeafOS Reviewer",str(error),parent=self); self.status.configure(text=self._t("load_error")); return
         for candidate in candidates: self._candidate_rows[candidate["candidate_id"]]=candidate; self._candidate_order.append(candidate["candidate_id"])
-        self._render_candidates(); self.selected_title.configure(text="—",fg=COLORS["muted"]); self._set_detail(row.get("summary") or self._t("no_summary")); self._set_action_state(False)
+        self._apply_candidate_sort(); self._update_header_texts(); self._render_candidates(); self.selected_title.configure(text="—",fg=COLORS["muted"]); self._set_detail(row.get("summary") or self._t("no_summary")); self._set_action_state(False)
     def _selected_candidate_id(self)->str|None: return self._selected_candidate
     def _select_candidate(self,cid:str)->None:
         self._selected_candidate=cid; self._render_candidates(); rec=self._candidate_rows[cid]; self.selected_title.configure(text=_display_candidate(rec["candidate"]),fg=COLORS["accent"])

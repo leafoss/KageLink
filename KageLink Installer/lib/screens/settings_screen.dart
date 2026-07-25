@@ -4,13 +4,14 @@ import '../controllers/game_controls_controller.dart';
 import '../controllers/session_controller.dart';
 import '../localization/l10n_helpers.dart';
 import '../localization/locale_controller.dart';
+import '../services/primary_character_service.dart';
 import '../ui/theme/kage_colors.dart';
 import '../widgets/chakra_seal.dart';
 import '../widgets/language_selector.dart';
 import 'game_controls_settings_screen.dart';
 import 'input_calibration_screen.dart';
 
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
     super.key,
     required this.controller,
@@ -23,11 +24,160 @@ class SettingsScreen extends StatelessWidget {
   final GameControlsController gameControlsController;
 
   @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  PrimaryCharacterSetting? _characterSetting;
+  bool _loadingCharacter = false;
+
+  bool get _isPortuguese => Localizations.localeOf(context).languageCode == 'pt';
+
+  PrimaryCharacterService? get _characterService {
+    final profile = widget.controller.activeProfile;
+    return profile == null ? null : PrimaryCharacterService(profile);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadPrimaryCharacter());
+  }
+
+  Future<void> _loadPrimaryCharacter() async {
+    final service = _characterService;
+    if (service == null || _loadingCharacter) return;
+    setState(() => _loadingCharacter = true);
+    try {
+      final setting = await service.fetch();
+      if (mounted) setState(() => _characterSetting = setting);
+    } catch (_) {
+      // The setting remains editable even if the first read fails.
+    } finally {
+      if (mounted) setState(() => _loadingCharacter = false);
+    }
+  }
+
+  Future<void> _editPrimaryCharacter() async {
+    final service = _characterService;
+    if (service == null) return;
+
+    if (_characterSetting == null) {
+      try {
+        _characterSetting = await service.fetch();
+      } catch (_) {}
+    }
+    if (!mounted) return;
+
+    final textController = TextEditingController(
+      text: _characterSetting?.primaryCharacter ?? '',
+    );
+    final saved = _characterSetting?.savedCharacters ?? const <String>[];
+    final isPt = _isPortuguese;
+
+    final shouldSave = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(isPt ? 'Personagem principal' : 'Primary character'),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                isPt
+                    ? 'Informe o personagem que o LeafOS deve considerar como seu personagem nesta sessão.'
+                    : 'Choose the character LeafOS should treat as your character for this session.',
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: textController,
+                autofocus: true,
+                maxLength: 160,
+                textInputAction: TextInputAction.done,
+                decoration: InputDecoration(
+                  labelText: isPt ? 'Nome do personagem' : 'Character name',
+                  hintText: 'Matsunaya Hika',
+                ),
+                onSubmitted: (_) => Navigator.of(dialogContext).pop(true),
+              ),
+              if (saved.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  isPt ? 'Personagens salvos' : 'Saved characters',
+                  style: Theme.of(context).textTheme.labelLarge,
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    for (final name in saved)
+                      ActionChip(
+                        label: Text(name),
+                        onPressed: () {
+                          textController
+                            ..text = name
+                            ..selection = TextSelection.collapsed(offset: name.length);
+                        },
+                      ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(context.l10n.cancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(isPt ? 'Salvar' : 'Save'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldSave != true) {
+      textController.dispose();
+      return;
+    }
+
+    final name = textController.text.trim();
+    textController.dispose();
+    try {
+      final setting = await service.save(name);
+      if (!mounted) return;
+      setState(() => _characterSetting = setting);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            name.isEmpty
+                ? (isPt ? 'Personagem principal removido.' : 'Primary character cleared.')
+                : (isPt ? 'Personagem principal salvo: $name' : 'Primary character saved: $name'),
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.toString())),
+      );
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final controller = widget.controller;
     final profile = controller.activeProfile;
     final status = controller.status;
     final secure = profile?.address.toLowerCase().startsWith('https://') == true;
+    final isPt = _isPortuguese;
+    final character = _characterSetting?.primaryCharacter ?? '';
 
     return Scaffold(
       appBar: AppBar(title: Text(l10n.settingsTitle)),
@@ -59,7 +209,28 @@ class SettingsScreen extends StatelessWidget {
             ),
             const SizedBox(height: 22),
             _SectionTitle(icon: Icons.translate_rounded, title: l10n.languageSection),
-            _SettingsCard(child: LanguageSelector(controller: localeController)),
+            _SettingsCard(child: LanguageSelector(controller: widget.localeController)),
+            const SizedBox(height: 22),
+            _SectionTitle(
+              icon: Icons.person_outline_rounded,
+              title: isPt ? 'Personagem' : 'Character',
+            ),
+            _SettingsCard(
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.badge_outlined, color: KageColors.chakraCyan),
+                title: Text(isPt ? 'Personagem principal' : 'Primary character'),
+                subtitle: Text(
+                  _loadingCharacter
+                      ? (isPt ? 'Carregando...' : 'Loading...')
+                      : character.isNotEmpty
+                          ? character
+                          : (isPt ? 'Nenhum personagem configurado' : 'No character configured'),
+                ),
+                trailing: const Icon(Icons.edit_outlined),
+                onTap: profile == null ? null : _editPrimaryCharacter,
+              ),
+            ),
             const SizedBox(height: 22),
             _SectionTitle(icon: Icons.auto_awesome_rounded, title: l10n.appearanceSection),
             _SettingsCard(
@@ -88,7 +259,7 @@ class SettingsScreen extends StatelessWidget {
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (_) => GameControlsSettingsScreen(
-                      controller: gameControlsController,
+                      controller: widget.gameControlsController,
                     ),
                   ),
                 ),

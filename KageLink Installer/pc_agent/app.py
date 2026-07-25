@@ -24,6 +24,7 @@ from pc_agent.chat_sender import ChatSender
 from pc_agent.config import RESOURCE_DIR, load_config, update_input_preference
 from pc_agent.history import HistoryStore
 from pc_agent.leafos import LeafOSProcessor, LeafOSRawExporter
+from pc_agent.primary_character_api import create_primary_character_router
 from pc_agent.game_protocol import parse_control_message, normalize_view_mode
 from pc_agent.game_runtime import GameRuntime
 from pc_agent.stats_protocol import parse_stats_control_message
@@ -255,6 +256,7 @@ app = FastAPI(
     redoc_url=None,
 )
 app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
+app.include_router(create_primary_character_router(history, security))
 
 
 @app.get("/api/health", include_in_schema=False)
@@ -482,7 +484,6 @@ async def game_control_endpoint(
     if not security.valid(token):
         await websocket.close(code=1008, reason="INVALID_TOKEN")
         return
-
 
     await websocket.accept()
     last_signal = time.monotonic()

@@ -9,8 +9,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from pc_agent.config import load_config
+from pc_agent.history import HistoryStore
+from pc_agent.primary_character import resolve_primary_character
 
-PROMPT_VERSION = "leafos-interpreter-v1"
+
+PROMPT_VERSION = "leafos-interpreter-v2"
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
 DEFAULT_MODEL = "qwen3:14b"
 DEFAULT_MAX_TRANSCRIPT_CHARS = 48000
@@ -105,6 +109,8 @@ INTERPRETATION_SCHEMA: dict[str, Any] = {
 
 SYSTEM_PROMPT = """You are the LeafOS Interpreter for a persistent roleplay memory system.
 Interpret ONLY the supplied session transcript. Never use outside Naruto knowledge, prior knowledge, assumptions about characters, or information not present in the supplied messages.
+PRIMARY_CHARACTER, when non-empty, is the user's configured roleplay character for this session. Never assume the user's character is Leafos or any other fixed identity.
+The legacy JSON field leafos_memories means candidate subjective memories belonging to PRIMARY_CHARACTER. If PRIMARY_CHARACTER is empty, leave leafos_memories empty rather than guessing an owner.
 Your output is NOT canonical memory. It is a set of review candidates.
 Every candidate must cite one or more source_message_ids from the supplied transcript.
 If the transcript does not support something, omit it.
@@ -222,6 +228,7 @@ def _build_user_prompt(session: dict[str, Any], messages: list[dict[str, Any]], 
         f'SESSION_ID: {session.get("session_id", "")}\n'
         f'STARTED_AT: {session.get("started_at", "")}\n'
         f'ENDED_AT: {session.get("ended_at", "")}\n'
+        f'PRIMARY_CHARACTER: {session.get("primary_character", "")}\n'
         f'PARTICIPANTS_DETECTED: {json.dumps(participants, ensure_ascii=False)}\n'
         f'TRANSCRIPT_TRUNCATED: {str(truncated).lower()}\n\n'
         'TRANSCRIPT:\n' + "\n\n".join(transcript_lines)
@@ -291,11 +298,13 @@ class LeafOSInterpreter:
         *,
         max_transcript_chars: int = DEFAULT_MAX_TRANSCRIPT_CHARS,
         logger: logging.Logger | None = None,
+        primary_character_resolver: Any | None = None,
     ) -> None:
         self.vault_path = Path(vault_path)
         self.provider = provider
         self.max_transcript_chars = max(4000, int(max_transcript_chars))
         self.logger = logger or logging.getLogger("kagelink.leafos.interpreter")
+        self.primary_character_resolver = primary_character_resolver
 
     @property
     def sessions_dir(self) -> Path:
@@ -324,6 +333,7 @@ class LeafOSInterpreter:
             "session_id": str(session.get("session_id", "")),
             "started_at": session.get("started_at"),
             "ended_at": session.get("ended_at"),
+            "primary_character": str(session.get("primary_character", "") or ""),
             "participants": session.get("participants", []),
             "message_ids": session.get("message_ids", []),
             "raw_sources": session.get("raw_sources", []),
@@ -390,6 +400,17 @@ class LeafOSInterpreter:
                 skipped += 1
                 continue
 
+            if not str(session.get("primary_character", "") or "").strip() and self.primary_character_resolver is not None:
+                try:
+                    resolved = self.primary_character_resolver(session)
+                    session["primary_character"] = str(resolved or "").strip()
+                except Exception:
+                    self.logger.exception(
+                        "[LeafOS Interpreter ERROR] Could not resolve primary character for session %s",
+                        session_id,
+                    )
+                    session["primary_character"] = ""
+
             messages, truncated = _select_messages(session, self.max_transcript_chars)
             allowed_ids: set[int] = set()
             for item in messages:
@@ -446,10 +467,16 @@ def main() -> int:
         model=args.model,
         timeout_seconds=args.timeout,
     )
+    agent_config = load_config()
+    history = HistoryStore(agent_config.database_path)
     interpreter = LeafOSInterpreter(
         Path(args.vault),
         provider,
         max_transcript_chars=args.max_transcript_chars,
+        primary_character_resolver=lambda session: resolve_primary_character(
+            history,
+            session.get("started_at"),
+        ),
     )
     result = interpreter.run_once(max_sessions=args.max_sessions)
     print(json.dumps(result, ensure_ascii=False))

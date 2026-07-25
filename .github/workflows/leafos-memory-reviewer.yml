@@ -1,0 +1,50 @@
+name: LeafOS Memory Reviewer CI
+
+on:
+  pull_request:
+    paths:
+      - "KageLink Installer/pc_agent/**"
+      - "KageLink Installer/lib/**"
+      - "KageLink Installer/test/**"
+      - "KageLink Installer/pubspec.yaml"
+      - "KageLink Installer/pubspec.lock"
+      - "LEAFOS_MEMORY_REVIEWER.md"
+      - ".github/workflows/leafos-memory-reviewer.yml"
+
+jobs:
+  pc-agent-python:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: "KageLink Installer/pc_agent"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: "KageLink Installer/pc_agent/requirements.txt"
+      - name: Install PC Agent dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run full Python suite
+        run: python -m unittest discover -s tests -v
+      - name: Compile Python sources
+        run: python -m compileall .
+
+  flutter-regression:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: "KageLink Installer"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Flutter pub get
+        run: flutter pub get
+      - name: Flutter analyze
+        run: flutter analyze
+      - name: Flutter tests
+        run: flutter test

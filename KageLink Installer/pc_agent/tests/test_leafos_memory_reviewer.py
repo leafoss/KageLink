@@ -32,6 +32,8 @@ class LeafOSMemoryReviewerTests(unittest.TestCase):
             self.assertEqual(entry["review_status"], "approved")
             self.assertEqual(entry["source"]["source_message_ids"], [101])
             self.assertEqual(entry["source"]["evidence"][0]["speaker"], "Uzumaki, Urahara")
+            self.assertNotIn("review_status", entry["content"])
+            self.assertNotIn("review_status", entry["review"]["approved_candidate"])
             memory = json.loads(reviewer.canonical_memory_path.read_text(encoding="utf-8"))
             self.assertEqual(len(memory["entries"]), 1)
 

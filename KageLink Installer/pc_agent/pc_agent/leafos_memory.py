@@ -332,6 +332,10 @@ class LeafOSMemoryReviewer:
         original = deepcopy(record["candidate"])
         approved = deepcopy(original) if edited_candidate is None else validate_edit(original, edited_candidate)
         edited = approved != original
+
+        # review_status pertence ao ciclo do candidato do Interpreter.
+        # Na memória canônica, o estado oficial fica no nível da entry.
+        approved.pop("review_status", None)
         epistemic = epistemic_metadata(record, approved, evidence_context["evidence"])
 
         memory = self._load_memory()

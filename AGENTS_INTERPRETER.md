@@ -137,7 +137,7 @@ session_id: 2026-07-26_011
 13864: (***Anbu** Your secondary Element is: Earth*)
 ```
 
-O teste deve cobrir também as interpretações redundantes observadas:
+Na execução real, o Reviewer mostrou que o LLM havia entendido os dois elementos, mas os publicou como eventos atribuídos ao `Anbu` visível:
 
 ```text
 Revealing Primary Element
@@ -147,13 +147,15 @@ Revealing Secondary Element
 Anbu revealed the secondary element as Earth.
 ```
 
-Resultado esperado do Reviewer após o pós-processamento determinístico:
+Esse resultado foi usado para endurecer o contrato antes do merge. A regressão automatizada usa exatamente a sintaxe e os IDs observados e exige como pós-processamento final:
 
 - dois candidatos `facts` neutros;
 - IDs `13863` e `13864` preservados separadamente;
 - nenhuma atribuição `Leafos`/`Anbu` nos statements finais;
 - versões redundantes do modelo apenas em auditoria;
 - ruído mecânico de pickup/drop continua fora da fila normal.
+
+A validação manual comprova a entrada real e a capacidade do pipeline de detectar o conteúdo; a forma neutra final adicionada depois desse log é coberta pela regressão automatizada correspondente.
 
 ## 8. Como adicionar novos formatos do sistema
 

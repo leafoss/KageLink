@@ -719,7 +719,7 @@ O script:
 Saída:
 
 ```text
-KageLink Installer\KageLink-v3.4.1.apk
+KageLink Installer\KageLink-Android.apk
 ```
 
 **O instalador Windows não gera o APK.**
@@ -747,7 +747,7 @@ O builder:
 Saída:
 
 ```text
-KageLink Installer\installer\output\KageLink-PC-Agent-Setup-v3.4.1.exe
+KageLink Installer\installer\output\KageLink-Windows-Setup.exe
 ```
 
 O **usuário final** não precisa instalar Python para executar o KageLink já empacotado. Python é requisito do processo de build, não do uso normal do Setup final.

@@ -21,6 +21,10 @@ _SECONDARY_ELEMENT = re.compile(
     r"^\s*(?:your\s+)?secondary\s+element\s+is\s*:\s*(?P<value>[^\r\n]+?)\s*$",
     re.IGNORECASE,
 )
+_SYSTEM_WRAPPER = re.compile(
+    r"^\(\*{3}(?P<visible_identity>.+?)\*{2}\s+(?P<content>.+?)\*\)\s*$",
+    re.IGNORECASE,
+)
 
 
 def _clean_revelation_value(value: str) -> str:
@@ -28,13 +32,33 @@ def _clean_revelation_value(value: str) -> str:
     return cleaned.strip(" .,:;!?()[]{}")[:120]
 
 
+def _system_revelation_payload(text: str) -> str:
+    """Return the system payload without assigning the visible wrapper identity.
+
+    Shinobi Story Online can persist a system result inside the same RP-style
+    wrapper used for visible actions, for example:
+
+        (***Anbu** Your primary Element is: Fire*)
+
+    The wrapper is transport/presentation evidence only. Removing it here does
+    not establish that Anbu, Leafos, or any other character owns the result.
+    """
+
+    cleaned = str(text or "").strip()
+    match = _SYSTEM_WRAPPER.match(cleaned)
+    if match is not None:
+        return str(match.group("content") or "").strip()
+    return cleaned
+
+
 def _durable_system_revelations(session: dict[str, Any]) -> list[dict[str, Any]]:
     """Extract only explicit, durable system revelations with known log syntax.
 
     v3.2.1 intentionally starts narrow. It recognizes the exact Element result
-    lines observed in Shinobi Story Online and does not infer who owns the result.
-    Additional durable system formats should be added only after their real log
-    syntax is observed and regression-tested.
+    lines observed in Shinobi Story Online, including their real RP-style wrapper,
+    and does not infer who owns the result. Additional durable system formats
+    should be added only after their real log syntax is observed and regression-
+    tested.
     """
 
     result: list[dict[str, Any]] = []
@@ -46,7 +70,7 @@ def _durable_system_revelations(session: dict[str, Any]) -> list[dict[str, Any]]
         except (TypeError, ValueError):
             continue
 
-        text = str(message.get("text") or "").strip()
+        text = _system_revelation_payload(str(message.get("text") or ""))
         if not text:
             continue
 
@@ -108,6 +132,16 @@ def _same_revelation_candidate(
     return bool(value and value in text and marker in text and "element" in text)
 
 
+def _replacement_suppression(category: str, candidate: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "category": category,
+        "decision": "replaced_by_durable_system_revelation",
+        "score": 0,
+        "signals": ["deterministic_system_revelation:+0"],
+        "candidate": deepcopy(candidate),
+    }
+
+
 def _refresh_salience_metadata(result: dict[str, Any]) -> None:
     kept_count = 0
     for category in v32.LeafOSInterpreter.CATEGORIES:
@@ -159,28 +193,23 @@ class LeafOSInterpreter(v32.LeafOSInterpreter):
         result["salience_base_version"] = v32.PROMPT_VERSION
 
         revelations = _durable_system_revelations(session)
-        facts = result.get("facts")
-        if not isinstance(facts, list):
-            facts = []
-            result["facts"] = facts
-
         suppressed = result.get("suppressed_candidates")
         if not isinstance(suppressed, list):
             suppressed = []
 
         promoted = 0
+        replaced_model_candidates = 0
         detected_fields: list[str] = []
         for revelation in revelations:
             field = str(revelation.get("field") or "")
             if field and field not in detected_fields:
                 detected_fields.append(field)
 
-            # If v3.2 already suppressed a model-produced version of exactly the
-            # same explicit system revelation, remove only that matching audit
-            # record before adding the deterministic grounded fact.
+            # A prior v3.2 low-salience/invalid-category copy of the same explicit
+            # system line is redundant once the deterministic candidate exists.
             filtered_suppressed: list[dict[str, Any]] = []
             for item in suppressed:
-                if not isinstance(item, dict) or item.get("category") != "facts":
+                if not isinstance(item, dict):
                     filtered_suppressed.append(item)
                     continue
                 candidate = item.get("candidate")
@@ -190,6 +219,32 @@ class LeafOSInterpreter(v32.LeafOSInterpreter):
                 ):
                     filtered_suppressed.append(item)
             suppressed = filtered_suppressed
+
+            # Real validation showed qwen can create an event such as
+            # "Anbu revealed the primary element as Fire" from the wrapped system
+            # line. Keep that model output for audit, but replace it in the normal
+            # Reviewer queue with the neutral deterministic system fact so no
+            # hidden/visible identity attribution is introduced by the model.
+            for category in self.CATEGORIES:
+                values = result.get(category, [])
+                if not isinstance(values, list):
+                    result[category] = []
+                    continue
+                kept: list[dict[str, Any]] = []
+                for candidate in values:
+                    if not isinstance(candidate, dict):
+                        continue
+                    if _same_revelation_candidate(candidate, revelation):
+                        suppressed.append(_replacement_suppression(category, candidate))
+                        replaced_model_candidates += 1
+                        continue
+                    kept.append(candidate)
+                result[category] = kept
+
+            facts = result.get("facts")
+            if not isinstance(facts, list):
+                facts = []
+                result["facts"] = facts
 
             deterministic_candidate = deepcopy(revelation["candidate"])
             if any(
@@ -207,8 +262,10 @@ class LeafOSInterpreter(v32.LeafOSInterpreter):
             "mode": "deterministic_explicit_patterns",
             "detected": len(revelations),
             "promoted": promoted,
+            "replaced_model_candidates": replaced_model_candidates,
             "fields": detected_fields,
             "identity_attribution": "not_inferred",
+            "wrapped_log_syntax_supported": True,
         }
         _refresh_salience_metadata(result)
         return result

@@ -981,6 +981,25 @@ Uma tarefa está pronta quando:
 
 ---
 
+## 23. Internacionalizacao obrigatoria
+
+KageLink deve tratar **PT-BR e EN-US como idiomas oficiais de primeira classe** desde a arquitetura inicial.
+
+Regras permanentes:
+
+- toda nova interface visivel ao usuario deve prever PT-BR e EN-US;
+- labels, botoes, menus, dialogs, avisos, erros, status, tooltips, onboarding e configuracoes devem usar o sistema de localizacao quando aplicavel;
+- nao adicionar texto de UI hardcoded em um unico idioma quando existir infraestrutura de internacionalizacao;
+- novas chaves de localizacao devem existir nos dois idiomas antes da funcionalidade ser considerada pronta;
+- documentacao relevante deve manter equivalencia entre PT-BR e EN-US;
+- CLI e mensagens controladas pelo KageLink devem respeitar o idioma configurado quando aplicavel;
+- valores tecnicos, protocolos, IDs, nomes de arquivos, campos JSON e contratos de API nao devem ser traduzidos quando isso quebraria compatibilidade;
+- fallback de idioma deve ser previsivel e nunca comprometer funcionamento;
+- codigo legado pode ser migrado incrementalmente, sem refatoracoes amplas nao relacionadas;
+- alteracoes de localizacao nao autorizam mudancas funcionais incidentais.
+
+---
+
 # Mandamento final
 
 > **KageLink deve evoluir sem perder o que já funciona. O GitHub é a memória oficial; `Says:` é um contrato exato; chat, GAME, STATS e LeafOS devem permanecer coerentes, isolados e rastreáveis.**

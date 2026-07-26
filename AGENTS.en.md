@@ -441,6 +441,37 @@ When enabled/configured, the processor:
 - must not process the same IDs repeatedly;
 - remains isolated from chat/GAME/STATS/tunnel.
 
+### Interpreter / Memory Reviewer / Canonical Memory
+
+The official memory flow is:
+
+```text
+immutable RAW
+  ↓
+LeafOS Processor
+  ↓
+closed session
+  ↓
+LeafOS Interpreter
+  ↓
+Interpretation Bundle (pending_review)
+  ↓
+LeafOS Memory Reviewer
+  ↓
+Canonical Memory
+```
+
+Permanent rules:
+
+- the Interpreter produces candidates, never automatic canonical truth;
+- no candidate enters canonical memory without explicit human approval or edit + approval;
+- RAW, Processor Session and Interpreter Bundle are read-only to the Reviewer;
+- promotion requires a valid evidence chain back to RAW;
+- `60 - Canonical Memory/memory.json` is the computable canonical source;
+- `60 - Canonical Memory/MEMORY.md` is only a derived, regenerable projection;
+- invalid or corrupted Reviewer or Canonical Memory JSON must block processing and writes;
+- existing invalid JSON must never be silently treated as empty state and overwritten.
+
 ### Privacy
 
 Never commit:
@@ -790,7 +821,11 @@ Validate:
 - write error does not advance cursor;
 - processor does not reprocess;
 - session gap handling;
-- processor failure remains isolated.
+- processor failure remains isolated;
+- Reviewer requires valid evidence back to RAW before promotion;
+- canonical memory requires explicit human review;
+- corrupted Reviewer/Canonical Memory JSON blocks writes instead of assuming empty state;
+- localization catalogs and user-facing derived output preserve EN-US/PT-BR parity.
 
 ### GAME
 
@@ -940,9 +975,29 @@ A task is truly done when:
 - duplicated rules were checked;
 - tests passed or limitations are explicitly recorded;
 - no known regression remains;
-- relevant documentation is current;
+- EN-US/PT-BR localization impact was verified for user-visible text;
+- relevant documentation is current and preserves language parity when user-facing;
 - real build validation is done when required;
 - there is no “correct version” that exists only outside the repository.
+
+---
+
+## 23. Mandatory internationalization
+
+KageLink must treat **PT-BR and EN-US as first-class official languages** from the initial architecture.
+
+Permanent rules:
+
+- every new user-visible interface must account for PT-BR and EN-US;
+- labels, buttons, menus, dialogs, warnings, errors, status messages, tooltips, onboarding and settings must use the localization system when applicable;
+- do not add single-language hardcoded UI text when localization infrastructure exists;
+- new localization keys must exist in both languages before a feature is considered complete;
+- relevant documentation must maintain equivalent PT-BR and EN-US versions;
+- CLI and KageLink-controlled messages should respect the configured language when applicable;
+- technical values, protocols, IDs, filenames, JSON fields and API contracts must not be translated when translation would break compatibility;
+- language fallback must be predictable and must never compromise functionality;
+- legacy code may be migrated incrementally without unrelated broad refactoring;
+- localization changes do not authorize incidental functional changes.
 
 ---
 

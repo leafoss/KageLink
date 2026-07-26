@@ -197,9 +197,11 @@ class LeafOSMemoryReviewerTests(unittest.TestCase):
             candidate = reviewer.list_candidates("2026-07-24_001")[0]
             reviewer.approve(candidate["candidate_id"])
             text = reviewer.canonical_markdown_path.read_text(encoding="utf-8")
-            self.assertIn("DERIVED VIEW", text)
-            self.assertIn("canonical source is `memory.json`", text)
-            self.assertIn("## Events", text)
+            self.assertIn("DERIVED VIEW / VISUALIZAÇÃO DERIVADA", text)
+            self.assertIn("The canonical source is `memory.json`", text)
+            self.assertIn("A fonte canônica é `memory.json`", text)
+            self.assertIn("## Events / Eventos", text)
+            self.assertIn("No approved entries. / Nenhuma entrada aprovada.", text)
 
 
 if __name__ == "__main__":

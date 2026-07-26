@@ -134,12 +134,40 @@ def _raw_records(path: Path) -> dict[int, dict[str, Any]]:
     return result
 
 
-def _display_candidate(candidate: dict[str, Any]) -> str:
+def _display_candidate(candidate: dict[str, Any], *, fallback: str = "Candidate") -> str:
     for key in ("title", "statement", "memory", "observation", "description", "name"):
         value = str(candidate.get(key, "") or "").strip()
         if value:
             return value
-    return "Candidate"
+    return fallback
+
+
+MEMORY_MARKDOWN_TEXT = {
+    "pt-BR": {
+        "title": "Memória Canônica LeafOS", "derived": "VISUALIZAÇÃO DERIVADA",
+        "notice": "A fonte canônica é `memory.json`. Este Markdown é regenerado a partir dela e não deve ser editado como uma segunda fonte de verdade.",
+        "updated": "Atualizado", "events": "Eventos", "characters": "Personagens", "locations": "Locais",
+        "relationships": "Relacionamentos", "lore": "Conhecimento", "memories": "Memórias",
+        "no_entries": "Nenhuma entrada aprovada.", "candidate": "Candidato", "memory_id": "ID da memória",
+        "session": "Sessão", "primary_character": "Personagem principal", "epistemic_type": "Tipo epistêmico",
+        "perspective": "Perspectiva", "speaker": "Falante", "known_by": "Conhecido por",
+        "source_message_ids": "IDs das mensagens-fonte", "review_status": "Status da revisão",
+    },
+    "en-US": {
+        "title": "LeafOS Canonical Memory", "derived": "DERIVED VIEW",
+        "notice": "The canonical source is `memory.json`. This Markdown is regenerated from it and must not be edited as a second source of truth.",
+        "updated": "Updated", "events": "Events", "characters": "Characters", "locations": "Locations",
+        "relationships": "Relationships", "lore": "Lore", "memories": "Memories",
+        "no_entries": "No approved entries.", "candidate": "Candidate", "memory_id": "Memory ID",
+        "session": "Session", "primary_character": "Primary character", "epistemic_type": "Epistemic type",
+        "perspective": "Perspective", "speaker": "Speaker", "known_by": "Known by",
+        "source_message_ids": "Source message IDs", "review_status": "Review status",
+    },
+}
+
+
+def _memory_bilingual(key: str) -> str:
+    return f"{MEMORY_MARKDOWN_TEXT['en-US'][key]} / {MEMORY_MARKDOWN_TEXT['pt-BR'][key]}"
 
 
 def render_memory_markdown(path: Path, payload: dict[str, Any]) -> None:
@@ -152,48 +180,42 @@ def render_memory_markdown(path: Path, payload: dict[str, Any]) -> None:
             groups[category].append(entry)
 
     lines = [
-        "# LeafOS Canonical Memory",
+        f"# {_memory_bilingual('title')}",
         "",
-        "> **DERIVED VIEW.** The canonical source is `memory.json`. This Markdown file is regenerated from it and must not be edited as a second source of truth.",
+        f"> **{_memory_bilingual('derived')}.**",
+        f"> EN-US: {MEMORY_MARKDOWN_TEXT['en-US']['notice']}",
+        f"> PT-BR: {MEMORY_MARKDOWN_TEXT['pt-BR']['notice']}",
         "",
-        f"Updated: `{payload.get('updated_at', '')}`",
+        f"{_memory_bilingual('updated')}: `{payload.get('updated_at', '')}`",
         "",
     ]
-    labels = {
-        "events": "Events",
-        "characters": "Characters",
-        "locations": "Locations",
-        "relationships": "Relationships",
-        "lore": "Lore",
-        "memories": "Memories",
-    }
-    for category, label in labels.items():
-        lines.extend([f"## {label}", ""])
+    for category in groups:
+        lines.extend([f"## {_memory_bilingual(category)}", ""])
         entries = groups[category]
         if not entries:
-            lines.extend(["_No approved entries._", ""])
+            lines.extend([f"_{_memory_bilingual('no_entries')}_", ""])
             continue
         for entry in entries:
             content = entry.get("content") if isinstance(entry.get("content"), dict) else {}
-            title = _display_candidate(content)
+            title = _display_candidate(content, fallback=_memory_bilingual("candidate"))
             lines.append(f"### {title}")
             lines.append("")
-            lines.append(f"- Memory ID: `{entry.get('memory_id', '')}`")
-            lines.append(f"- Session: `{entry.get('session_id', '')}`")
+            lines.append(f"- {_memory_bilingual('memory_id')}: `{entry.get('memory_id', '')}`")
+            lines.append(f"- {_memory_bilingual('session')}: `{entry.get('session_id', '')}`")
             primary = str(entry.get("primary_character", "") or "")
             if primary:
-                lines.append(f"- Primary character: **{primary}**")
+                lines.append(f"- {_memory_bilingual('primary_character')}: **{primary}**")
             epistemic = entry.get("epistemic") if isinstance(entry.get("epistemic"), dict) else {}
-            lines.append(f"- Epistemic type: `{epistemic.get('type', 'reviewed_world')}`")
+            lines.append(f"- {_memory_bilingual('epistemic_type')}: `{epistemic.get('type', 'reviewed_world')}`")
             if epistemic.get("perspective"):
-                lines.append(f"- Perspective: `{epistemic.get('perspective')}`")
+                lines.append(f"- {_memory_bilingual('perspective')}: `{epistemic.get('perspective')}`")
             if epistemic.get("speaker"):
-                lines.append(f"- Speaker: **{epistemic.get('speaker')}**")
+                lines.append(f"- {_memory_bilingual('speaker')}: **{epistemic.get('speaker')}**")
             if epistemic.get("known_by"):
-                lines.append(f"- Known by: **{epistemic.get('known_by')}**")
+                lines.append(f"- {_memory_bilingual('known_by')}: **{epistemic.get('known_by')}**")
             source = entry.get("source") if isinstance(entry.get("source"), dict) else {}
-            lines.append(f"- Source message IDs: `{source.get('source_message_ids', [])}`")
-            lines.append(f"- Review status: `{entry.get('review_status', '')}`")
+            lines.append(f"- {_memory_bilingual('source_message_ids')}: `{source.get('source_message_ids', [])}`")
+            lines.append(f"- {_memory_bilingual('review_status')}: `{entry.get('review_status', '')}`")
             lines.append("")
             lines.append("```json")
             lines.append(json.dumps(content, ensure_ascii=False, indent=2))

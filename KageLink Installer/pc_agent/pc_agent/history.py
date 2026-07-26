@@ -36,7 +36,6 @@ class HistoryStore:
                 )
                 """
             )
-
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS runtime_state (
@@ -45,7 +44,6 @@ class HistoryStore:
                 )
                 """
             )
-
             columns = {
                 str(row["name"])
                 for row in connection.execute("PRAGMA table_info(messages)").fetchall()
@@ -54,9 +52,6 @@ class HistoryStore:
                 connection.execute(
                     "ALTER TABLE messages ADD COLUMN channel TEXT NOT NULL DEFAULT 'ooc'"
                 )
-
-            # Safely classify legacy records that were already stored as a
-            # complete (* ... *) block. Fragmented legacy rows remain OOC.
             connection.execute(
                 """
                 UPDATE messages
@@ -72,6 +67,53 @@ class HistoryStore:
     def _channel(value: str) -> str:
         normalized = str(value or "ooc").strip().lower()
         return normalized if normalized in VALID_CHANNELS else "ooc"
+
+    @staticmethod
+    def _record(row: sqlite3.Row) -> dict:
+        return {
+            "id": int(row["id"]),
+            "timestamp": str(row["timestamp"]),
+            "direction": str(row["direction"]),
+            "channel": HistoryStore._channel(row["channel"]),
+            "text": str(row["text"]),
+            "resynchronized": bool(row["resynchronized"]),
+        }
+
+    def max_message_id(self) -> int:
+        with self._lock, closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                "SELECT COALESCE(MAX(id), 0) AS max_id FROM messages"
+            ).fetchone()
+        return int(row["max_id"] if row is not None else 0)
+
+    def ensure_next_message_id_after(self, floor: int) -> int:
+        """Ensure future AUTOINCREMENT IDs are strictly greater than ``floor``."""
+
+        safe_floor = max(0, int(floor))
+        with self._lock, closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                "SELECT COALESCE(MAX(id), 0) AS max_id FROM messages"
+            ).fetchone()
+            max_existing = int(row["max_id"] if row is not None else 0)
+            target = max(safe_floor, max_existing)
+
+            sequence = connection.execute(
+                "SELECT seq FROM sqlite_sequence WHERE name = 'messages'"
+            ).fetchone()
+            current_sequence = int(sequence["seq"] if sequence is not None else 0)
+            if current_sequence < target:
+                if sequence is None:
+                    connection.execute(
+                        "INSERT INTO sqlite_sequence(name, seq) VALUES ('messages', ?)",
+                        (target,),
+                    )
+                else:
+                    connection.execute(
+                        "UPDATE sqlite_sequence SET seq = ? WHERE name = 'messages'",
+                        (target,),
+                    )
+                connection.commit()
+            return max(target, current_sequence)
 
     def add(
         self,
@@ -129,7 +171,6 @@ class HistoryStore:
             )
             connection.commit()
 
-
     def get_runtime_state(self, key: str, default: str = "") -> str:
         with self._lock, closing(self._connect()) as connection, connection:
             row = connection.execute(
@@ -150,6 +191,24 @@ class HistoryStore:
             )
             connection.commit()
 
+    def messages_after_id(self, after_id: int, limit: int = 1000) -> list[dict]:
+        """Return incoming and outgoing chat rows after a stable message cursor."""
+
+        safe_after_id = max(0, int(after_id))
+        safe_limit = max(1, min(int(limit), 5000))
+        with self._lock, closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                """
+                SELECT id, timestamp, direction, channel, text, resynchronized
+                FROM messages
+                WHERE id > ?
+                ORDER BY id ASC
+                LIMIT ?
+                """,
+                (safe_after_id, safe_limit),
+            ).fetchall()
+        return [self._record(row) for row in rows]
+
     def incoming_after_id(self, after_id: int, limit: int = 2000) -> list[dict]:
         safe_after_id = max(0, int(after_id))
         safe_limit = max(1, min(int(limit), 5000))
@@ -164,17 +223,7 @@ class HistoryStore:
                 """,
                 (safe_after_id, safe_limit),
             ).fetchall()
-        return [
-            {
-                "id": int(row["id"]),
-                "timestamp": str(row["timestamp"]),
-                "direction": str(row["direction"]),
-                "channel": self._channel(row["channel"]),
-                "text": str(row["text"]),
-                "resynchronized": bool(row["resynchronized"]),
-            }
-            for row in rows
-        ]
+        return [self._record(row) for row in rows]
 
     def recent_incoming_records(self, limit: int = 500) -> list[tuple[str, str]]:
         safe_limit = max(1, min(int(limit), 2000))
@@ -221,15 +270,4 @@ class HistoryStore:
                 """,
                 (safe_limit,),
             ).fetchall()
-
-        return [
-            {
-                "id": int(row["id"]),
-                "timestamp": row["timestamp"],
-                "direction": row["direction"],
-                "channel": self._channel(row["channel"]),
-                "text": row["text"],
-                "resynchronized": bool(row["resynchronized"]),
-            }
-            for row in reversed(rows)
-        ]
+        return [self._record(row) for row in reversed(rows)]

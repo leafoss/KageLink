@@ -1,4 +1,4 @@
-﻿#define MyAppName "KageLink PC Agent"
+﻿#define MyAppName "KageLink"
 #define MyAppVersion "3.4.1"
 #define MyAppPublisher "KageLink"
 #define MyAppExeName "KageLink.exe"

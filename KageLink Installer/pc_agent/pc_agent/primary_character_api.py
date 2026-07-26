@@ -26,19 +26,25 @@ class PrimaryCharacterRequest(BaseModel):
 
 
 CharacterChangeHook = Callable[[], dict[str, Any] | Awaitable[dict[str, Any]]]
-_character_change_hook: CharacterChangeHook | None = None
+_character_change_before_hook: CharacterChangeHook | None = None
+_character_change_after_hook: CharacterChangeHook | None = None
 
 
-def set_character_change_hook(hook: CharacterChangeHook | None) -> None:
-    """Install the runtime hook used to quiesce chat before identity changes.
+def set_character_change_hook(
+    before_hook: CharacterChangeHook | None,
+    after_hook: CharacterChangeHook | None = None,
+) -> None:
+    """Install runtime hooks around an authoritative identity transition.
 
-    The unified desktop registers an async hook that pauses the monitor, performs
-    the final read/RAW sync, and closes the old session. Legacy/source-only uses
-    retain the deterministic local fallback below.
+    The unified desktop pauses the chat monitor and closes the old session in the
+    before-hook, keeps the monitor paused while the new character is committed,
+    and resumes capture only in the after-hook. Legacy/source-only uses retain the
+    deterministic local fallback.
     """
 
-    global _character_change_hook
-    _character_change_hook = hook
+    global _character_change_before_hook, _character_change_after_hook
+    _character_change_before_hook = before_hook
+    _character_change_after_hook = after_hook
 
 
 def _flush_and_close_leafos_session(history: HistoryStore) -> dict[str, Any]:
@@ -78,14 +84,23 @@ def _flush_and_close_leafos_session(history: HistoryStore) -> dict[str, Any]:
     )
 
 
-async def _finalize_before_character_change(history: HistoryStore) -> dict[str, Any]:
-    hook = _character_change_hook
+async def _run_hook(hook: CharacterChangeHook | None) -> dict[str, Any]:
     if hook is None:
-        return _flush_and_close_leafos_session(history)
+        return {}
     result = hook()
     if inspect.isawaitable(result):
         result = await result
     return dict(result or {})
+
+
+async def _finalize_before_character_change(history: HistoryStore) -> dict[str, Any]:
+    if _character_change_before_hook is None:
+        return _flush_and_close_leafos_session(history)
+    return await _run_hook(_character_change_before_hook)
+
+
+async def _resume_after_character_change() -> dict[str, Any]:
+    return await _run_hook(_character_change_after_hook)
 
 
 def create_primary_character_router(
@@ -115,13 +130,20 @@ def create_primary_character_router(
             name = normalize_character_name(request.name)
             current = get_primary_character(history)
             close_result = None
+            after_result = None
             if name != current:
                 # The old identity remains authoritative until its session has
-                # been fully flushed and closed.
+                # been fully flushed and closed. Capture stays paused until after
+                # the new identity is committed below.
                 close_result = await _finalize_before_character_change(history)
-            result = set_primary_character(history, name)
+                result = set_primary_character(history, name)
+                after_result = await _resume_after_character_change()
+            else:
+                result = set_primary_character(history, name)
             if close_result is not None:
                 result["previous_session"] = close_result
+            if after_result:
+                result["capture_resume"] = after_result
             return result
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error

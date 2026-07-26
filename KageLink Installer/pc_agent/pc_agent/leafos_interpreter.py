@@ -1,24 +1,29 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import urllib.error
 import urllib.request
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from pc_agent.config import load_config
 from pc_agent.history import HistoryStore
 from pc_agent.primary_character import resolve_primary_character
 
 
-PROMPT_VERSION = "leafos-interpreter-v2"
+PROMPT_VERSION = "leafos-interpreter-v3"
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
 DEFAULT_MODEL = "qwen3:14b"
-DEFAULT_MAX_TRANSCRIPT_CHARS = 48000
+DEFAULT_CHUNK_CHARS = 9000
+DEFAULT_MAX_TRANSCRIPT_CHARS = DEFAULT_CHUNK_CHARS
+DEFAULT_CHUNK_OVERLAP_MESSAGES = 2
 DEFAULT_OLLAMA_TIMEOUT_SECONDS = 600.0
+CHECKPOINT_SCHEMA_VERSION = 1
 
 INTERPRETATION_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -109,12 +114,13 @@ INTERPRETATION_SCHEMA: dict[str, Any] = {
 }
 
 SYSTEM_PROMPT = """You are the LeafOS Interpreter for a persistent roleplay memory system.
-Interpret ONLY the supplied session transcript. Never use outside Naruto knowledge, prior knowledge, assumptions about characters, or information not present in the supplied messages.
+Interpret ONLY the supplied session transcript chunk. Never use outside Naruto knowledge, prior knowledge, assumptions about characters, or information not present in the supplied messages.
+A long session may be divided into multiple chunks. Treat this request as self-contained: never infer what happened in omitted chunks and never invent continuity across chunk boundaries.
 PRIMARY_CHARACTER, when non-empty, is the user's configured roleplay character for this session. Never assume the user's character is Leafos or any other fixed identity.
 The legacy JSON field leafos_memories means candidate subjective memories belonging to PRIMARY_CHARACTER. If PRIMARY_CHARACTER is empty, leave leafos_memories empty rather than guessing an owner.
 Your output is NOT canonical memory. It is a set of review candidates.
-Every candidate must cite one or more source_message_ids from the supplied transcript.
-If the transcript does not support something, omit it.
+Every candidate must cite one or more source_message_ids from the supplied transcript chunk.
+If the supplied chunk does not support something, omit it.
 Distinguish direct observations/statements from inference. Prefer omission over speculation.
 Do not invent locations, relationships, motives, ranks, identities, factions, outcomes, or chronology.
 Return only data matching the supplied JSON schema.
@@ -173,11 +179,28 @@ def _clean_source_ids(value: Any, allowed_ids: set[int]) -> list[int]:
     return result
 
 
-def _select_messages(session: dict[str, Any], max_chars: int) -> tuple[list[dict[str, Any]], bool]:
+def _session_messages(session: dict[str, Any]) -> list[dict[str, Any]]:
     raw_messages = session.get("messages", [])
     if not isinstance(raw_messages, list):
-        return [], False
-    messages = [dict(item) for item in raw_messages if isinstance(item, dict)]
+        return []
+    return [dict(item) for item in raw_messages if isinstance(item, dict)]
+
+
+def _render_message(item: dict[str, Any]) -> str:
+    return (
+        f'[{item.get("id")}] timestamp={item.get("timestamp", "")} '
+        f'speaker={item.get("speaker") or "UNKNOWN"}\n{item.get("text", "")}'
+    )
+
+
+def _select_messages(session: dict[str, Any], max_chars: int) -> tuple[list[dict[str, Any]], bool]:
+    """Legacy head/tail selector retained for source compatibility.
+
+    Interpreter v3 no longer uses this lossy selector for normal processing; it
+    uses `_chunk_messages` so every session message reaches the model.
+    """
+
+    messages = _session_messages(session)
     rendered = [f'[{item.get("id")}] {item.get("speaker") or "UNKNOWN"}: {item.get("text", "")}' for item in messages]
     if sum(len(line) + 1 for line in rendered) <= max_chars:
         return messages, False
@@ -215,24 +238,110 @@ def _select_messages(session: dict[str, Any], max_chars: int) -> tuple[list[dict
     return selected, True
 
 
-def _build_user_prompt(session: dict[str, Any], messages: list[dict[str, Any]], truncated: bool) -> str:
-    transcript_lines = []
+def _chunk_messages(
+    session: dict[str, Any],
+    max_chars: int,
+    overlap_messages: int = DEFAULT_CHUNK_OVERLAP_MESSAGES,
+) -> list[list[dict[str, Any]]]:
+    """Split a session into ordered prompt-sized chunks without dropping messages."""
+
+    messages = _session_messages(session)
+    if not messages:
+        return []
+
+    safe_budget = max(4000, int(max_chars))
+    safe_overlap = max(0, int(overlap_messages))
+    chunks: list[list[dict[str, Any]]] = []
+    start = 0
+
+    while start < len(messages):
+        used = 0
+        end = start
+        while end < len(messages):
+            cost = len(_render_message(messages[end])) + 2
+            if end > start and used + cost > safe_budget:
+                break
+            used += cost
+            end += 1
+            if used >= safe_budget:
+                break
+
+        if end <= start:
+            end = start + 1
+
+        chunks.append(messages[start:end])
+        if end >= len(messages):
+            break
+
+        start = max(start + 1, end - safe_overlap)
+
+    return chunks
+
+
+def _message_ids(messages: Iterable[dict[str, Any]]) -> list[int]:
+    result: list[int] = []
     for item in messages:
-        transcript_lines.append(
-            f'[{item.get("id")}] timestamp={item.get("timestamp", "")} '
-            f'speaker={item.get("speaker") or "UNKNOWN"}\n{item.get("text", "")}'
-        )
+        try:
+            message_id = int(item.get("id"))
+        except (TypeError, ValueError):
+            continue
+        if message_id not in result:
+            result.append(message_id)
+    return result
+
+
+def _session_fingerprint(
+    session: dict[str, Any],
+    *,
+    chunk_chars: int,
+    overlap_messages: int,
+) -> str:
+    """Fingerprint semantic input so stale partial checkpoints are never reused."""
+
+    payload = {
+        "prompt_version": PROMPT_VERSION,
+        "session_id": str(session.get("session_id", "")),
+        "started_at": session.get("started_at"),
+        "ended_at": session.get("ended_at"),
+        "primary_character": str(session.get("primary_character", "") or ""),
+        "chunk_chars": int(chunk_chars),
+        "overlap_messages": int(overlap_messages),
+        "messages": [
+            {
+                "id": item.get("id"),
+                "timestamp": item.get("timestamp"),
+                "channel": item.get("channel"),
+                "speaker": item.get("speaker"),
+                "text": item.get("text"),
+                "raw_source": item.get("raw_source"),
+            }
+            for item in _session_messages(session)
+        ],
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _build_user_prompt(session: dict[str, Any], messages: list[dict[str, Any]], truncated: bool) -> str:
+    transcript_lines = [_render_message(item) for item in messages]
     participants = session.get("participants", [])
     if not isinstance(participants, list):
         participants = []
+
+    chunk_index = max(1, int(session.get("_interpreter_chunk_index", 1) or 1))
+    chunk_count = max(1, int(session.get("_interpreter_chunk_count", 1) or 1))
+    chunk_ids = _message_ids(messages)
     return (
         f'SESSION_ID: {session.get("session_id", "")}\n'
         f'STARTED_AT: {session.get("started_at", "")}\n'
         f'ENDED_AT: {session.get("ended_at", "")}\n'
         f'PRIMARY_CHARACTER: {session.get("primary_character", "")}\n'
         f'PARTICIPANTS_DETECTED: {json.dumps(participants, ensure_ascii=False)}\n'
+        f'SESSION_CHUNK: {chunk_index}/{chunk_count}\n'
+        f'SESSION_CHUNKED: {str(chunk_count > 1).lower()}\n'
+        f'CHUNK_MESSAGE_IDS: {json.dumps(chunk_ids)}\n'
         f'TRANSCRIPT_TRUNCATED: {str(truncated).lower()}\n\n'
-        'TRANSCRIPT:\n' + "\n\n".join(transcript_lines)
+        'TRANSCRIPT_CHUNK:\n' + "\n\n".join(transcript_lines)
     )
 
 
@@ -299,6 +408,9 @@ class OllamaInterpreterProvider:
         return result
 
 
+ProgressCallback = Callable[[dict[str, Any]], None]
+
+
 class LeafOSInterpreter:
     """Turns closed Processor sessions into non-canonical review candidates."""
 
@@ -310,14 +422,18 @@ class LeafOSInterpreter:
         provider: Any,
         *,
         max_transcript_chars: int = DEFAULT_MAX_TRANSCRIPT_CHARS,
+        chunk_overlap_messages: int = DEFAULT_CHUNK_OVERLAP_MESSAGES,
         logger: logging.Logger | None = None,
         primary_character_resolver: Any | None = None,
+        progress_callback: ProgressCallback | None = None,
     ) -> None:
         self.vault_path = Path(vault_path)
         self.provider = provider
         self.max_transcript_chars = max(4000, int(max_transcript_chars))
+        self.chunk_overlap_messages = max(0, int(chunk_overlap_messages))
         self.logger = logger or logging.getLogger("kagelink.leafos.interpreter")
         self.primary_character_resolver = primary_character_resolver
+        self.progress_callback = progress_callback
 
     @property
     def sessions_dir(self) -> Path:
@@ -328,8 +444,21 @@ class LeafOSInterpreter:
         return self.vault_path / "80 - Interpreter" / "interpreter_state.json"
 
     @property
+    def checkpoints_dir(self) -> Path:
+        return self.vault_path / "80 - Interpreter" / "Checkpoints"
+
+    @property
     def inbox_dir(self) -> Path:
         return self.vault_path / "70 - LeafOS Inbox" / "Interpretations"
+
+    def _emit_progress(self, event: str, **payload: Any) -> None:
+        callback = self.progress_callback
+        if callback is None:
+            return
+        try:
+            callback({"event": event, **payload})
+        except Exception:
+            self.logger.exception("[LeafOS Interpreter] Progress callback failed")
 
     def _normalize_result(
         self,
@@ -380,6 +509,146 @@ class LeafOSInterpreter:
             result[category] = cleaned
         return result
 
+    def _partial_result(
+        self,
+        session: dict[str, Any],
+        raw: dict[str, Any],
+        allowed_ids: set[int],
+    ) -> dict[str, Any]:
+        normalized = self._normalize_result(session, raw, allowed_ids, truncated=False)
+        partial: dict[str, Any] = {"summary": normalized.get("summary", "")}
+        for category in self.CATEGORIES:
+            partial[category] = normalized.get(category, [])
+        return partial
+
+    @staticmethod
+    def _candidate_key(candidate: dict[str, Any]) -> str:
+        semantic: dict[str, Any] = {}
+        for key, value in candidate.items():
+            if key in {"confidence", "source_message_ids", "review_status"}:
+                continue
+            if isinstance(value, str):
+                semantic[key] = " ".join(value.split()).casefold()
+            else:
+                semantic[key] = value
+        return json.dumps(semantic, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+
+    def _merge_chunk_results(
+        self,
+        session: dict[str, Any],
+        chunk_results: list[dict[str, Any]],
+        *,
+        chunk_count: int,
+    ) -> dict[str, Any]:
+        summaries: list[str] = []
+        for partial in chunk_results:
+            summary = _clean_text(partial.get("summary"), 6000)
+            if summary and summary not in summaries:
+                summaries.append(summary)
+
+        result: dict[str, Any] = {
+            "type": "interpretation_bundle",
+            "schema_version": 1,
+            "prompt_version": PROMPT_VERSION,
+            "session_id": str(session.get("session_id", "")),
+            "started_at": session.get("started_at"),
+            "ended_at": session.get("ended_at"),
+            "primary_character": str(session.get("primary_character", "") or ""),
+            "participants": session.get("participants", []),
+            "message_ids": session.get("message_ids", []),
+            "raw_sources": session.get("raw_sources", []),
+            "transcript_truncated": False,
+            "interpretation_mode": "chunked" if chunk_count > 1 else "single",
+            "chunk_count": chunk_count,
+            "chunk_chars": self.max_transcript_chars,
+            "chunk_overlap_messages": self.chunk_overlap_messages,
+            "summary": _clean_text("\n\n".join(summaries), 12000),
+            "status": "pending_review",
+            "created_at": _utc_now(),
+            "provider": "ollama",
+            "model": getattr(self.provider, "model", "unknown"),
+        }
+
+        allowed_session_ids = set(_message_ids(_session_messages(session)))
+        for category in self.CATEGORIES:
+            merged: dict[str, dict[str, Any]] = {}
+            order: list[str] = []
+            for partial in chunk_results:
+                values = partial.get(category, [])
+                if not isinstance(values, list):
+                    continue
+                for candidate in values:
+                    if not isinstance(candidate, dict):
+                        continue
+                    key = self._candidate_key(candidate)
+                    if key not in merged:
+                        merged[key] = deepcopy(candidate)
+                        order.append(key)
+                        continue
+
+                    existing = merged[key]
+                    existing_ids = _clean_source_ids(existing.get("source_message_ids"), allowed_session_ids)
+                    incoming_ids = _clean_source_ids(candidate.get("source_message_ids"), allowed_session_ids)
+                    existing["source_message_ids"] = sorted(set(existing_ids + incoming_ids))
+                    existing["confidence"] = max(
+                        _clamp_confidence(existing.get("confidence")),
+                        _clamp_confidence(candidate.get("confidence")),
+                    )
+            result[category] = [merged[key] for key in order]
+        return result
+
+    def _checkpoint_path(self, session_id: str) -> Path:
+        return self.checkpoints_dir / f"{_safe_session_id(session_id)}.json"
+
+    def _load_checkpoint(
+        self,
+        *,
+        session_id: str,
+        chunks: list[list[dict[str, Any]]],
+        fingerprint: str,
+    ) -> dict[str, Any]:
+        path = self._checkpoint_path(session_id)
+        existing = _read_json(path)
+        try:
+            valid = (
+                existing.get("type") == "leafos_interpreter_checkpoint"
+                and int(existing.get("schema_version", 0) or 0) == CHECKPOINT_SCHEMA_VERSION
+                and existing.get("prompt_version") == PROMPT_VERSION
+                and existing.get("session_id") == session_id
+                and existing.get("session_fingerprint") == fingerprint
+                and int(existing.get("chunk_chars", 0) or 0) == self.max_transcript_chars
+                and int(existing.get("chunk_overlap_messages", -1) or -1) == self.chunk_overlap_messages
+                and int(existing.get("total_chunks", 0) or 0) == len(chunks)
+                and isinstance(existing.get("chunks"), dict)
+            )
+        except (TypeError, ValueError):
+            valid = False
+        if valid:
+            return existing
+
+        if existing:
+            self.logger.warning("[LeafOS Interpreter] Resetting stale checkpoint for session %s", session_id)
+
+        return {
+            "type": "leafos_interpreter_checkpoint",
+            "schema_version": CHECKPOINT_SCHEMA_VERSION,
+            "prompt_version": PROMPT_VERSION,
+            "session_id": session_id,
+            "session_fingerprint": fingerprint,
+            "chunk_chars": self.max_transcript_chars,
+            "chunk_overlap_messages": self.chunk_overlap_messages,
+            "total_chunks": len(chunks),
+            "chunks": {},
+            "created_at": _utc_now(),
+            "updated_at": _utc_now(),
+            "last_error": "",
+            "failed_chunk": None,
+        }
+
+    def _save_checkpoint(self, checkpoint: dict[str, Any]) -> None:
+        checkpoint["updated_at"] = _utc_now()
+        _atomic_json(self._checkpoint_path(str(checkpoint.get("session_id", ""))), checkpoint)
+
     def _session_files(self) -> list[Path]:
         if not self.sessions_dir.exists():
             return []
@@ -396,6 +665,8 @@ class LeafOSInterpreter:
         failed_state: dict[str, Any],
         session_id: str,
         error_text: str,
+        *,
+        details: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         previous = failed_state.get(session_id)
         attempts = 0
@@ -404,11 +675,13 @@ class LeafOSInterpreter:
                 attempts = max(0, int(previous.get("attempts", 0) or 0))
             except (TypeError, ValueError):
                 attempts = 0
-        record = {
+        record: dict[str, Any] = {
             "error": str(error_text),
             "attempts": attempts + 1,
             "last_failed_at": _utc_now(),
         }
+        if details:
+            record.update(details)
         failed_state[session_id] = record
         return record
 
@@ -420,6 +693,7 @@ class LeafOSInterpreter:
         include_details: bool = False,
     ) -> dict[str, Any]:
         self.inbox_dir.mkdir(parents=True, exist_ok=True)
+        self.checkpoints_dir.mkdir(parents=True, exist_ok=True)
         state = _read_json(
             self.state_path,
             {
@@ -441,7 +715,7 @@ class LeafOSInterpreter:
         failed = 0
         interpreted_sessions: list[str] = []
         skipped_sessions: list[str] = []
-        failures: list[dict[str, str]] = []
+        failures: list[dict[str, Any]] = []
 
         for path in self._session_files():
             session = _read_json(path)
@@ -476,43 +750,169 @@ class LeafOSInterpreter:
                     )
                     session["primary_character"] = ""
 
-            messages, truncated = _select_messages(session, self.max_transcript_chars)
-            allowed_ids: set[int] = set()
-            for item in messages:
-                try:
-                    allowed_ids.add(int(item.get("id")))
-                except (TypeError, ValueError):
-                    pass
-
-            if not allowed_ids:
+            all_messages = _session_messages(session)
+            if not set(_message_ids(all_messages)):
                 error_text = f"SESSION_WITHOUT_MESSAGES: {session_id}"
                 failed += 1
                 self._failure_record(failed_state, session_id, error_text)
                 failures.append({"session_id": session_id, "error": error_text})
                 continue
 
-            try:
-                raw_result = self.provider.interpret(session, messages, truncated)
-                bundle = self._normalize_result(
-                    session,
-                    raw_result,
-                    allowed_ids,
-                    truncated=truncated,
+            chunks = _chunk_messages(session, self.max_transcript_chars, self.chunk_overlap_messages)
+            fingerprint = _session_fingerprint(
+                session,
+                chunk_chars=self.max_transcript_chars,
+                overlap_messages=self.chunk_overlap_messages,
+            )
+            checkpoint = self._load_checkpoint(
+                session_id=session_id,
+                chunks=chunks,
+                fingerprint=fingerprint,
+            )
+            completed_raw = checkpoint.get("chunks", {})
+            completed = dict(completed_raw) if isinstance(completed_raw, dict) else {}
+            chunk_results: list[dict[str, Any]] = []
+            session_failed = False
+
+            self._emit_progress(
+                "session_start",
+                session_id=session_id,
+                total_chunks=len(chunks),
+                completed_chunks=sum(
+                    1
+                    for item in completed.values()
+                    if isinstance(item, dict) and item.get("status") == "complete"
+                ),
+            )
+
+            for index, messages in enumerate(chunks):
+                chunk_number = index + 1
+                key = str(index)
+                expected_ids = _message_ids(messages)
+                cached = completed.get(key)
+                if (
+                    isinstance(cached, dict)
+                    and cached.get("status") == "complete"
+                    and cached.get("message_ids") == expected_ids
+                    and isinstance(cached.get("result"), dict)
+                ):
+                    chunk_results.append(dict(cached["result"]))
+                    self._emit_progress(
+                        "chunk_reused",
+                        session_id=session_id,
+                        chunk_number=chunk_number,
+                        total_chunks=len(chunks),
+                    )
+                    continue
+
+                chunk_session = dict(session)
+                chunk_session["_interpreter_chunk_index"] = chunk_number
+                chunk_session["_interpreter_chunk_count"] = len(chunks)
+                allowed_ids = set(expected_ids)
+                self._emit_progress(
+                    "chunk_start",
+                    session_id=session_id,
+                    chunk_number=chunk_number,
+                    total_chunks=len(chunks),
                 )
+
+                try:
+                    raw_result = self.provider.interpret(chunk_session, messages, False)
+                    partial = self._partial_result(session, raw_result, allowed_ids)
+                    completed[key] = {
+                        "status": "complete",
+                        "chunk_index": index,
+                        "chunk_number": chunk_number,
+                        "message_ids": expected_ids,
+                        "result": partial,
+                        "completed_at": _utc_now(),
+                    }
+                    checkpoint["chunks"] = completed
+                    checkpoint["last_error"] = ""
+                    checkpoint["failed_chunk"] = None
+                    self._save_checkpoint(checkpoint)
+                    chunk_results.append(partial)
+                    self._emit_progress(
+                        "chunk_complete",
+                        session_id=session_id,
+                        chunk_number=chunk_number,
+                        total_chunks=len(chunks),
+                    )
+                except Exception as error:
+                    error_text = str(error) or error.__class__.__name__
+                    checkpoint["chunks"] = completed
+                    checkpoint["last_error"] = error_text
+                    checkpoint["failed_chunk"] = chunk_number
+                    self._save_checkpoint(checkpoint)
+                    completed_count = sum(
+                        1
+                        for item in completed.values()
+                        if isinstance(item, dict) and item.get("status") == "complete"
+                    )
+                    details = {
+                        "chunk_number": chunk_number,
+                        "total_chunks": len(chunks),
+                        "completed_chunks": completed_count,
+                    }
+                    failed += 1
+                    self._failure_record(failed_state, session_id, error_text, details=details)
+                    failures.append({"session_id": session_id, "error": error_text, **details})
+                    self._emit_progress(
+                        "chunk_failed",
+                        session_id=session_id,
+                        chunk_number=chunk_number,
+                        total_chunks=len(chunks),
+                        error=error_text,
+                    )
+                    self.logger.exception(
+                        "[LeafOS Interpreter ERROR] Session %s chunk %s/%s failed",
+                        session_id,
+                        chunk_number,
+                        len(chunks),
+                    )
+                    session_failed = True
+                    break
+
+            if session_failed:
+                continue
+
+            try:
+                bundle = self._merge_chunk_results(session, chunk_results, chunk_count=len(chunks))
                 _atomic_json(output_path, bundle)
             except Exception as error:
                 error_text = str(error) or error.__class__.__name__
                 failed += 1
-                self._failure_record(failed_state, session_id, error_text)
-                failures.append({"session_id": session_id, "error": error_text})
-                self.logger.exception("[LeafOS Interpreter ERROR] Session %s failed", session_id)
+                details = {
+                    "chunk_number": len(chunks),
+                    "total_chunks": len(chunks),
+                    "completed_chunks": len(chunks),
+                }
+                self._failure_record(failed_state, session_id, error_text, details=details)
+                failures.append({"session_id": session_id, "error": error_text, **details})
+                self.logger.exception("[LeafOS Interpreter ERROR] Session %s merge failed", session_id)
                 continue
 
             processed.add(session_id)
             failed_state.pop(session_id, None)
             interpreted += 1
             interpreted_sessions.append(session_id)
-            self.logger.info("[LeafOS Interpreter] Candidate bundle created: %s", session_id)
+            checkpoint_path = self._checkpoint_path(session_id)
+            try:
+                checkpoint_path.unlink(missing_ok=True)
+            except OSError:
+                self.logger.warning("[LeafOS Interpreter] Could not remove completed checkpoint %s", checkpoint_path)
+            self._emit_progress(
+                "session_complete",
+                session_id=session_id,
+                total_chunks=len(chunks),
+                completed_chunks=len(chunks),
+            )
+            self.logger.info(
+                "[LeafOS Interpreter] Candidate bundle created: %s (%s chunk%s)",
+                session_id,
+                len(chunks),
+                "" if len(chunks) == 1 else "s",
+            )
             if max_sessions is not None and interpreted >= max(1, int(max_sessions)):
                 break
 
@@ -526,9 +926,7 @@ class LeafOSInterpreter:
         state["processed_sessions"] = sorted(processed)
         state["failed_sessions"] = failed_state
         state["last_run"] = _utc_now()
-        state["last_error"] = (
-            f'{failures[-1]["session_id"]}: {failures[-1]["error"]}' if failures else ""
-        )
+        state["last_error"] = f'{failures[-1]["session_id"]}: {failures[-1]["error"]}' if failures else ""
         state["last_result"] = {
             "interpreted": interpreted,
             "skipped": skipped,
@@ -561,10 +959,23 @@ def main() -> int:
         "--timeout",
         type=float,
         default=DEFAULT_OLLAMA_TIMEOUT_SECONDS,
-        help="Ollama request timeout in seconds",
+        help="Ollama request timeout in seconds, applied independently to each chunk",
     )
     parser.add_argument("--max-sessions", type=int, default=None, help="Maximum newly interpreted sessions in this run")
-    parser.add_argument("--max-transcript-chars", type=int, default=DEFAULT_MAX_TRANSCRIPT_CHARS)
+    parser.add_argument(
+        "--max-transcript-chars",
+        "--chunk-chars",
+        dest="max_transcript_chars",
+        type=int,
+        default=DEFAULT_MAX_TRANSCRIPT_CHARS,
+        help=f"Approximate maximum transcript characters per chunk (default: {DEFAULT_MAX_TRANSCRIPT_CHARS})",
+    )
+    parser.add_argument(
+        "--chunk-overlap-messages",
+        type=int,
+        default=DEFAULT_CHUNK_OVERLAP_MESSAGES,
+        help=f"Messages repeated across chunk boundaries (default: {DEFAULT_CHUNK_OVERLAP_MESSAGES})",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -579,6 +990,7 @@ def main() -> int:
         Path(args.vault),
         provider,
         max_transcript_chars=args.max_transcript_chars,
+        chunk_overlap_messages=args.chunk_overlap_messages,
         primary_character_resolver=lambda session: resolve_primary_character(
             history,
             session.get("started_at"),

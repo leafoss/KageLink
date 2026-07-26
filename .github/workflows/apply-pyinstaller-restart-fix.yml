@@ -7,6 +7,10 @@ on:
     paths:
       - ".github/scripts/fix_pyinstaller_restart.py"
       - ".github/workflows/apply-pyinstaller-restart-fix.yml"
+  pull_request:
+    paths:
+      - ".github/scripts/fix_pyinstaller_restart.py"
+      - ".github/workflows/apply-pyinstaller-restart-fix.yml"
 
 permissions:
   contents: write

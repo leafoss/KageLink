@@ -23,6 +23,18 @@ class FakeProvider:
         return self.result
 
 
+def valid_result(summary: str = "Summary") -> dict:
+    return {
+        "summary": summary,
+        "events": [],
+        "characters": [],
+        "locations": [],
+        "relationships": [],
+        "facts": [],
+        "leafos_memories": [],
+    }
+
+
 def write_session(vault: Path, *, session_id: str = "2026-07-24_001") -> Path:
     path = vault / "80 - Processor" / "Sessions" / f"{session_id}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -128,17 +140,7 @@ class LeafOSInterpreterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             vault = Path(temp_dir) / "LeafOS-Vault"
             write_session(vault)
-            provider = FakeProvider(
-                {
-                    "summary": "Summary",
-                    "events": [],
-                    "characters": [],
-                    "locations": [],
-                    "relationships": [],
-                    "facts": [],
-                    "leafos_memories": [],
-                }
-            )
+            provider = FakeProvider(valid_result())
             interpreter = LeafOSInterpreter(vault, provider)
             self.assertEqual(interpreter.run_once()["interpreted"], 1)
             second = interpreter.run_once()
@@ -157,20 +159,69 @@ class LeafOSInterpreterTests(unittest.TestCase):
             state_path = vault / "80 - Interpreter" / "interpreter_state.json"
             state = json.loads(state_path.read_text(encoding="utf-8"))
             self.assertNotIn("2026-07-24_001", state["processed_sessions"])
+            self.assertEqual(state["failed_sessions"]["2026-07-24_001"]["error"], "offline")
 
-            provider = FakeProvider(
-                {
-                    "summary": "Recovered",
-                    "events": [],
-                    "characters": [],
-                    "locations": [],
-                    "relationships": [],
-                    "facts": [],
-                    "leafos_memories": [],
-                }
-            )
+            provider = FakeProvider(valid_result("Recovered"))
             second = LeafOSInterpreter(vault, provider).run_once()
             self.assertEqual(second["interpreted"], 1)
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertNotIn("2026-07-24_001", state["failed_sessions"])
+
+    def test_failure_details_are_returned_when_requested(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            vault = Path(temp_dir) / "LeafOS-Vault"
+            write_session(vault)
+
+            result = LeafOSInterpreter(
+                vault,
+                FakeProvider(error=RuntimeError("OLLAMA_TIMEOUT: 600s")),
+            ).run_once(include_details=True)
+
+            self.assertEqual(result["failed"], 1)
+            self.assertEqual(
+                result["failures"],
+                [{"session_id": "2026-07-24_001", "error": "OLLAMA_TIMEOUT: 600s"}],
+            )
+
+    def test_targeted_retry_ignores_other_failed_sessions(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            vault = Path(temp_dir) / "LeafOS-Vault"
+            write_session(vault, session_id="2026-07-24_001")
+            write_session(vault, session_id="2026-07-24_002")
+
+            first = LeafOSInterpreter(
+                vault,
+                FakeProvider(error=RuntimeError("offline")),
+            ).run_once(include_details=True)
+            self.assertEqual(first["failed"], 2)
+
+            recovered = LeafOSInterpreter(vault, FakeProvider(valid_result("Recovered")))
+            result = recovered.run_once(
+                session_ids=["2026-07-24_002"],
+                include_details=True,
+            )
+
+            self.assertEqual(result["interpreted"], 1)
+            self.assertEqual(result["failed"], 0)
+            self.assertEqual(result["interpreted_sessions"], ["2026-07-24_002"])
+            state = json.loads(
+                (vault / "80 - Interpreter" / "interpreter_state.json").read_text(encoding="utf-8")
+            )
+            self.assertIn("2026-07-24_001", state["failed_sessions"])
+            self.assertNotIn("2026-07-24_002", state["failed_sessions"])
+
+    def test_missing_target_is_reported_as_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            vault = Path(temp_dir) / "LeafOS-Vault"
+            result = LeafOSInterpreter(vault, FakeProvider(valid_result())).run_once(
+                session_ids=["2026-07-24_999"],
+                include_details=True,
+            )
+            self.assertEqual(result["failed"], 1)
+            self.assertEqual(
+                result["failures"][0]["error"],
+                "PROCESSOR_SESSION_NOT_FOUND: 2026-07-24_999",
+            )
 
     def test_transcript_truncation_keeps_head_and_tail(self) -> None:
         session = {

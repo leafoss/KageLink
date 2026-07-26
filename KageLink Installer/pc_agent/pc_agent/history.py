@@ -68,6 +68,17 @@ class HistoryStore:
         normalized = str(value or "ooc").strip().lower()
         return normalized if normalized in VALID_CHANNELS else "ooc"
 
+    @staticmethod
+    def _record(row: sqlite3.Row) -> dict:
+        return {
+            "id": int(row["id"]),
+            "timestamp": str(row["timestamp"]),
+            "direction": str(row["direction"]),
+            "channel": HistoryStore._channel(row["channel"]),
+            "text": str(row["text"]),
+            "resynchronized": bool(row["resynchronized"]),
+        }
+
     def max_message_id(self) -> int:
         with self._lock, closing(self._connect()) as connection, connection:
             row = connection.execute(
@@ -76,15 +87,7 @@ class HistoryStore:
         return int(row["max_id"] if row is not None else 0)
 
     def ensure_next_message_id_after(self, floor: int) -> int:
-        """Ensure future AUTOINCREMENT IDs are strictly greater than ``floor``.
-
-        LeafOS Processor evidence uses KageLink message IDs as durable numeric
-        identities. A fresh/reinstalled local SQLite database can otherwise start
-        again at 1 while an existing Vault still has a much higher Processor
-        cursor, making every new RAW message look old and preventing an open
-        session from ever appearing. This only advances SQLite's sequence; it does
-        not rewrite existing messages or mutate RAW/Processor files.
-        """
+        """Ensure future AUTOINCREMENT IDs are strictly greater than ``floor``."""
 
         safe_floor = max(0, int(floor))
         with self._lock, closing(self._connect()) as connection, connection:
@@ -188,6 +191,24 @@ class HistoryStore:
             )
             connection.commit()
 
+    def messages_after_id(self, after_id: int, limit: int = 1000) -> list[dict]:
+        """Return incoming and outgoing chat rows after a stable message cursor."""
+
+        safe_after_id = max(0, int(after_id))
+        safe_limit = max(1, min(int(limit), 5000))
+        with self._lock, closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                """
+                SELECT id, timestamp, direction, channel, text, resynchronized
+                FROM messages
+                WHERE id > ?
+                ORDER BY id ASC
+                LIMIT ?
+                """,
+                (safe_after_id, safe_limit),
+            ).fetchall()
+        return [self._record(row) for row in rows]
+
     def incoming_after_id(self, after_id: int, limit: int = 2000) -> list[dict]:
         safe_after_id = max(0, int(after_id))
         safe_limit = max(1, min(int(limit), 5000))
@@ -202,17 +223,7 @@ class HistoryStore:
                 """,
                 (safe_after_id, safe_limit),
             ).fetchall()
-        return [
-            {
-                "id": int(row["id"]),
-                "timestamp": str(row["timestamp"]),
-                "direction": str(row["direction"]),
-                "channel": self._channel(row["channel"]),
-                "text": str(row["text"]),
-                "resynchronized": bool(row["resynchronized"]),
-            }
-            for row in rows
-        ]
+        return [self._record(row) for row in rows]
 
     def recent_incoming_records(self, limit: int = 500) -> list[tuple[str, str]]:
         safe_limit = max(1, min(int(limit), 2000))
@@ -259,15 +270,4 @@ class HistoryStore:
                 """,
                 (safe_limit,),
             ).fetchall()
-
-        return [
-            {
-                "id": int(row["id"]),
-                "timestamp": row["timestamp"],
-                "direction": row["direction"],
-                "channel": self._channel(row["channel"]),
-                "text": row["text"],
-                "resynchronized": bool(row["resynchronized"]),
-            }
-            for row in reversed(rows)
-        ]
+        return [self._record(row) for row in reversed(rows)]

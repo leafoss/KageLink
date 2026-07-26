@@ -162,7 +162,7 @@ class LifecycleLeafOSProcessor(LeafOSProcessor):
 
     def run_once(self, *, now: datetime | None = None) -> dict[str, int]:
         with self._lifecycle_lock:
-            _paths, state = self._state_payload()
+            paths, state = self._state_payload()
             session = state.get("open_session")
             has_open = isinstance(session, dict) and bool(session.get("messages"))
             if (
@@ -171,12 +171,21 @@ class LifecycleLeafOSProcessor(LeafOSProcessor):
                 and not self._current_primary_character()
             ):
                 # Do not advance last_processed_id. RAW remains intact and will be
-                # consumed after the user selects a character.
+                # consumed after the user selects a character. Persist the blocked
+                # state so the Desktop can explain why processing is paused.
+                current_time = now or datetime.now(timezone.utc)
+                if current_time.tzinfo is None:
+                    current_time = current_time.replace(tzinfo=timezone.utc)
+                state["last_run"] = current_time.isoformat()
+                state["blocked_reason"] = "primary_character_required"
+                _atomic_json(paths["state"], state)
                 return {
                     "processed_ic": 0,
                     "closed_sessions": 0,
                     "blocked_no_primary_character": 1,
                 }
+            if state.pop("blocked_reason", None) is not None:
+                _atomic_json(paths["state"], state)
             return super().run_once(now=now)
 
     def finalize_open_session(

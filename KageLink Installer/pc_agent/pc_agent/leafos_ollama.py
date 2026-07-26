@@ -8,6 +8,7 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable
 
 
@@ -34,7 +35,22 @@ class OllamaManager:
         return int(getattr(subprocess, "CREATE_NO_WINDOW", 0)) if os.name == "nt" else 0
 
     def cli_path(self) -> str | None:
-        return shutil.which("ollama")
+        discovered = shutil.which("ollama")
+        if discovered:
+            return discovered
+
+        # winget can update the user PATH only for future processes. Check the
+        # standard Windows install locations so an in-app installation can be
+        # used immediately without asking the user to restart KageLink.
+        candidates = [
+            Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe",
+            Path(os.environ.get("LOCALAPPDATA", "")) / "Ollama" / "ollama.exe",
+            Path(os.environ.get("ProgramFiles", "")) / "Ollama" / "ollama.exe",
+        ]
+        for candidate in candidates:
+            if str(candidate) and candidate.is_file():
+                return str(candidate)
+        return None
 
     def _models_from_server(self) -> list[str]:
         request = urllib.request.Request(

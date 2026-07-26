@@ -149,18 +149,32 @@ async def finalize_leafos_session(
 
 
 async def _finalize_for_character_change() -> dict[str, Any]:
+    # Keep capture paused until the endpoint commits the new character.
     return await finalize_leafos_session(
         "character_changed",
-        restart_monitor=True,
+        restart_monitor=False,
         closed_cleanly=True,
     )
 
 
+async def _resume_after_character_change() -> dict[str, Any]:
+    if legacy.monitor_task is None:
+        legacy.monitor_task = asyncio.create_task(
+            legacy.monitor_chat_loop(),
+            name="shinobi-chat-monitor",
+        )
+        return {"resumed": True}
+    return {"resumed": False}
+
+
 # The primary-character endpoint was registered while importing the legacy app,
-# but it resolves this hook dynamically at request time. Android and Desktop
-# therefore use the same quiesced finalization path before the new identity is
-# made authoritative.
-set_character_change_hook(_finalize_for_character_change)
+# but resolves these hooks dynamically at request time. Android and Desktop use
+# the same quiesced transition: old session closes, new identity is committed,
+# then chat capture resumes.
+set_character_change_hook(
+    _finalize_for_character_change,
+    _resume_after_character_change,
+)
 
 
 def _count_json_files(path: Path) -> int:

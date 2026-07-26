@@ -37,6 +37,8 @@ class SessionController extends ChangeNotifier {
   StreamSubscription<dynamic>? _socketSubscription;
   Timer? _pingTimer;
   Timer? _reconnectTimer;
+  Timer? _historySyncTimer;
+  bool _historySyncInFlight = false;
   int _reconnectAttempt = 0;
 
   List<ServerProfile> get profiles => List.unmodifiable(_profiles);
@@ -84,14 +86,13 @@ class SessionController extends ChangeNotifier {
       _api = candidateApi;
       _activeProfile = saved;
       _messagesById.clear();
-      for (final message in results[0] as List<ChatMessage>) {
-        _messagesById[message.id] = message;
-      }
+      _mergeMessages(results[0] as List<ChatMessage>);
       _status = results[1] as RuntimeStatus;
       _profiles = await _repository.loadProfiles();
       _phase = ConnectionPhase.connected;
       _reconnectAttempt = 0;
       notifyListeners();
+      _startHistorySync();
       _connectWebSocket();
     } catch (error) {
       _phase = ConnectionPhase.failed;
@@ -119,9 +120,7 @@ class SessionController extends ChangeNotifier {
         api.fetchHistory(limit: 1000),
         api.fetchStatus(),
       ]);
-      for (final message in results[0] as List<ChatMessage>) {
-        _messagesById[message.id] = message;
-      }
+      _mergeMessages(results[0] as List<ChatMessage>);
       _status = results[1] as RuntimeStatus;
       _errorMessage = null;
       notifyListeners();
@@ -204,6 +203,53 @@ class SessionController extends ChangeNotifier {
   void clearError() {
     _errorMessage = null;
     notifyListeners();
+  }
+
+  bool _mergeMessages(Iterable<ChatMessage> messages) {
+    var changed = false;
+    for (final message in messages) {
+      final previous = _messagesById[message.id];
+      if (previous == null ||
+          previous.timestamp != message.timestamp ||
+          previous.direction != message.direction ||
+          previous.channel != message.channel ||
+          previous.text != message.text ||
+          previous.resynchronized != message.resynchronized) {
+        _messagesById[message.id] = message;
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  void _startHistorySync() {
+    _historySyncTimer?.cancel();
+    _historySyncTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      unawaited(_syncHistoryFallback());
+    });
+    unawaited(_syncHistoryFallback());
+  }
+
+  Future<void> _syncHistoryFallback() async {
+    final api = _api;
+    if (api == null || _activeProfile == null || _historySyncInFlight) return;
+
+    _historySyncInFlight = true;
+    try {
+      // WebSocket remains the low-latency path. This HTTP reconciliation is a
+      // deliberate second path so OOC/IC history cannot silently freeze when a
+      // tunnel/proxy keeps normal HTTP working but drops the chat WebSocket.
+      final history = await api.fetchHistory(limit: 1000);
+      if (_mergeMessages(history)) {
+        notifyListeners();
+      }
+    } catch (error) {
+      // Do not tear down an otherwise usable connection. The socket reconnect
+      // loop and the next reconciliation tick will retry independently.
+      debugPrint('KageLink history sync fallback: $error');
+    } finally {
+      _historySyncInFlight = false;
+    }
   }
 
   void _connectWebSocket() {
@@ -292,9 +338,7 @@ class SessionController extends ChangeNotifier {
           _api!.fetchHistory(limit: 1000),
           _api!.fetchStatus(),
         ]);
-        for (final message in results[0] as List<ChatMessage>) {
-          _messagesById[message.id] = message;
-        }
+        _mergeMessages(results[0] as List<ChatMessage>);
         _status = results[1] as RuntimeStatus;
         notifyListeners();
         _connectWebSocket();
@@ -305,6 +349,9 @@ class SessionController extends ChangeNotifier {
   }
 
   Future<void> _closeSocket() async {
+    _historySyncTimer?.cancel();
+    _historySyncTimer = null;
+    _historySyncInFlight = false;
     _reconnectTimer?.cancel();
     _pingTimer?.cancel();
     await _socketSubscription?.cancel();
@@ -332,6 +379,7 @@ class SessionController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _historySyncTimer?.cancel();
     _reconnectTimer?.cancel();
     _pingTimer?.cancel();
     _socketSubscription?.cancel();

@@ -135,9 +135,20 @@ def create_primary_character_router(
                 # The old identity remains authoritative until its session has
                 # been fully flushed and closed. Capture stays paused until after
                 # the new identity is committed below.
-                close_result = await _finalize_before_character_change(history)
-                result = set_primary_character(history, name)
-                after_result = await _resume_after_character_change()
+                try:
+                    close_result = await _finalize_before_character_change(history)
+                except Exception:
+                    # Finalization failed before the identity changed. Restore
+                    # capture so a failed transition cannot leave KageLink deaf.
+                    await _resume_after_character_change()
+                    raise
+
+                try:
+                    result = set_primary_character(history, name)
+                finally:
+                    # Once the old session is closed, capture must resume even if
+                    # committing the new character unexpectedly fails.
+                    after_result = await _resume_after_character_change()
             else:
                 result = set_primary_character(history, name)
             if close_result is not None:

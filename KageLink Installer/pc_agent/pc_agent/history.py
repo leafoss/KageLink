@@ -36,7 +36,6 @@ class HistoryStore:
                 )
                 """
             )
-
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS runtime_state (
@@ -45,7 +44,6 @@ class HistoryStore:
                 )
                 """
             )
-
             columns = {
                 str(row["name"])
                 for row in connection.execute("PRAGMA table_info(messages)").fetchall()
@@ -54,9 +52,6 @@ class HistoryStore:
                 connection.execute(
                     "ALTER TABLE messages ADD COLUMN channel TEXT NOT NULL DEFAULT 'ooc'"
                 )
-
-            # Safely classify legacy records that were already stored as a
-            # complete (* ... *) block. Fragmented legacy rows remain OOC.
             connection.execute(
                 """
                 UPDATE messages
@@ -72,6 +67,43 @@ class HistoryStore:
     def _channel(value: str) -> str:
         normalized = str(value or "ooc").strip().lower()
         return normalized if normalized in VALID_CHANNELS else "ooc"
+
+    def ensure_next_message_id_after(self, floor: int) -> int:
+        """Ensure future AUTOINCREMENT IDs are strictly greater than ``floor``.
+
+        LeafOS Processor evidence uses KageLink message IDs as durable numeric
+        identities. A fresh/reinstalled local SQLite database can otherwise start
+        again at 1 while an existing Vault still has a much higher Processor
+        cursor, making every new RAW message look old and preventing an open
+        session from ever appearing. This only advances SQLite's sequence; it does
+        not rewrite existing messages or mutate RAW/Processor files.
+        """
+
+        safe_floor = max(0, int(floor))
+        with self._lock, closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                "SELECT COALESCE(MAX(id), 0) AS max_id FROM messages"
+            ).fetchone()
+            max_existing = int(row["max_id"] if row is not None else 0)
+            target = max(safe_floor, max_existing)
+
+            sequence = connection.execute(
+                "SELECT seq FROM sqlite_sequence WHERE name = 'messages'"
+            ).fetchone()
+            current_sequence = int(sequence["seq"] if sequence is not None else 0)
+            if current_sequence < target:
+                if sequence is None:
+                    connection.execute(
+                        "INSERT INTO sqlite_sequence(name, seq) VALUES ('messages', ?)",
+                        (target,),
+                    )
+                else:
+                    connection.execute(
+                        "UPDATE sqlite_sequence SET seq = ? WHERE name = 'messages'",
+                        (target,),
+                    )
+                connection.commit()
+            return max(target, current_sequence)
 
     def add(
         self,
@@ -128,7 +160,6 @@ class HistoryStore:
                 ),
             )
             connection.commit()
-
 
     def get_runtime_state(self, key: str, default: str = "") -> str:
         with self._lock, closing(self._connect()) as connection, connection:
@@ -194,20 +225,8 @@ class HistoryStore:
             for row in reversed(rows)
         ]
 
-    def recent_incoming_texts(self, limit: int = 800) -> list[str]:
-        safe_limit = max(1, min(int(limit), 2000))
-        with self._lock, closing(self._connect()) as connection, connection:
-            rows = connection.execute(
-                """
-                SELECT text
-                FROM messages
-                WHERE direction = 'incoming'
-                ORDER BY id DESC
-                LIMIT ?
-                """,
-                (safe_limit,),
-            ).fetchall()
-        return [str(row["text"]) for row in reversed(rows)]
+    def recent_incoming_texts(self, limit: int = 500) -> list[str]:
+        return [text for _channel, text in self.recent_incoming_records(limit)]
 
     def recent(self, limit: int = 500) -> list[dict]:
         safe_limit = max(1, min(int(limit), 2000))
@@ -221,14 +240,13 @@ class HistoryStore:
                 """,
                 (safe_limit,),
             ).fetchall()
-
         return [
             {
                 "id": int(row["id"]),
-                "timestamp": row["timestamp"],
-                "direction": row["direction"],
+                "timestamp": str(row["timestamp"]),
+                "direction": str(row["direction"]),
                 "channel": self._channel(row["channel"]),
-                "text": row["text"],
+                "text": str(row["text"]),
                 "resynchronized": bool(row["resynchronized"]),
             }
             for row in reversed(rows)

@@ -1,149 +1,295 @@
-# LeafOS Interpreter v1
+# LeafOS Interpreter v3
 
 [Português](LEAFOS_INTERPRETER.md) · [README](README.md) · [Development Bible](AGENTS.en.md)
 
-The **LeafOS Interpreter** is the semantic layer between technical sessions produced by `LeafOSProcessor` and a future canonical character memory.
+The **LeafOS Interpreter** is the semantic layer between a session closed by `LeafOSProcessor` and the candidates shown to the **Memory Reviewer**.
 
-Its question is:
+It answers only this question:
 
-> **What probably happened in this session, using only what was actually recorded in RP?**
+> **What does this session support as a candidate, based on the messages that were actually recorded?**
 
-## Core rule
-
-The Interpreter **never writes canonical memory directly**.
+The Interpreter **does not write canonical memory**.
 
 ```text
 Shinobi Story Online
         ↓
-KageLink / ChatChannelParser
-        ↓
-immutable RAW
+KageLink / RAW
         ↓
 LeafOSProcessor
         ↓
-closed session
+Closed session
         ↓
-LeafOS Interpreter
+LeafOS Interpreter v3
         ↓
-70 - LeafOS Inbox/Interpretations
-        ↓
-HUMAN REVIEW
-        ↓
-future canonical memory
-```
-
-Every generated interpretation remains:
-
-```text
+Interpretation Bundle
 status: pending_review
+        ↓
+Memory Reviewer
+        ↓
+Approve / Edit + approve / Reject
+        ↓
+Canonical Memory
 ```
 
-## Input
+## Input contract
 
-The Interpreter only reads closed sessions from:
+The Interpreter reads only closed sessions from:
 
 ```text
 <Vault>/80 - Processor/Sessions/*.json
 ```
 
-It does not independently re-read the KageLink database to reinterpret history.
+The Processor session remains the input contract. The Interpreter does not reconstruct past history by querying the KageLink database again and does not modify the original session.
 
-## Output
+Important fields include:
 
-One candidate bundle is written per session to:
+- `session_id`;
+- `started_at` / `ended_at`;
+- `primary_character`;
+- `participants`;
+- `message_ids`;
+- `raw_sources`;
+- `messages`.
 
-```text
-<Vault>/70 - LeafOS Inbox/Interpretations/<session_id>.json
-```
+## Evidence rule
 
-A bundle may contain:
-
-- `events`;
-- `characters`;
-- `locations`;
-- `relationships`;
-- `facts` (including lore candidates);
-- `leafos_memories`.
-
-It also preserves the original session ID, timestamps, participants, message IDs, RAW sources, model name, prompt version, truncation state, and review status.
-
-## Evidence contract
-
-Every candidate must contain valid source IDs:
+Every candidate must cite one or more IDs that were actually supplied to the model:
 
 ```json
 "source_message_ids": [101, 102]
 ```
 
-Those IDs are checked against the exact transcript sent to the model. Candidates without valid evidence are discarded.
+Unknown IDs are removed. A candidate with no valid evidence is discarded.
 
-This preserves the chain:
+The chain remains:
 
 ```text
 candidate
    ↓
 source_message_ids
    ↓
-session
+Processor session
    ↓
 raw_source
    ↓
 original RAW
 ```
 
-## No outside knowledge
+## What changed in v3
 
-The Interpreter prompt explicitly forbids using outside Naruto knowledge, previous model knowledge, or unsupported assumptions.
+v2 sent a large session to `qwen3:14b` in one request. Sessions beyond the old limit could also use only a head + tail selection. On local hardware this could produce `OLLAMA_TIMEOUT: 600s`, while messages in the middle might never reach the model.
 
-It is instructed not to invent:
+v3 removes that behavior from normal processing.
 
-- identities;
-- ranks;
-- factions;
-- locations;
-- motives;
-- relationships;
-- outcomes;
-- chronology.
+### Lossless chunking
 
-Leafos memory candidates distinguish:
+The default approximate transcript size per chunk is:
 
 ```text
-observed
-said
-inferred
+9000 transcript characters per chunk
 ```
 
-All of them still remain `pending_review`.
+with a default overlap of:
 
-## Local AI and privacy
+```text
+2 messages across chunk boundaries
+```
 
-Interpreter v1 uses local **Ollama** by default:
+Example:
+
+```text
+Large session
+    │
+    ├── Chunk 1
+    ├── Chunk 2
+    ├── Chunk 3
+    └── Chunk 4
+            ↓
+       qwen3:14b
+            ↓
+ normalized partial results
+            ↓
+ deterministic merge
+            ↓
+ one Interpretation Bundle
+```
+
+Every message belongs to at least one chunk. v3 no longer uses the old head/tail cut for normal large-session interpretation.
+
+The final bundle records:
+
+```json
+{
+  "prompt_version": "leafos-interpreter-v3",
+  "interpretation_mode": "chunked",
+  "chunk_count": 4,
+  "chunk_chars": 9000,
+  "chunk_overlap_messages": 2,
+  "transcript_truncated": false
+}
+```
+
+Small sessions still use one chunk and record:
+
+```json
+"interpretation_mode": "single"
+```
+
+## Boundary context
+
+The small overlap reduces the chance of separating a line or reaction from the immediately preceding context.
+
+The prompt explicitly tells the model that it is seeing only one chunk. It is forbidden from inventing omitted chunks or continuity not present in the supplied messages.
+
+## Deterministic merge
+
+v3 **does not use another LLM to summarize or combine chunk outputs**.
+
+The merge is code-driven:
+
+```text
+Chunk 1 candidates
+Chunk 2 candidates
+Chunk 3 candidates
+        ↓
+conservative deduplication
+        ↓
+union source_message_ids
+        ↓
+maximum confidence across exact duplicates
+        ↓
+pending_review
+```
+
+Candidates are treated as duplicates only when their structured semantic content is equivalent after simple normalization. Different content stays separate for the Reviewer to decide.
+
+## Checkpoints and partial retry
+
+During a multi-chunk session, temporary checkpoints are written to:
+
+```text
+<Vault>/80 - Interpreter/Checkpoints/<session_id>.json
+```
+
+Each completed chunk is persisted atomically before the next chunk starts.
+
+Therefore, if this happens:
+
+```text
+Chunk 1 ✓
+Chunk 2 ✓
+Chunk 3 → OLLAMA_TIMEOUT
+Chunk 4
+Chunk 5
+```
+
+a later retry starts as:
+
+```text
+Chunk 1 ✓ reused
+Chunk 2 ✓ reused
+Chunk 3 → retry
+Chunk 4 → process
+Chunk 5 → process
+```
+
+Time spent on successful chunks is not discarded.
+
+After the final bundle is created successfully, the temporary checkpoint for that session is removed.
+
+## Stale-checkpoint protection
+
+A checkpoint stores a fingerprint of the semantic session input, including messages, primary character, prompt version and chunk settings.
+
+If the session or chunk configuration changes, old partial results are not reused. A new checkpoint is started.
+
+## Failures
+
+A failure still promotes nothing to canonical memory.
+
+State in:
+
+```text
+<Vault>/80 - Interpreter/interpreter_state.json
+```
+
+records the session and, when applicable:
+
+```json
+{
+  "error": "OLLAMA_TIMEOUT: 600s",
+  "attempts": 2,
+  "chunk_number": 3,
+  "total_chunks": 5,
+  "completed_chunks": 2,
+  "last_failed_at": "..."
+}
+```
+
+The session is **not** added to `processed_sessions` until the complete bundle exists.
+
+The **Interpret pending** action can therefore retry the session while reusing a valid checkpoint.
+
+## Desktop progress
+
+The Desktop receives Interpreter progress events. During a large session, the status line can show:
+
+```text
+Working... · 2026-07-24_001 · 2/5
+```
+
+Failure dialogs also include the chunk position when available.
+
+## Local AI / privacy
+
+Default configuration:
 
 ```text
 URL: http://127.0.0.1:11434
 Model: qwen3:14b
+Timeout: 600 seconds per chunk
 ```
 
-It uses:
+With the default URL, content is sent only to the local Ollama server. A remote URL can transmit RP content to another computer/service.
+
+The endpoint remains:
 
 ```text
 POST /api/chat
 ```
 
-with non-streaming structured JSON output and temperature `0`.
+with `stream: false`, `think: false`, temperature `0`, and JSON-Schema structured output.
 
-No Ollama Python package is required; the implementation uses Python's standard library.
+## Output
 
-Using a remote Ollama URL may transmit RP content to another machine, so only configure a remote endpoint intentionally.
+The final bundle remains at:
 
-## Running it
+```text
+<Vault>/70 - LeafOS Inbox/Interpretations/<session_id>.json
+```
 
-Prerequisites:
+Categories remain:
 
-1. LeafOS Processor must already have at least one closed session.
-2. Ollama must be running.
-3. The selected model must exist.
+- `events`;
+- `characters`;
+- `locations`;
+- `relationships`;
+- `facts`;
+- `leafos_memories`.
+
+Everything remains:
+
+```text
+status: pending_review
+```
+
+No candidate becomes permanent memory without the Memory Reviewer and explicit human action.
+
+## Execution
+
+Normal use should go through `KageLink.exe`.
+
+The CLI remains available for development and diagnostics:
 
 ```powershell
 cd "KageLink Installer\pc_agent"
@@ -151,91 +297,30 @@ python -m pc_agent.leafos_interpreter `
   --vault "C:\path\LeafOS-Vault"
 ```
 
-Select another model:
-
-```powershell
-python -m pc_agent.leafos_interpreter `
-  --vault "C:\path\LeafOS-Vault" `
-  --model "qwen3:14b"
-```
-
-Process only one new session:
-
-```powershell
-python -m pc_agent.leafos_interpreter `
-  --vault "C:\path\LeafOS-Vault" `
-  --max-sessions 1
-```
-
-## State and idempotency
-
-State is stored in:
+Useful test parameters:
 
 ```text
-<Vault>/80 - Interpreter/interpreter_state.json
+--chunk-chars 9000
+--chunk-overlap-messages 2
+--timeout 600
+--max-sessions 1
 ```
 
-Successfully processed sessions are not interpreted again. Failed sessions are **not** marked complete and can be retried later.
+`--max-transcript-chars` remains accepted as a compatibility alias for chunk size.
 
-## Large sessions
+## What the Interpreter is still forbidden to do
 
-The default transcript limit is:
+v3 does not:
 
-```text
-48000 characters
-```
-
-If a session exceeds the limit, the Interpreter preserves both the beginning and end of the session and marks:
-
-```json
-"transcript_truncated": true
-```
-
-Only IDs actually sent to the model remain valid evidence IDs.
-
-## Failure behavior
-
-If Ollama is unavailable, the model is missing, or structured output is invalid:
-
-- canonical memory is untouched;
-- the session is not marked complete;
-- the error is stored in interpreter state;
-- the session can be retried.
-
-## Deliberate v1 limitations
-
-Interpreter v1 does **not**:
-
-- automatically write canonical notes;
-- update official character profiles;
+- write canonical memory automatically;
+- modify character sheets;
 - modify the official timeline;
-- decide that an inference is true;
-- use OOC knowledge to complete RP;
-- browse the internet;
-- use Naruto wikis;
-- silently use previous sessions as knowledge;
+- decide by itself that an inference is true;
+- use OOC information to complete RP;
+- query the internet or a wiki;
+- use earlier sessions as implicit knowledge;
 - delete RAW;
-- modify Processor sessions.
+- modify Processor sessions;
+- invent identities, ranks, factions, motives, locations, or outcomes.
 
-## Next layer
-
-After Interpreter v1 is validated, the next subsystem should be a **Reviewer / Memory Promoter**:
-
-```text
-Interpretation Bundle
-        ↓
-review
-        ├── approve
-        ├── edit
-        └── reject
-        ↓
-Canonical Memory
-        ├── Events
-        ├── Characters
-        ├── Locations
-        ├── Relationships
-        ├── Lore
-        └── Leafos Memory
-```
-
-Only that future review layer should be allowed to promote candidates into permanent memory.
+The **Memory Reviewer** remains the mandatory gate between interpretation and canonical memory.

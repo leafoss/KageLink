@@ -1,19 +1,16 @@
 from __future__ import annotations
 
-import json
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from pc_agent.config import load_config
 from pc_agent.history import HistoryStore
-from pc_agent.leafos import LeafOSProcessor
+from pc_agent.leafos import LeafOSRawExporter
+from pc_agent.leafos_lifecycle import LifecycleLeafOSProcessor
 from pc_agent.primary_character import (
     get_primary_character,
     normalize_character_name,
+    resolve_primary_character,
     saved_characters,
     set_primary_character,
 )
@@ -24,18 +21,12 @@ class PrimaryCharacterRequest(BaseModel):
     name: str = Field(default="", max_length=160)
 
 
-def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_suffix(path.suffix + ".tmp")
-    temp.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    temp.replace(path)
+def _flush_and_close_leafos_session(history: HistoryStore) -> dict:
+    """Flush RAW and close the current session before changing characters.
 
-
-def _flush_and_close_leafos_session() -> None:
-    """Keep two configured player characters out of the same Processor session."""
+    This keeps two configured player characters out of the same Processor session
+    and preserves a deterministic close reason for audit/recovery.
+    """
 
     config = load_config()
     if (
@@ -44,39 +35,31 @@ def _flush_and_close_leafos_session() -> None:
         or config.leafos_vault_path is None
         or config.leafos_raw_output_path is None
     ):
-        return
+        return {"closed": False, "session_id": None, "close_reason": "character_changed"}
 
-    processor = LeafOSProcessor(
+    exporter = LeafOSRawExporter(
+        config.leafos_raw_output_path,
+        export_ic=config.leafos_export_ic,
+        export_ooc=config.leafos_export_ooc,
+    )
+    exporter.sync(history)
+
+    processor = LifecycleLeafOSProcessor(
         config.leafos_vault_path,
         config.leafos_raw_output_path,
         session_idle_seconds=config.leafos_session_idle_seconds,
+        primary_character_provider=lambda: get_primary_character(history),
+        primary_character_resolver=lambda session: resolve_primary_character(
+            history,
+            session.get("started_at"),
+        ),
+        require_primary_character=False,
     )
-    now = datetime.now(timezone.utc)
-
-    # First consume RAW records that were already captured under the old
-    # character. Then close the resulting open session before the new character
-    # becomes authoritative.
-    processor.run_once(now=now)
-
-    paths = processor._paths()
-    state = processor._load_json(
-        paths["state"],
-        {
-            "last_processed_id": 0,
-            "last_run": "",
-            "raw_source": "",
-            "open_session": None,
-            "session_counters": {},
-        },
+    return processor.finalize_open_session(
+        "character_changed",
+        closed_cleanly=True,
+        consume_pending=True,
     )
-    session = state.get("open_session")
-    if not isinstance(session, dict) or not session.get("messages"):
-        return
-
-    processor._close_session(paths, session)
-    state["open_session"] = None
-    state["last_run"] = now.isoformat()
-    _atomic_json(paths["state"], state)
 
 
 def create_primary_character_router(
@@ -89,7 +72,7 @@ def create_primary_character_router(
         "/api/primary-character",
         dependencies=[Depends(security.require_authorization)],
     )
-    async def get_primary_character_setting() -> dict[str, Any]:
+    async def get_primary_character_setting() -> dict:
         return {
             "primary_character": get_primary_character(history),
             "saved_characters": saved_characters(history),
@@ -101,12 +84,17 @@ def create_primary_character_router(
     )
     async def set_primary_character_setting(
         request: PrimaryCharacterRequest,
-    ) -> dict[str, Any]:
+    ) -> dict:
         try:
             name = normalize_character_name(request.name)
-            if name != get_primary_character(history):
-                _flush_and_close_leafos_session()
-            return set_primary_character(history, name)
+            current = get_primary_character(history)
+            close_result = None
+            if name != current:
+                close_result = _flush_and_close_leafos_session(history)
+            result = set_primary_character(history, name)
+            if close_result is not None:
+                result["previous_session"] = close_result
+            return result
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 

@@ -5,6 +5,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 VERSION = (ROOT / "RELEASE_VERSION").read_text(encoding="utf-8").strip()
+PUBSPEC = (ROOT / "KageLink Installer" / "pubspec.yaml").read_text(encoding="utf-8")
+PUBSPEC_VERSION_MATCH = re.search(r"^version:\s*([^\s]+)\s*$", PUBSPEC, re.MULTILINE)
+if PUBSPEC_VERSION_MATCH is None:
+    raise SystemExit("Could not read Flutter version from pubspec.yaml")
+FLUTTER_VERSION = PUBSPEC_VERSION_MATCH.group(1)
 START = "<!-- kagelink-downloads-start -->"
 END = "<!-- kagelink-downloads-end -->"
 WINDOWS_URL = "https://github.com/leafoss/KageLink/releases/latest/download/KageLink-Windows-Setup.exe"
@@ -69,16 +74,29 @@ def insert_or_replace(path: Path, language: str) -> None:
         lines[insert_at:insert_at] = ["", replacement, ""]
         updated = "\n".join(lines) + ("\n" if text.endswith("\n") else "")
 
+    updated = re.sub(
+        r"(Flutter application is versioned as `)[^`]+(`\.)",
+        rf"\g<1>{FLUTTER_VERSION}\g<2>",
+        updated,
+        count=1,
+    )
+    updated = re.sub(
+        r"(aplicativo Flutter está versionado como `)[^`]+(`\.)",
+        rf"\g<1>{FLUTTER_VERSION}\g<2>",
+        updated,
+        count=1,
+    )
+
     # User-facing release assets intentionally use stable names. Keep developer
     # build-output references later in the README unchanged by replacing only
     # the first installation occurrence.
     updated = updated.replace(
-        "KageLink-PC-Agent-Setup-v3.4.1.exe",
+        f"KageLink-PC-Agent-Setup-v{VERSION}.exe",
         "KageLink-Windows-Setup.exe",
         1,
     )
     updated = updated.replace(
-        "KageLink-v3.4.1.apk",
+        f"KageLink-v{VERSION}.apk",
         "KageLink-Android.apk",
         1,
     )

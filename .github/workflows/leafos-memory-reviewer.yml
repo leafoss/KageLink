@@ -133,10 +133,41 @@ jobs:
         run: flutter analyze
       - name: Flutter tests
         run: flutter test
+      - name: Create Android build workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf _ci_android_build
+          flutter create --platforms=android --org com.kagelink --project-name kagelink _ci_android_build
+          rm -rf _ci_android_build/lib _ci_android_build/test
+          cp -R lib _ci_android_build/lib
+          cp -R assets _ci_android_build/assets
+          if [ -d test ]; then cp -R test _ci_android_build/test; fi
+          cp pubspec.yaml _ci_android_build/pubspec.yaml
+          cp analysis_options.yaml _ci_android_build/analysis_options.yaml
+          cp l10n.yaml _ci_android_build/l10n.yaml
+          if [ -d android_overlay/app/src ]; then
+            cp -R android_overlay/app/src/. _ci_android_build/android/app/src/
+          fi
+          cat > _ci_android_build/android/gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2048m -Xms512m -XX:MaxMetaspaceSize=512m -XX:-UseParallelGC -Dfile.encoding=UTF-8
+          kotlin.compiler.execution.strategy=in-process
+          org.gradle.daemon=false
+          org.gradle.parallel=false
+          org.gradle.workers.max=2
+          kotlin.incremental=false
+          android.useAndroidX=true
+          android.enableJetifier=true
+          EOF
       - name: Build Android release APK
-        run: flutter build apk --release
+        working-directory: "KageLink Installer/_ci_android_build"
+        run: |
+          flutter pub get
+          flutter gen-l10n
+          flutter analyze
+          flutter build apk --release
       - uses: actions/upload-artifact@v4
         with:
           name: KageLink-Android-chat-sync-preview
-          path: KageLink Installer/build/app/outputs/flutter-apk/app-release.apk
+          path: KageLink Installer/_ci_android_build/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error

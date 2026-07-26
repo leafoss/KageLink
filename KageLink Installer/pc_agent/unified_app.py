@@ -51,6 +51,34 @@ def _build_lifecycle_processor() -> LifecycleLeafOSProcessor | None:
 legacy.leafos_processor = _build_lifecycle_processor()
 
 
+# The old runtime exported RAW immediately but only ran the Processor on its
+# 30-second background cadence. The Desktop therefore could keep showing
+# "No open IC session" after a valid IC message. Keep the periodic Processor as
+# a safety net, but make every exporter sync also process the just-persisted RAW.
+_original_leafos_sync = (
+    legacy.leafos_exporter.sync if legacy.leafos_exporter is not None else None
+)
+
+
+def _sync_leafos_and_processor(history) -> dict[str, int]:
+    if _original_leafos_sync is None:
+        return {"ic": 0, "ooc": 0}
+    counts = _original_leafos_sync(history)
+    processor = legacy.leafos_processor
+    if processor is not None:
+        try:
+            processor.run_once()
+        except Exception:
+            legacy.logging.getLogger("kagelink").exception(
+                "[LeafOS Processor ERROR] Immediate post-RAW processing failed"
+            )
+    return counts
+
+
+if legacy.leafos_exporter is not None:
+    legacy.leafos_exporter.sync = _sync_leafos_and_processor
+
+
 async def _flush_chat_once() -> int:
     """Perform one deterministic final chat read before a session is closed."""
 
@@ -149,7 +177,6 @@ async def finalize_leafos_session(
 
 
 async def _finalize_for_character_change() -> dict[str, Any]:
-    # Keep capture paused until the endpoint commits the new character.
     return await finalize_leafos_session(
         "character_changed",
         restart_monitor=False,
@@ -167,10 +194,6 @@ async def _resume_after_character_change() -> dict[str, Any]:
     return {"resumed": False}
 
 
-# The primary-character endpoint was registered while importing the legacy app,
-# but resolves these hooks dynamically at request time. Android and Desktop use
-# the same quiesced transition: old session closes, new identity is committed,
-# then chat capture resumes.
 set_character_change_hook(
     _finalize_for_character_change,
     _resume_after_character_change,
@@ -208,13 +231,27 @@ def leafos_status_payload() -> dict[str, Any]:
         except Exception:
             pending_review = -1
 
+    lifecycle = processor.lifecycle_status()
+    try:
+        evidence_floor = processor.evidence_id_floor()
+    except Exception:
+        evidence_floor = -1
+    try:
+        history_max = legacy.history.max_message_id()
+    except Exception:
+        history_max = -1
+
     return {
         "enabled": True,
         "primary_character": get_primary_character(legacy.history),
-        "session": processor.lifecycle_status(),
+        "session": lifecycle,
         "closed_sessions": _count_json_files(sessions),
         "interpretations": _count_json_files(interpretations),
         "pending_review_sessions": pending_review,
+        "diagnostics": {
+            "history_max_message_id": history_max,
+            "leafos_evidence_id_floor": evidence_floor,
+        },
     }
 
 
@@ -277,6 +314,25 @@ async def unified_lifespan(fastapi_app):
     processor = legacy.leafos_processor
     if processor is not None:
         try:
+            # Preserve the numeric evidence identity contract when the user moves
+            # from a source-tree Agent or an older install to the unified EXE.
+            # The Vault can already be at message 9000+ while a new SQLite DB would
+            # otherwise restart at 1 and be ignored forever by last_processed_id.
+            evidence_floor = await asyncio.to_thread(processor.evidence_id_floor)
+            previous_max = await asyncio.to_thread(legacy.history.max_message_id)
+            sequence = await asyncio.to_thread(
+                legacy.history.ensure_next_message_id_after,
+                evidence_floor,
+            )
+            if evidence_floor > previous_max:
+                legacy.logging.getLogger("kagelink").warning(
+                    "[LeafOS Migration] Local history IDs were behind the existing Vault. "
+                    "Future message IDs advanced beyond %s (previous local max=%s, sequence=%s).",
+                    evidence_floor,
+                    previous_max,
+                    sequence,
+                )
+
             if legacy.leafos_exporter is not None:
                 await asyncio.to_thread(legacy.leafos_exporter.sync, legacy.history)
             if processor.has_open_session():
@@ -286,7 +342,7 @@ async def unified_lifespan(fastapi_app):
                 )
         except Exception:
             legacy.logging.getLogger("kagelink").exception(
-                "[LeafOS Lifecycle ERROR] Could not recover previous open session"
+                "[LeafOS Lifecycle ERROR] Could not initialize/recover LeafOS session state"
             )
 
     async with _original_lifespan(fastapi_app):

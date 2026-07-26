@@ -219,7 +219,6 @@ async def leafos_processor_loop() -> None:
         except asyncio.CancelledError:
             raise
         except Exception:
-            # Processor is deliberately isolated from chat, GAME, STATS and tunnel.
             logger.exception("[LeafOS Processor ERROR] Processor iteration failed")
         await asyncio.sleep(config.leafos_processor_interval_seconds)
 
@@ -300,8 +299,19 @@ async def get_status() -> dict[str, Any]:
 
 
 @app.get("/api/history", dependencies=[Depends(security.require_authorization)])
-async def get_history(limit: int = Query(default=500, ge=1, le=2000)) -> dict[str, Any]:
-    return {"messages": await asyncio.to_thread(history.recent, limit)}
+async def get_history(
+    limit: int = Query(default=500, ge=1, le=2000),
+    after_id: int | None = Query(default=None, ge=0),
+) -> dict[str, Any]:
+    if after_id is None:
+        messages = await asyncio.to_thread(history.recent, limit)
+    else:
+        messages = await asyncio.to_thread(history.messages_after_id, after_id, limit)
+    return {
+        "messages": messages,
+        "after_id": after_id,
+        "last_id": int(messages[-1]["id"]) if messages else int(after_id or 0),
+    }
 
 
 @app.get("/api/input-candidates", dependencies=[Depends(security.require_authorization)])
@@ -403,8 +413,6 @@ async def send_ic_message(request: ChannelMessageRequest) -> dict[str, Any]:
 
 @app.post("/api/send", dependencies=[Depends(security.require_authorization)])
 async def send_message(request: SendRequest) -> dict[str, Any]:
-    # Compatibility endpoint for the existing web client. The Android app uses
-    # the channel-specific endpoints above so OOC and IC cannot be conflated.
     return await _send_channel_message(request.message, request.channel)
 
 

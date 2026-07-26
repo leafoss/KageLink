@@ -46,7 +46,7 @@ def _utc_now() -> str:
 
 def _safe_name(value: Any) -> str:
     text = str(value or "").strip()
-    safe = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in text)
+    safe = "".join(ch if ch.isalnum() or ch in "-_ ." else "_" for ch in text)
     return safe[:160] or "unknown"
 
 
@@ -59,6 +59,20 @@ def _read_json(path: Path, default: dict[str, Any] | None = None) -> dict[str, A
         raise ReviewerError(f"INVALID_JSON: {path}") from error
     if not isinstance(value, dict):
         raise ReviewerError(f"JSON_ROOT_MUST_BE_OBJECT: {path}")
+
+    # Existing persisted Reviewer/Canonical state is fail-closed. When callers
+    # provide a schema-shaped default, a present container field must keep the
+    # same container type. Treating {"entries":"oops"} as an empty list (or a
+    # malformed reviews field as {}) could silently erase durable decisions.
+    for key, expected in (default or {}).items():
+        if key not in value:
+            continue
+        actual = value[key]
+        if isinstance(expected, dict) and not isinstance(actual, dict):
+            raise ReviewerError(f"INVALID_JSON_FIELD_TYPE: {path}: {key}")
+        if isinstance(expected, list) and not isinstance(actual, list):
+            raise ReviewerError(f"INVALID_JSON_FIELD_TYPE: {path}: {key}")
+
     return value
 
 

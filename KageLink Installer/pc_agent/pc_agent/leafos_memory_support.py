@@ -46,7 +46,7 @@ def _utc_now() -> str:
 
 def _safe_name(value: Any) -> str:
     text = str(value or "").strip()
-    safe = "".join(ch if ch.isalnum() or ch in "-_ ." else "_" for ch in text)
+    safe = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in text)
     return safe[:160] or "unknown"
 
 

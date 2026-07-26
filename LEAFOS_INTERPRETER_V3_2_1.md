@@ -1,6 +1,6 @@
 # LeafOS Interpreter v3.2.1 — Durable System Revelations
 
-[English](LEAFOS_INTERPRETER_V3_2_1.en.md) · [v3.2](LEAFOS_INTERPRETER_V3_2.md) · [Bíblia](AGENTS.md)
+[English](LEAFOS_INTERPRETER_V3_2_1.en.md) · [v3.2](LEAFOS_INTERPRETER_V3_2.md) · [Bíblia principal](AGENTS.md) · [Capítulo normativo do Interpreter](AGENTS_INTERPRETER.md)
 
 A v3.2.1 é uma camada **aditiva** sobre a v3.2. Ela não reescreve a v3.1 nem a v3.2.
 

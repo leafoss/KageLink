@@ -12,6 +12,11 @@ on:
       - "LEAFOS_MEMORY_REVIEWER.md"
       - "LEAFOS_DESKTOP.md"
       - "LEAFOS_DESKTOP.en.md"
+      - "RELEASE_VERSION"
+      - "DOWNLOAD.md"
+      - "README.md"
+      - "README.pt-BR.md"
+      - ".github/workflows/release.yml"
       - ".github/workflows/leafos-memory-reviewer.yml"
 
 jobs:

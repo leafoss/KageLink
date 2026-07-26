@@ -7,7 +7,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from pc_agent.config import load_config
 from pc_agent.history import HistoryStore
@@ -18,6 +18,7 @@ PROMPT_VERSION = "leafos-interpreter-v2"
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
 DEFAULT_MODEL = "qwen3:14b"
 DEFAULT_MAX_TRANSCRIPT_CHARS = 48000
+DEFAULT_OLLAMA_TIMEOUT_SECONDS = 600.0
 
 INTERPRETATION_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -241,7 +242,7 @@ class OllamaInterpreterProvider:
         *,
         base_url: str = DEFAULT_OLLAMA_URL,
         model: str = DEFAULT_MODEL,
-        timeout_seconds: float = 180.0,
+        timeout_seconds: float = DEFAULT_OLLAMA_TIMEOUT_SECONDS,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model.strip() or DEFAULT_MODEL
@@ -268,8 +269,20 @@ class OllamaInterpreterProvider:
         try:
             with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
                 response_payload = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as error:
+            try:
+                detail = error.read().decode("utf-8", errors="replace").strip()
+            except Exception:
+                detail = ""
+            suffix = detail[-1200:] if detail else str(error.reason or error)
+            raise RuntimeError(f"OLLAMA_HTTP_{error.code}: {suffix}") from error
+        except TimeoutError as error:
+            raise RuntimeError(f"OLLAMA_TIMEOUT: {self.timeout_seconds:.0f}s") from error
         except urllib.error.URLError as error:
-            raise RuntimeError(f"OLLAMA_UNAVAILABLE: {error}") from error
+            reason = getattr(error, "reason", error)
+            if isinstance(reason, TimeoutError):
+                raise RuntimeError(f"OLLAMA_TIMEOUT: {self.timeout_seconds:.0f}s") from error
+            raise RuntimeError(f"OLLAMA_UNAVAILABLE: {reason}") from error
         except json.JSONDecodeError as error:
             raise RuntimeError("OLLAMA_INVALID_RESPONSE") from error
 
@@ -372,32 +385,84 @@ class LeafOSInterpreter:
             return []
         return sorted(self.sessions_dir.glob("*.json"))
 
-    def run_once(self, *, max_sessions: int | None = None) -> dict[str, int]:
+    @staticmethod
+    def _target_set(session_ids: Iterable[str] | None) -> set[str] | None:
+        if session_ids is None:
+            return None
+        return {str(value).strip() for value in session_ids if str(value).strip()}
+
+    @staticmethod
+    def _failure_record(
+        failed_state: dict[str, Any],
+        session_id: str,
+        error_text: str,
+    ) -> dict[str, Any]:
+        previous = failed_state.get(session_id)
+        attempts = 0
+        if isinstance(previous, dict):
+            try:
+                attempts = max(0, int(previous.get("attempts", 0) or 0))
+            except (TypeError, ValueError):
+                attempts = 0
+        record = {
+            "error": str(error_text),
+            "attempts": attempts + 1,
+            "last_failed_at": _utc_now(),
+        }
+        failed_state[session_id] = record
+        return record
+
+    def run_once(
+        self,
+        *,
+        max_sessions: int | None = None,
+        session_ids: Iterable[str] | None = None,
+        include_details: bool = False,
+    ) -> dict[str, Any]:
         self.inbox_dir.mkdir(parents=True, exist_ok=True)
         state = _read_json(
             self.state_path,
             {
                 "schema_version": 1,
                 "processed_sessions": [],
+                "failed_sessions": {},
                 "last_run": "",
                 "last_error": "",
             },
         )
         processed = {str(value) for value in state.get("processed_sessions", []) if str(value)}
+        failed_state_raw = state.get("failed_sessions", {})
+        failed_state = dict(failed_state_raw) if isinstance(failed_state_raw, dict) else {}
+        targets = self._target_set(session_ids)
+        found_targets: set[str] = set()
+
         interpreted = 0
         skipped = 0
         failed = 0
+        interpreted_sessions: list[str] = []
+        skipped_sessions: list[str] = []
+        failures: list[dict[str, str]] = []
 
         for path in self._session_files():
             session = _read_json(path)
             session_id = str(session.get("session_id") or path.stem)
-            if session_id in processed:
-                skipped += 1
+            if targets is not None and session_id not in targets:
                 continue
+            if targets is not None:
+                found_targets.add(session_id)
+
+            if session_id in processed:
+                failed_state.pop(session_id, None)
+                skipped += 1
+                skipped_sessions.append(session_id)
+                continue
+
             output_path = self.inbox_dir / f"{_safe_session_id(session_id)}.json"
             if output_path.exists():
                 processed.add(session_id)
+                failed_state.pop(session_id, None)
                 skipped += 1
+                skipped_sessions.append(session_id)
                 continue
 
             if not str(session.get("primary_character", "") or "").strip() and self.primary_character_resolver is not None:
@@ -418,9 +483,12 @@ class LeafOSInterpreter:
                     allowed_ids.add(int(item.get("id")))
                 except (TypeError, ValueError):
                     pass
+
             if not allowed_ids:
+                error_text = f"SESSION_WITHOUT_MESSAGES: {session_id}"
                 failed += 1
-                state["last_error"] = f"SESSION_WITHOUT_MESSAGES: {session_id}"
+                self._failure_record(failed_state, session_id, error_text)
+                failures.append({"session_id": session_id, "error": error_text})
                 continue
 
             try:
@@ -433,22 +501,55 @@ class LeafOSInterpreter:
                 )
                 _atomic_json(output_path, bundle)
             except Exception as error:
+                error_text = str(error) or error.__class__.__name__
                 failed += 1
-                state["last_error"] = f"{session_id}: {error}"
+                self._failure_record(failed_state, session_id, error_text)
+                failures.append({"session_id": session_id, "error": error_text})
                 self.logger.exception("[LeafOS Interpreter ERROR] Session %s failed", session_id)
                 continue
 
             processed.add(session_id)
+            failed_state.pop(session_id, None)
             interpreted += 1
-            state["last_error"] = ""
+            interpreted_sessions.append(session_id)
             self.logger.info("[LeafOS Interpreter] Candidate bundle created: %s", session_id)
             if max_sessions is not None and interpreted >= max(1, int(max_sessions)):
                 break
 
+        if targets is not None:
+            for missing in sorted(targets - found_targets):
+                error_text = f"PROCESSOR_SESSION_NOT_FOUND: {missing}"
+                failed += 1
+                self._failure_record(failed_state, missing, error_text)
+                failures.append({"session_id": missing, "error": error_text})
+
         state["processed_sessions"] = sorted(processed)
+        state["failed_sessions"] = failed_state
         state["last_run"] = _utc_now()
+        state["last_error"] = (
+            f'{failures[-1]["session_id"]}: {failures[-1]["error"]}' if failures else ""
+        )
+        state["last_result"] = {
+            "interpreted": interpreted,
+            "skipped": skipped,
+            "failed": failed,
+        }
         _atomic_json(self.state_path, state)
-        return {"interpreted": interpreted, "skipped": skipped, "failed": failed}
+
+        result: dict[str, Any] = {
+            "interpreted": interpreted,
+            "skipped": skipped,
+            "failed": failed,
+        }
+        if include_details:
+            result.update(
+                {
+                    "interpreted_sessions": interpreted_sessions,
+                    "skipped_sessions": skipped_sessions,
+                    "failures": failures,
+                }
+            )
+        return result
 
 
 def main() -> int:
@@ -456,7 +557,12 @@ def main() -> int:
     parser.add_argument("--vault", required=True, help="Path to the LeafOS Obsidian vault")
     parser.add_argument("--model", default=DEFAULT_MODEL, help=f"Ollama model (default: {DEFAULT_MODEL})")
     parser.add_argument("--ollama-url", default=DEFAULT_OLLAMA_URL, help="Ollama base URL")
-    parser.add_argument("--timeout", type=float, default=180.0, help="Ollama request timeout in seconds")
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=DEFAULT_OLLAMA_TIMEOUT_SECONDS,
+        help="Ollama request timeout in seconds",
+    )
     parser.add_argument("--max-sessions", type=int, default=None, help="Maximum newly interpreted sessions in this run")
     parser.add_argument("--max-transcript-chars", type=int, default=DEFAULT_MAX_TRANSCRIPT_CHARS)
     args = parser.parse_args()

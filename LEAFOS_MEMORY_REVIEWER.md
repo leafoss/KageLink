@@ -1,5 +1,7 @@
 # LeafOS Memory Reviewer v1
 
+[English (US)](LEAFOS_MEMORY_REVIEWER.en.md)
+
 O **LeafOS Memory Reviewer** é a camada humana entre os bundles `pending_review` do `LeafOS Interpreter` e a primeira memória canônica estruturada do personagem.
 
 Ele responde à pergunta:
@@ -45,6 +47,7 @@ O v1 termina em **memória canônica revisada por humano**. Ele não implementa 
 5. Rejeições ficam registradas e não reaparecem como pendentes.
 6. O Reviewer não usa LLM. Validação, deduplicação, evidência e persistência são determinísticas.
 7. `PRIMARY_CHARACTER` é respeitado; o Reviewer nunca presume Leafos.
+8. UI, erros, ajuda de CLI e documentação humana mantêm suporte equivalente a **PT-BR** e **EN-US**.
 
 ## Entrada
 
@@ -97,7 +100,7 @@ Visualização para Obsidian:
 <Vault>/60 - Canonical Memory/MEMORY.md
 ```
 
-`MEMORY.md` é explicitamente **DERIVED VIEW**. Ele é regenerado a partir de `memory.json` e não é uma segunda fonte canônica.
+`MEMORY.md` é explicitamente **DERIVED VIEW / VISUALIZAÇÃO DERIVADA**. Ele é regenerado a partir de `memory.json`, não é uma segunda fonte canônica e usa rótulos estruturais bilíngues EN-US/PT-BR. O conteúdo aprovado da memória é preservado sem tradução automática.
 
 ## Categorias canônicas
 
@@ -323,7 +326,7 @@ Teste focado:
 
 ```powershell
 cd "KageLink Installer\pc_agent"
-python -m unittest tests.test_leafos_memory_reviewer -v
+python -m unittest discover -s tests -p "test_leafos_memory_reviewer.py" -v
 ```
 
 Suíte completa Python:

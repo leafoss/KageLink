@@ -57,6 +57,13 @@ TEXT = {
         "backend_starting": "Iniciando servidor interno...",
         "backend_active_game_missing": "Agente ativo. Abra o Shinobi Story Online. Se ele já estiver aberto, consulte logs\\kagelink.log.",
         "backend_failed": "O servidor interno falhou. Use Abrir logs e envie o arquivo kagelink.log.",
+        "settings_language": "Idioma", "settings_port": "Porta", "settings_regenerate_key": "Gerar nova chave",
+        "settings_leafos_section": "LEAFOS / OBSIDIAN", "settings_leafos_enable": "Ativar integração LeafOS",
+        "settings_leafos_vault": "Vault LeafOS", "settings_browse": "Procurar", "settings_raw_folder": "Pasta RAW",
+        "settings_export_ic": "Exportar IC", "settings_export_ooc": "Exportar OOC",
+        "settings_leafos_info": "RAW é append-only. O Processor roda isolado e lê a pasta RAW configurada. Git continua sendo responsabilidade do Obsidian Git.",
+        "settings_invalid_port": "Porta inválida", "settings_regenerate_confirm": "Gerar uma nova chave desconectará os perfis atuais. Continuar?",
+        "settings_save": "Salvar", "dialog_select_vault": "Selecionar Vault LeafOS", "dialog_select_raw": "Selecionar pasta RAW",
     },
     "en-US": {
         "agent": "AGENT", "game": "GAME", "chat": "CHAT", "input": "INPUT", "tunnel": "EXTERNAL CONNECTION",
@@ -75,6 +82,13 @@ TEXT = {
         "backend_starting": "Starting internal server...",
         "backend_active_game_missing": "Agent active. Open Shinobi Story Online. If it is already open, check logs\\kagelink.log.",
         "backend_failed": "The internal server failed. Use Open logs and send kagelink.log.",
+        "settings_language": "Language", "settings_port": "Port", "settings_regenerate_key": "Generate new key",
+        "settings_leafos_section": "LEAFOS / OBSIDIAN", "settings_leafos_enable": "Enable LeafOS integration",
+        "settings_leafos_vault": "LeafOS Vault", "settings_browse": "Browse", "settings_raw_folder": "RAW folder",
+        "settings_export_ic": "Export IC", "settings_export_ooc": "Export OOC",
+        "settings_leafos_info": "RAW is append-only. The Processor runs in isolation and reads the configured RAW folder. Git synchronization remains the responsibility of Obsidian Git.",
+        "settings_invalid_port": "Invalid port", "settings_regenerate_confirm": "Generating a new key will disconnect current profiles. Continue?",
+        "settings_save": "Save", "dialog_select_vault": "Select LeafOS Vault", "dialog_select_raw": "Select RAW folder",
     },
 }
 
@@ -169,6 +183,7 @@ class FirstRunWizard:
     def render(self) -> None:
         for child in self.content.winfo_children():
             child.destroy()
+        self.window.title(self.tr("KageLink — Primeira execução", "KageLink — First Run"))
         self.back.configure(state="normal" if self.page > 0 else "disabled")
         pages = [self.page_language, self.page_port, self.page_security, self.page_tunnel, self.page_finish]
         pages[self.page]()
@@ -368,7 +383,7 @@ class KageLinkAgentUI:
             self._start_tunnel()
         except Exception as error:
             self.logger.exception("External connection startup failed: %s", error)
-            message = f"{type(error).__name__}: {error}"
+            message = f"{self.t['tunnel_error']}\n{type(error).__name__}: {error}"
             self.ui(lambda: self.message_var.set(message))
             self.ui(lambda: self.tunnel_var.set(self.t["error"]))
             self.ui(lambda: self.external_var.set(self.t["tunnel_error"]))
@@ -660,7 +675,7 @@ class KageLinkAgentUI:
             self._start_tunnel()
         except Exception as error:
             self.logger.exception("Tunnel restart failed: %s", error)
-            self.ui(lambda: self.message_var.set(str(error)))
+            self.ui(lambda: self.message_var.set(f"{self.t['tunnel_error']}\n{type(error).__name__}: {error}"))
 
     def _stop_tunnel(self) -> None:
         process = self.tunnel_process
@@ -713,34 +728,34 @@ class KageLinkAgentUI:
         leafos_export_ic = BooleanVar(value=self.config.leafos_export_ic)
         leafos_export_ooc = BooleanVar(value=self.config.leafos_export_ooc)
 
-        Label(window, text="Idioma / Language").pack(anchor="w", padx=24, pady=(24, 5))
+        Label(window, text=self.t["settings_language"]).pack(anchor="w", padx=24, pady=(24, 5))
         ttk.Combobox(
             window,
             textvariable=language,
             values=["pt-BR", "en-US"],
             state="readonly",
         ).pack(fill=X, padx=24)
-        Label(window, text="Porta / Port").pack(anchor="w", padx=24, pady=(18, 5))
+        Label(window, text=self.t["settings_port"]).pack(anchor="w", padx=24, pady=(18, 5))
         Entry(window, textvariable=port).pack(fill=X, padx=24)
         ttk.Checkbutton(
             window,
-            text="Gerar nova chave / Generate new key",
+            text=self.t["settings_regenerate_key"],
             variable=regenerate,
         ).pack(anchor="w", padx=24, pady=(14, 16))
 
         ttk.Separator(window, orient="horizontal").pack(fill=X, padx=24, pady=(0, 14))
         Label(
             window,
-            text="LEAFOS / OBSIDIAN",
+            text=self.t["settings_leafos_section"],
             font=("Segoe UI", 11, "bold"),
         ).pack(anchor="w", padx=24, pady=(0, 8))
         ttk.Checkbutton(
             window,
-            text="Ativar integração LeafOS / Enable LeafOS integration",
+            text=self.t["settings_leafos_enable"],
             variable=leafos_enabled,
         ).pack(anchor="w", padx=24, pady=(0, 10))
 
-        Label(window, text="Vault LeafOS").pack(anchor="w", padx=24, pady=(0, 5))
+        Label(window, text=self.t["settings_leafos_vault"]).pack(anchor="w", padx=24, pady=(0, 5))
         vault_row = Frame(window)
         vault_row.pack(fill=X, padx=24)
         Entry(vault_row, textvariable=leafos_vault).pack(side=LEFT, fill=X, expand=True)
@@ -755,7 +770,7 @@ class KageLinkAgentUI:
         def choose_vault() -> None:
             selected = filedialog.askdirectory(
                 parent=window,
-                title="Selecionar Vault LeafOS / Select LeafOS Vault",
+                title=self.t["dialog_select_vault"],
                 initialdir=leafos_vault.get().strip() or str(Path.home()),
             )
             if not selected:
@@ -769,12 +784,12 @@ class KageLinkAgentUI:
 
         Button(
             vault_row,
-            text="Procurar / Browse",
+            text=self.t["settings_browse"],
             command=choose_vault,
             padx=8,
         ).pack(side=LEFT, padx=(8, 0))
 
-        Label(window, text="Pasta RAW / RAW folder").pack(anchor="w", padx=24, pady=(14, 5))
+        Label(window, text=self.t["settings_raw_folder"]).pack(anchor="w", padx=24, pady=(14, 5))
         raw_row = Frame(window)
         raw_row.pack(fill=X, padx=24)
         Entry(raw_row, textvariable=leafos_raw).pack(side=LEFT, fill=X, expand=True)
@@ -782,7 +797,7 @@ class KageLinkAgentUI:
         def choose_raw() -> None:
             selected = filedialog.askdirectory(
                 parent=window,
-                title="Selecionar pasta RAW / Select RAW folder",
+                title=self.t["dialog_select_raw"],
                 initialdir=leafos_raw.get().strip() or leafos_vault.get().strip() or str(Path.home()),
             )
             if selected:
@@ -790,27 +805,24 @@ class KageLinkAgentUI:
 
         Button(
             raw_row,
-            text="Procurar / Browse",
+            text=self.t["settings_browse"],
             command=choose_raw,
             padx=8,
         ).pack(side=LEFT, padx=(8, 0))
 
         ttk.Checkbutton(
             window,
-            text="Exportar IC / Export IC",
+            text=self.t["settings_export_ic"],
             variable=leafos_export_ic,
         ).pack(anchor="w", padx=24, pady=(14, 3))
         ttk.Checkbutton(
             window,
-            text="Exportar OOC / Export OOC",
+            text=self.t["settings_export_ooc"],
             variable=leafos_export_ooc,
         ).pack(anchor="w", padx=24, pady=(0, 12))
         Label(
             window,
-            text=(
-                "RAW é append-only. O Processor roda isolado e lê a pasta RAW configurada. "
-                "Git continua sendo responsabilidade do Obsidian Git."
-            ),
+            text=self.t["settings_leafos_info"],
             wraplength=560,
             justify="left",
         ).pack(anchor="w", padx=24, pady=(0, 14))
@@ -821,12 +833,11 @@ class KageLinkAgentUI:
                 if not 1024 <= value <= 65535:
                     raise ValueError
             except ValueError:
-                messagebox.showerror("KageLink", "Porta inválida / Invalid port", parent=window)
+                messagebox.showerror("KageLink", self.t["settings_invalid_port"], parent=window)
                 return
             if regenerate.get() and not messagebox.askyesno(
                 "KageLink",
-                "Gerar uma nova chave desconectará os perfis atuais. Continuar?\n"
-                "Generating a new key will disconnect current profiles. Continue?",
+                self.t["settings_regenerate_confirm"],
                 parent=window,
             ):
                 return
@@ -849,7 +860,7 @@ class KageLinkAgentUI:
             messagebox.showinfo("KageLink", self.t["restart_needed"], parent=window)
             self._restart_application()
 
-        Button(window, text="Salvar / Save", command=save).pack(pady=8)
+        Button(window, text=self.t["settings_save"], command=save).pack(pady=8)
 
     def _restart_application(self) -> None:
         executable = [sys.executable]
@@ -879,7 +890,7 @@ class KageLinkAgentUI:
 def main() -> None:
     _ensure_standard_streams()
     if os.name != "nt":
-        raise SystemExit("KageLink PC Agent is available only for Windows.")
+        raise SystemExit("KageLink PC Agent is available only for Windows. / O KageLink PC Agent está disponível somente para Windows.")
     if already_running():
         return
 

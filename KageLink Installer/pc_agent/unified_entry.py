@@ -8,9 +8,15 @@ from typing import Any, Iterable
 import unified_launcher as launcher
 from pc_agent.config import load_config
 from pc_agent.history import HistoryStore
-from pc_agent.leafos_interpreter import LeafOSInterpreter, OllamaInterpreterProvider
+from pc_agent.leafos_interpreter_v31 import LeafOSInterpreter, OllamaInterpreterProvider
 from pc_agent.leafos_ollama import OllamaManager
 from pc_agent.primary_character import resolve_primary_character
+
+
+# unified_launcher remains source-compatible, but every Interpreter path reached
+# through the packaged unified entry uses the v3.1 grounded implementation.
+launcher.LeafOSInterpreter = LeafOSInterpreter
+launcher.OllamaInterpreterProvider = OllamaInterpreterProvider
 
 
 class UnifiedKageLinkAgentUI(launcher.UnifiedKageLinkAgentUI):

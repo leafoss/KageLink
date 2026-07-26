@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from pc_agent.leafos import LeafOSProcessor, _atomic_json, _safe_name
+from pc_agent.leafos import LeafOSProcessor, RawRecordReader, _atomic_json, _safe_name
 
 
 PrimaryCharacterProvider = Callable[[], str]
@@ -132,6 +132,30 @@ class LifecycleLeafOSProcessor(LeafOSProcessor):
         )
         return paths, state
 
+    def evidence_id_floor(self) -> int:
+        """Return the highest numeric message ID already present in LeafOS state/RAW.
+
+        This is used only to keep a newly created local SQLite database from
+        restarting message IDs below an existing Vault cursor.
+        """
+
+        with self._lifecycle_lock:
+            _paths, state = self._state_payload()
+            try:
+                floor = max(0, int(state.get("last_processed_id", 0) or 0))
+            except (TypeError, ValueError):
+                floor = 0
+            try:
+                records = RawRecordReader(self.raw_output_path).after_id(0)
+            except (OSError, FileNotFoundError):
+                records = []
+            for record in records:
+                try:
+                    floor = max(floor, int(record.get("id", 0) or 0))
+                except (TypeError, ValueError):
+                    continue
+            return floor
+
     def has_open_session(self) -> bool:
         with self._lifecycle_lock:
             _paths, state = self._state_payload()
@@ -170,9 +194,6 @@ class LifecycleLeafOSProcessor(LeafOSProcessor):
                 and not has_open
                 and not self._current_primary_character()
             ):
-                # Do not advance last_processed_id. RAW remains intact and will be
-                # consumed after the user selects a character. Persist the blocked
-                # state so the Desktop can explain why processing is paused.
                 current_time = now or datetime.now(timezone.utc)
                 if current_time.tzinfo is None:
                     current_time = current_time.replace(tzinfo=timezone.utc)
@@ -196,11 +217,7 @@ class LifecycleLeafOSProcessor(LeafOSProcessor):
         now: datetime | None = None,
         consume_pending: bool = True,
     ) -> dict[str, Any]:
-        """Consume pending RAW and explicitly close the current session.
-
-        The operation is idempotent: when no session is open it performs no write
-        beyond the normal Processor state update caused by ``run_once``.
-        """
+        """Consume pending RAW and explicitly close the current session."""
 
         with self._lifecycle_lock:
             current_time = now or datetime.now(timezone.utc)

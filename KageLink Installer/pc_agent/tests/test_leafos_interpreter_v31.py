@@ -198,10 +198,10 @@ class LeafOSInterpreterV31Tests(unittest.TestCase):
         self.assertEqual(checkpoint["prompt_version"], "leafos-interpreter-v3.1")
         self.assertEqual(checkpoint["chunks"], {})
 
-    def test_packaged_unified_entry_routes_all_launcher_interpreter_globals_to_v31(self) -> None:
-        self.assertIs(unified_entry.launcher.LeafOSInterpreter, LeafOSInterpreter)
-        self.assertIs(unified_entry.LeafOSInterpreter, LeafOSInterpreter)
+    def test_v31_baseline_remains_available_when_packaged_entry_advances(self) -> None:
         self.assertEqual(LeafOSInterpreter.__module__, "pc_agent.leafos_interpreter_v31")
+        self.assertTrue(issubclass(unified_entry.LeafOSInterpreter, LeafOSInterpreter))
+        self.assertEqual(unified_entry.LeafOSInterpreter.__module__, "pc_agent.leafos_interpreter_v32")
 
 
 if __name__ == "__main__":

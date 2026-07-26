@@ -67,6 +67,24 @@ class UnifiedLauncherShutdownTests(unittest.TestCase):
             ["leafos-finalized", "infrastructure-stopped", "window-destroyed"],
         )
 
+    @patch.object(unified_launcher.subprocess, "Popen")
+    def test_frozen_restart_resets_pyinstaller_environment(self, popen) -> None:
+        ui = self._ui()
+        ui._finalize_for_shutdown = MagicMock(return_value=True)
+
+        with patch.object(unified_launcher.sys, "frozen", True, create=True), patch.object(
+            unified_launcher.legacy.KageLinkAgentUI,
+            "shutdown",
+        ):
+            ui._restart_application()
+
+        popen.assert_called_once()
+        args, kwargs = popen.call_args
+        self.assertEqual(args[0], [unified_launcher.sys.executable])
+        self.assertEqual(kwargs["cwd"], unified_launcher.PROJECT_DIR)
+        self.assertEqual(kwargs["env"]["PYINSTALLER_RESET_ENVIRONMENT"], "1")
+        ui.root.destroy.assert_called_once()
+
     def test_shutdown_failure_does_not_claim_finalization(self) -> None:
         ui = self._ui()
         ui._server_is_healthy = MagicMock(return_value=True)

@@ -729,7 +729,13 @@ class UnifiedKageLinkAgentUI(legacy.KageLinkAgentUI):
     def _restart_application(self) -> None:
         if not self._finalize_for_shutdown():
             if not messagebox.askyesno("KageLink", _t(self.lang, "close_failed"), parent=self.root): return
-        executable = _self_command(); legacy.KageLinkAgentUI.shutdown(self, prompt=False); subprocess.Popen(executable, cwd=PROJECT_DIR); self.root.destroy()
+        executable = _self_command()
+        legacy.KageLinkAgentUI.shutdown(self, prompt=False)
+        restart_env = os.environ.copy()
+        if getattr(sys, "frozen", False):
+            restart_env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+        subprocess.Popen(executable, cwd=PROJECT_DIR, env=restart_env)
+        self.root.destroy()
 
 
 def _run_reviewer_mode(args: argparse.Namespace) -> int:

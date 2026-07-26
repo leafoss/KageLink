@@ -68,6 +68,13 @@ class HistoryStore:
         normalized = str(value or "ooc").strip().lower()
         return normalized if normalized in VALID_CHANNELS else "ooc"
 
+    def max_message_id(self) -> int:
+        with self._lock, closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                "SELECT COALESCE(MAX(id), 0) AS max_id FROM messages"
+            ).fetchone()
+        return int(row["max_id"] if row is not None else 0)
+
     def ensure_next_message_id_after(self, floor: int) -> int:
         """Ensure future AUTOINCREMENT IDs are strictly greater than ``floor``.
 
@@ -225,8 +232,20 @@ class HistoryStore:
             for row in reversed(rows)
         ]
 
-    def recent_incoming_texts(self, limit: int = 500) -> list[str]:
-        return [text for _channel, text in self.recent_incoming_records(limit)]
+    def recent_incoming_texts(self, limit: int = 800) -> list[str]:
+        safe_limit = max(1, min(int(limit), 2000))
+        with self._lock, closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                """
+                SELECT text
+                FROM messages
+                WHERE direction = 'incoming'
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (safe_limit,),
+            ).fetchall()
+        return [str(row["text"]) for row in reversed(rows)]
 
     def recent(self, limit: int = 500) -> list[dict]:
         safe_limit = max(1, min(int(limit), 2000))
@@ -240,13 +259,14 @@ class HistoryStore:
                 """,
                 (safe_limit,),
             ).fetchall()
+
         return [
             {
                 "id": int(row["id"]),
-                "timestamp": str(row["timestamp"]),
-                "direction": str(row["direction"]),
+                "timestamp": row["timestamp"],
+                "direction": row["direction"],
                 "channel": self._channel(row["channel"]),
-                "text": str(row["text"]),
+                "text": row["text"],
                 "resynchronized": bool(row["resynchronized"]),
             }
             for row in reversed(rows)

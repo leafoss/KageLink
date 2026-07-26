@@ -4,9 +4,12 @@ from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 root = os.path.abspath(os.path.join(SPECPATH, '..'))
 agent = os.path.join(root, 'pc_agent')
-datas = [(os.path.join(agent, 'web'), 'web')]
+datas = [
+    (os.path.join(agent, 'web'), 'web'),
+    (os.path.join(agent, 'pc_agent', 'assets'), os.path.join('pc_agent', 'assets')),
+]
 binaries = []
-hiddenimports = ['app'] + collect_submodules('pc_agent') + ['win32timezone', 'win32ui', 'win32gui', 'win32api', 'win32con', 'win32process', 'uvicorn.logging', 'uvicorn.loops.auto', 'uvicorn.protocols.http.auto', 'uvicorn.protocols.websockets.auto', 'uvicorn.lifespan.on']
+hiddenimports = ['app', 'unified_app'] + collect_submodules('pc_agent') + ['win32timezone', 'win32ui', 'win32gui', 'win32api', 'win32con', 'win32process', 'uvicorn.logging', 'uvicorn.loops.auto', 'uvicorn.protocols.http.auto', 'uvicorn.protocols.websockets.auto', 'uvicorn.lifespan.on']
 for package in ['uvicorn', 'fastapi', 'starlette', 'pydantic', 'pydantic_core', 'websockets', 'anyio', 'mss', 'PIL']:
     d, b, h = collect_all(package)
     datas += d
@@ -14,7 +17,7 @@ for package in ['uvicorn', 'fastapi', 'starlette', 'pydantic', 'pydantic_core', 
     hiddenimports += h
 
 a = Analysis(
-    [os.path.join(agent, 'kagelink_launcher.py')],
+    [os.path.join(agent, 'unified_launcher.py')],
     pathex=[agent],
     binaries=binaries,
     datas=datas,

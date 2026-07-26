@@ -15,6 +15,7 @@ import app as legacy
 from pc_agent.chat_channels import ChatChannelParser, drop_replayed_prefix, find_new_text, unfinished_ic_suffix
 from pc_agent.leafos_lifecycle import LifecycleLeafOSProcessor
 from pc_agent.primary_character import get_primary_character, resolve_primary_character
+from pc_agent.primary_character_api import set_character_change_hook
 
 
 class FinalizeSessionRequest(BaseModel):
@@ -145,6 +146,21 @@ async def finalize_leafos_session(
                 legacy.monitor_chat_loop(),
                 name="shinobi-chat-monitor",
             )
+
+
+async def _finalize_for_character_change() -> dict[str, Any]:
+    return await finalize_leafos_session(
+        "character_changed",
+        restart_monitor=True,
+        closed_cleanly=True,
+    )
+
+
+# The primary-character endpoint was registered while importing the legacy app,
+# but it resolves this hook dynamically at request time. Android and Desktop
+# therefore use the same quiesced finalization path before the new identity is
+# made authoritative.
+set_character_change_hook(_finalize_for_character_change)
 
 
 def _count_json_files(path: Path) -> int:

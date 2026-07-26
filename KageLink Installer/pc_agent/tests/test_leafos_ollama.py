@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -39,6 +40,21 @@ class OllamaManagerTests(unittest.TestCase):
         self.assertFalse(status.server_online)
         self.assertFalse(status.model_available)
         self.assertIsNone(status.cli_path)
+
+    @patch("pc_agent.leafos_ollama.shutil.which", return_value=None)
+    @patch("pc_agent.leafos_ollama.Path.is_file", return_value=True)
+    def test_cli_path_finds_standard_windows_location_after_winget_install(self, _is_file, _which) -> None:
+        with patch.dict(
+            os.environ,
+            {"LOCALAPPDATA": r"C:\Users\Test\AppData\Local", "ProgramFiles": r"C:\Program Files"},
+            clear=False,
+        ):
+            path = OllamaManager().cli_path()
+        self.assertIsNotNone(path)
+        assert path is not None
+        self.assertIn("Programs", path)
+        self.assertIn("Ollama", path)
+        self.assertTrue(path.lower().endswith("ollama.exe"))
 
     @patch("pc_agent.leafos_ollama.OllamaManager.status")
     @patch("pc_agent.leafos_ollama.subprocess.Popen")

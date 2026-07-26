@@ -1,16 +1,12 @@
 name: Apply PyInstaller Restart Fix
 
 on:
-  push:
-    branches:
-      - feat/unified-leafos-desktop
-    paths:
-      - ".github/scripts/fix_pyinstaller_restart.py"
-      - ".github/workflows/apply-pyinstaller-restart-fix.yml"
   pull_request:
     paths:
       - ".github/scripts/fix_pyinstaller_restart.py"
       - ".github/workflows/apply-pyinstaller-restart-fix.yml"
+      - "KageLink Installer/pc_agent/unified_launcher.py"
+      - "KageLink Installer/pc_agent/tests/test_unified_launcher_shutdown.py"
 
 permissions:
   contents: write

@@ -13,9 +13,11 @@ new = """        executable = _self_command()
             restart_env[\"PYINSTALLER_RESET_ENVIRONMENT\"] = \"1\"
         subprocess.Popen(executable, cwd=PROJECT_DIR, env=restart_env)
         self.root.destroy()"""
-if old not in text:
-    raise RuntimeError("restart line not found")
-launcher.write_text(text.replace(old, new, 1), encoding="utf-8", newline="\n")
+if old in text:
+    text = text.replace(old, new, 1)
+elif "PYINSTALLER_RESET_ENVIRONMENT" not in text:
+    raise RuntimeError("restart implementation not found")
+launcher.write_text(text, encoding="utf-8", newline="\n")
 
 text = test_file.read_text(encoding="utf-8")
 marker = "    def test_shutdown_failure_does_not_claim_finalization(self) -> None:\n"

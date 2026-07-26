@@ -2,6 +2,7 @@ name: Apply PyInstaller Restart Fix
 
 on:
   pull_request:
+    types: [opened, reopened, synchronize]
     paths:
       - ".github/scripts/fix_pyinstaller_restart.py"
       - ".github/workflows/apply-pyinstaller-restart-fix.yml"

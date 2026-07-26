@@ -1,0 +1,222 @@
+name: Publish KageLink Release
+
+on:
+  pull_request:
+    paths:
+      - "RELEASE_VERSION"
+      - "README.md"
+      - "README.pt-BR.md"
+      - "DOWNLOAD.md"
+      - ".github/workflows/release.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "RELEASE_VERSION"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate release version and download contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(tr -d '\r\n ' < RELEASE_VERSION)"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid RELEASE_VERSION: $version" >&2
+            exit 1
+          fi
+
+          grep -Fq "#define MyAppVersion \"$version\"" "KageLink Installer/installer/KageLink_PC_Agent.iss"
+          grep -Eq "^version: ${version//./\\.}\+[0-9]+$" "KageLink Installer/pubspec.yaml"
+
+          echo "Release contract OK for KageLink $version"
+
+  windows-release:
+    if: github.event_name != 'pull_request'
+    needs: release-contract
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: "KageLink Installer"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: "KageLink Installer/pc_agent/requirements.txt"
+      - name: Install package dependencies
+        run: python -m pip install -r pc_agent/requirements.txt "pyinstaller>=6.10,<7"
+      - name: Run Python regression suite
+        working-directory: "KageLink Installer/pc_agent"
+        run: python -m unittest discover -s tests -v
+      - name: Build unified KageLink.exe
+        run: pyinstaller --noconfirm --clean installer/KageLink.spec
+      - name: Smoke-launch unified desktop
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path "dist\KageLink.exe").Path
+          $process = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 5
+          $process.Refresh()
+          if ($process.HasExited) {
+            throw "KageLink.exe exited during the startup smoke test with code $($process.ExitCode)"
+          }
+          Stop-Process -Id $process.Id -Force
+      - name: Prepare final installer inputs
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path "installer\build_output" -Force | Out-Null
+          Copy-Item -LiteralPath "dist\KageLink.exe" -Destination "installer\build_output\KageLink.exe" -Force
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "installer\tools\prepare_cloudflared.ps1"
+          if ($LASTEXITCODE -ne 0) { throw "prepare_cloudflared.ps1 failed" }
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          $known = @(
+            "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+          ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
+          if (-not $known) {
+            choco install innosetup -y --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "Could not install Inno Setup" }
+          }
+      - name: Build stable Windows release asset
+        shell: pwsh
+        run: |
+          $version = (Get-Content -LiteralPath "..\RELEASE_VERSION" -Raw).Trim()
+          $iscc = @(
+            "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+          ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
+          if (-not $iscc) { throw "ISCC.exe was not found" }
+          & $iscc "installer\KageLink_PC_Agent.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed" }
+
+          $source = "installer\output\KageLink-PC-Agent-Setup-v$version.exe"
+          if (-not (Test-Path -LiteralPath $source)) { throw "Final Setup was not created: $source" }
+          New-Item -ItemType Directory -Path "$env:RUNNER_TEMP\kagelink-release" -Force | Out-Null
+          Copy-Item -LiteralPath $source -Destination "$env:RUNNER_TEMP\kagelink-release\KageLink-Windows-Setup.exe" -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: ${{ runner.temp }}/kagelink-release/KageLink-Windows-Setup.exe
+          if-no-files-found: error
+
+  android-release:
+    if: github.event_name != 'pull_request'
+    needs: release-contract
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: "KageLink Installer"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Flutter regression
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
+      - name: Create Android build workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf _release_android_build
+          flutter create --platforms=android --org com.kagelink --project-name kagelink _release_android_build
+          rm -rf _release_android_build/lib _release_android_build/test
+          cp -R lib _release_android_build/lib
+          cp -R assets _release_android_build/assets
+          if [ -d test ]; then cp -R test _release_android_build/test; fi
+          cp pubspec.yaml _release_android_build/pubspec.yaml
+          cp analysis_options.yaml _release_android_build/analysis_options.yaml
+          cp l10n.yaml _release_android_build/l10n.yaml
+          if [ -d android_overlay/app/src ]; then
+            cp -R android_overlay/app/src/. _release_android_build/android/app/src/
+          fi
+          cat > _release_android_build/android/gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2048m -Xms512m -XX:MaxMetaspaceSize=512m -XX:-UseParallelGC -Dfile.encoding=UTF-8
+          kotlin.compiler.execution.strategy=in-process
+          org.gradle.daemon=false
+          org.gradle.parallel=false
+          org.gradle.workers.max=2
+          kotlin.incremental=false
+          android.useAndroidX=true
+          android.enableJetifier=true
+          EOF
+      - name: Build stable Android release asset
+        working-directory: "KageLink Installer/_release_android_build"
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter pub get
+          flutter gen-l10n
+          flutter analyze
+          flutter build apk --release
+          mkdir -p "$RUNNER_TEMP/kagelink-release"
+          cp build/app/outputs/flutter-apk/app-release.apk "$RUNNER_TEMP/kagelink-release/KageLink-Android.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-android
+          path: ${{ runner.temp }}/kagelink-release/KageLink-Android.apk
+          if-no-files-found: error
+
+  publish-release:
+    if: github.event_name != 'pull_request'
+    needs:
+      - windows-release
+      - android-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-windows
+          path: release-assets
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-android
+          path: release-assets
+      - name: Create checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-assets
+          sha256sum KageLink-Windows-Setup.exe KageLink-Android.apk > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Publish immutable GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(tr -d '\r\n ' < RELEASE_VERSION)"
+          tag="v$version"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists. Bump RELEASE_VERSION before publishing another release." >&2
+            exit 1
+          fi
+
+          gh release create "$tag" \
+            release-assets/KageLink-Windows-Setup.exe \
+            release-assets/KageLink-Android.apk \
+            release-assets/SHA256SUMS.txt \
+            --target "$GITHUB_SHA" \
+            --title "KageLink $version" \
+            --generate-notes \
+            --latest

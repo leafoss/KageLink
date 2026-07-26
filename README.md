@@ -2,9 +2,26 @@
 
 [Português (Brasil)](README.pt-BR.md) · [Development Bible](AGENTS.en.md) · [Bíblia de desenvolvimento](AGENTS.md)
 
+<!-- kagelink-downloads-start -->
+
+## ⬇️ Download
+
+**Current stable version: KageLink 3.4.1**
+
+| Windows | Android |
+| --- | --- |
+| **[Download KageLink for Windows](https://github.com/leafoss/KageLink/releases/latest/download/KageLink-Windows-Setup.exe)** | **[Download KageLink for Android](https://github.com/leafoss/KageLink/releases/latest/download/KageLink-Android.apk)** |
+
+On Windows, download the Setup and run the installer. The Android app is optional and works as the remote interface.
+
+[All downloads and SHA-256 checksums](https://github.com/leafoss/KageLink/releases/latest) · [Quick installation guide](DOWNLOAD.md)
+
+<!-- kagelink-downloads-end -->
+
+
 **KageLink** is a companion application for **Shinobi Story Online**. It connects the game running on a Windows PC to an Android app for chat, remote game controls, remote `Status | Inventory` viewing, and optional **LeafOS/Obsidian** integration.
 
-The official version documented here is **KageLink 3.4.1**. The Flutter application is versioned as `3.4.1+20`.
+The official version documented here is **KageLink 3.4.1**. The Flutter application is versioned as `3.4.1+21`.
 
 > KageLink requires Shinobi Story Online to be running on the Windows PC where the PC Agent is installed. The Android app is a remote interface; it does not run the game by itself.
 
@@ -65,7 +82,7 @@ Installation has two parts: the **Windows PC Agent** and the **Android APK**.
 Use the Setup matching the app version:
 
 ```text
-KageLink-PC-Agent-Setup-v3.4.1.exe
+KageLink-Windows-Setup.exe
 ```
 
 1. Close an older KageLink instance if it is running.
@@ -156,7 +173,7 @@ Connection details are also written to:
 Use:
 
 ```text
-KageLink-v3.4.1.apk
+KageLink-Android.apk
 ```
 
 1. Copy the APK to the Android device.
@@ -697,7 +714,7 @@ The script:
 Output:
 
 ```text
-KageLink Installer\KageLink-v3.4.1.apk
+KageLink Installer\KageLink-Android.apk
 ```
 
 **The Windows installer does not build the APK.**
@@ -725,7 +742,7 @@ The builder:
 Output:
 
 ```text
-KageLink Installer\installer\output\KageLink-PC-Agent-Setup-v3.4.1.exe
+KageLink Installer\installer\output\KageLink-Windows-Setup.exe
 ```
 
 The **end user** does not need Python to run the packaged KageLink. Python is part of the development/build process, not normal use of the final Setup.

@@ -21,7 +21,7 @@ No Windows, baixe o Setup e execute o instalador. O aplicativo Android é opcion
 
 O **KageLink** é um aplicativo complementar para **Shinobi Story Online**. Ele conecta o jogo executado em um computador Windows a um aplicativo Android para leitura e envio de chat, controle remoto do jogo, visualização da janela `Status | Inventory` e integração opcional com o **LeafOS/Obsidian**.
 
-A versão oficial descrita neste documento é **KageLink 3.4.1**. O aplicativo Flutter está versionado como `3.4.1+20`.
+A versão oficial descrita neste documento é **KageLink 3.4.1**. O aplicativo Flutter está versionado como `3.4.1+21`.
 
 > O KageLink depende do Shinobi Story Online aberto no computador onde o PC Agent está instalado. O aplicativo Android é uma interface remota; ele não executa o jogo sozinho.
 

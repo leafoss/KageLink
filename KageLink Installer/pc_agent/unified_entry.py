@@ -8,14 +8,15 @@ from typing import Any, Iterable
 import unified_launcher as launcher
 from pc_agent.config import load_config
 from pc_agent.history import HistoryStore
-from pc_agent.leafos_interpreter_v32 import LeafOSInterpreter, OllamaInterpreterProvider
+from pc_agent.leafos_interpreter_v321 import LeafOSInterpreter, OllamaInterpreterProvider
 from pc_agent.leafos_ollama import OllamaManager
 from pc_agent.primary_character import resolve_primary_character
 
 
 # unified_launcher remains source-compatible, but every Interpreter path reached
-# through the packaged unified entry uses the v3.2 salience implementation.
-# The working v3.1 implementation remains intact in leafos_interpreter_v31.py.
+# through the packaged unified entry uses the v3.2.1 durable-revelation layer.
+# The validated v3.1 implementation remains intact in leafos_interpreter_v31.py,
+# and v3.2 remains intact in leafos_interpreter_v32.py.
 launcher.LeafOSInterpreter = LeafOSInterpreter
 launcher.OllamaInterpreterProvider = OllamaInterpreterProvider
 

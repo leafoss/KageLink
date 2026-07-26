@@ -129,6 +129,18 @@ TEXT = {
         "finish": "Concluir",
         "continue": "Continuar",
         "back": "Voltar",
+        "connection_help": "O KageLink cria a chave de acesso automaticamente e inicia por padrão uma rota segura via Cloudflare.",
+        "access_key_help": "Uma chave de acesso aleatória e segura será criada automaticamente.",
+        "finish_help": "O KageLink.exe gerenciará o Agent, o ciclo de vida da sessão, o Interpreter e o Memory Reviewer. O uso normal não exige PowerShell.",
+        "state_on": "ATIVO",
+        "state_off": "DESATIVADO",
+        "ollama_model": "Modelo Ollama",
+        "invalid_port": "Porta inválida.",
+        "select_vault": "Selecione a Vault LeafOS.",
+        "settings_help": "O KageLink mantém chat, GAME e STATS isolados do LeafOS. Alterações de rede ou caminhos do LeafOS reiniciam o Agent com segurança.",
+        "operation_failed": "A operação falhou:\n\n{error}",
+        "interpreter_failed": "O Interpreter não conseguiu concluir uma ou mais sessões:",
+        "interpreter_preserved": "A sessão, os dados do Processor e o RAW foram preservados. Use 'Interpretar pendentes' para tentar novamente.",
     },
     "en-US": {
         "app_title": "KageLink · LeafOS",
@@ -202,6 +214,18 @@ TEXT = {
         "finish": "Finish",
         "continue": "Continue",
         "back": "Back",
+        "connection_help": "KageLink creates the access key automatically and starts a secure Cloudflare route by default.",
+        "access_key_help": "A secure random access key will be created automatically.",
+        "finish_help": "KageLink.exe will manage the Agent, session lifecycle, Interpreter and Memory Reviewer. Normal use does not require PowerShell.",
+        "state_on": "ON",
+        "state_off": "OFF",
+        "ollama_model": "Ollama model",
+        "invalid_port": "Invalid port.",
+        "select_vault": "Select the LeafOS Vault.",
+        "settings_help": "KageLink keeps chat, GAME and STATS isolated from LeafOS. Network or LeafOS path changes restart the Agent safely.",
+        "operation_failed": "The operation failed:\n\n{error}",
+        "interpreter_failed": "The Interpreter could not complete one or more sessions:",
+        "interpreter_preserved": "The session, Processor data and RAW were preserved. Use 'Interpret pending' to retry.",
     },
 }
 
@@ -268,10 +292,10 @@ class UnifiedFirstRunWizard:
             ttk.Radiobutton(self.content, text=text, variable=self.language, value=value, command=self.render).pack(anchor="w", pady=8)
 
     def _page_connection(self) -> None:
-        self._title(self.tr("connection"), "KageLink creates the access key automatically and starts the secure Cloudflare route by default.")
+        self._title(self.tr("connection"), self.tr("connection_help"))
         Label(self.content, text=self.tr("port"), bg=COLORS["bg"], fg=COLORS["muted"]).pack(anchor="w")
         Entry(self.content, textvariable=self.port, bg=COLORS["surface_alt"], fg=COLORS["text"], insertbackground=COLORS["accent"], relief="flat", font=("Consolas", 14)).pack(fill=X, ipady=9, pady=(5, 18))
-        Label(self.content, text="A secure random access key will be created automatically. / Uma chave segura será criada automaticamente.", bg=COLORS["bg"], fg=COLORS["text"], wraplength=620, justify="left").pack(anchor="w")
+        Label(self.content, text=self.tr("access_key_help"), bg=COLORS["bg"], fg=COLORS["text"], wraplength=620, justify="left").pack(anchor="w")
 
     def _page_leafos(self) -> None:
         self._title(self.tr("first_leafos"), self.tr("first_leafos_help"))
@@ -285,13 +309,13 @@ class UnifiedFirstRunWizard:
         Label(self.content, text=self.tr("character_help"), bg=COLORS["bg"], fg=COLORS["muted"], wraplength=620, justify="left").pack(anchor="w")
 
     def _page_finish(self) -> None:
-        self._title(self.tr("finish"), "KageLink.exe will own Agent, session lifecycle, Interpreter and Memory Reviewer. No PowerShell is required for normal use.")
+        self._title(self.tr("finish"), self.tr("finish_help"))
         lines = [
             f"{self.tr('port')}: {self.port.get()}",
-            f"LeafOS: {'ON' if self.leafos_enabled.get() else 'OFF'}",
+            f"LeafOS: {self.tr('state_on') if self.leafos_enabled.get() else self.tr('state_off')}",
             f"{self.tr('vault')}: {self.vault.get().strip() or '—'}",
             f"{self.tr('character_title')}: {self.primary_character.get().strip() or '—'}",
-            f"Ollama model: {MODEL}",
+            f"{self.tr('ollama_model')}: {MODEL}",
         ]
         Label(self.content, text="\n".join(lines), bg=COLORS["surface"], fg=COLORS["text"], justify="left", anchor="w", padx=18, pady=18, highlightthickness=1, highlightbackground=COLORS["border"]).pack(fill=X, pady=16)
 
@@ -310,10 +334,10 @@ class UnifiedFirstRunWizard:
                 if not 1024 <= port <= 65535:
                     raise ValueError
             except ValueError:
-                messagebox.showerror("KageLink", "Porta inválida / Invalid port", parent=self.window); return
+                messagebox.showerror("KageLink", self.tr("invalid_port"), parent=self.window); return
         if self.page == 2 and self.leafos_enabled.get():
             if not self.vault.get().strip():
-                messagebox.showerror("KageLink", "Selecione a Vault LeafOS / Select the LeafOS Vault", parent=self.window); return
+                messagebox.showerror("KageLink", self.tr("select_vault"), parent=self.window); return
             if not self.primary_character.get().strip():
                 messagebox.showerror("KageLink", self.tr("primary_required"), parent=self.window); return
         if self.page < 3:
@@ -413,7 +437,7 @@ class UnifiedKageLinkAgentUI(legacy.KageLinkAgentUI):
         page.pack_propagate(False)
         self._section_title(page, _t(self.lang, "services"))
         statuses = Frame(page, bg=COLORS["bg"]); statuses.pack(fill=X)
-        for title, var in (("AGENT", self.agent_var), ("GAME", self.game_var), ("CHAT", self.chat_var), ("INPUT", self.input_var), ("EXTERNAL", self.tunnel_var)):
+        for title, var in ((_t(self.lang, "agent"), self.agent_var), (_t(self.lang, "game"), self.game_var), (_t(self.lang, "chat"), self.chat_var), (_t(self.lang, "input"), self.input_var), (_t(self.lang, "tunnel"), self.tunnel_var)):
             self._status_card(statuses, title, var).pack(side=LEFT, fill=X, expand=True, padx=4)
 
         top = Frame(page, bg=COLORS["bg"]); top.pack(fill=X, pady=(14, 0))
@@ -477,7 +501,7 @@ class UnifiedKageLinkAgentUI(legacy.KageLinkAgentUI):
     def _build_settings_page(self, page: Frame) -> None:
         self._section_title(page, _t(self.lang, "settings"))
         card = self._card(page); card.pack(fill=X)
-        Label(card, text="KageLink keeps chat/GAME/STATS isolated from LeafOS. Changes to network or LeafOS paths restart the Agent safely.", bg=COLORS["card"], fg=COLORS["muted"], wraplength=760, justify="left").pack(anchor="w", pady=(0, 14))
+        Label(card, text=_t(self.lang, "settings_help"), bg=COLORS["card"], fg=COLORS["muted"], wraplength=760, justify="left").pack(anchor="w", pady=(0, 14))
         Button(card, text=_t(self.lang, "settings"), command=self.open_settings, bg=COLORS["button"], fg=COLORS["text"], relief="flat", padx=18, pady=10).pack(anchor="w")
 
     def _show_page(self, key: str) -> None:
@@ -570,7 +594,7 @@ class UnifiedKageLinkAgentUI(legacy.KageLinkAgentUI):
                     set_primary_character(history, name); self.character_var.set(name or _t(self.lang, "no_character"))
                 window.destroy(); self._refresh_leafos_status()
             except Exception as error:
-                messagebox.showerror("LeafOS", str(error), parent=window)
+                messagebox.showerror("LeafOS", _t(self.lang, "operation_failed", error=error), parent=window)
         Button(buttons, text=_t(self.lang, "save"), command=save_character, bg=COLORS["approve"], fg=COLORS["text"], relief="flat", padx=16, pady=8).pack(side=RIGHT)
         if not required:
             Button(buttons, text=_t(self.lang, "cancel"), command=window.destroy, bg=COLORS["button"], fg=COLORS["text"], relief="flat", padx=16, pady=8).pack(side=RIGHT, padx=(0, 8))
@@ -594,7 +618,7 @@ class UnifiedKageLinkAgentUI(legacy.KageLinkAgentUI):
             self.ui(lambda: self.message_var.set(_t(self.lang, "finalized")))
             self._interpret_pending_worker(open_reviewer=True)
         except Exception as error:
-            self.ui(lambda: messagebox.showerror("LeafOS", str(error), parent=self.root))
+            self.ui(lambda: messagebox.showerror("LeafOS", _t(self.lang, "operation_failed", error=error), parent=self.root))
         finally:
             self._clear_busy()
 
@@ -646,7 +670,7 @@ class UnifiedKageLinkAgentUI(legacy.KageLinkAgentUI):
                 OllamaManager(base_url=OLLAMA_URL, model=MODEL).install_with_winget()
                 self.ui(lambda: self.message_var.set("Ollama OK"))
             except Exception as error:
-                self.ui(lambda: messagebox.showerror("Ollama", str(error), parent=self.root))
+                self.ui(lambda: messagebox.showerror("Ollama", _t(self.lang, "operation_failed", error=error), parent=self.root))
             finally:
                 self._clear_busy(); self.ui(self._refresh_ollama_status)
         threading.Thread(target=worker, name="OllamaInstall", daemon=True).start()
@@ -657,7 +681,7 @@ class UnifiedKageLinkAgentUI(legacy.KageLinkAgentUI):
             try:
                 OllamaManager(base_url=OLLAMA_URL, model=MODEL).start_server(); self.ui(lambda: self.message_var.set("Ollama OK"))
             except Exception as error:
-                self.ui(lambda: messagebox.showerror("Ollama", str(error), parent=self.root))
+                self.ui(lambda: messagebox.showerror("Ollama", _t(self.lang, "operation_failed", error=error), parent=self.root))
             finally:
                 self._clear_busy(); self.ui(self._refresh_ollama_status)
         threading.Thread(target=worker, name="OllamaStart", daemon=True).start()
@@ -670,7 +694,7 @@ class UnifiedKageLinkAgentUI(legacy.KageLinkAgentUI):
                 manager.pull_model(on_output=lambda line: self.ui(lambda value=line: self.message_var.set(value[-180:])))
                 self.ui(lambda: self.message_var.set(f"{MODEL} OK"))
             except Exception as error:
-                self.ui(lambda: messagebox.showerror("Ollama", str(error), parent=self.root))
+                self.ui(lambda: messagebox.showerror("Ollama", _t(self.lang, "operation_failed", error=error), parent=self.root))
             finally:
                 self._clear_busy(); self.ui(self._refresh_ollama_status)
         threading.Thread(target=worker, name="OllamaPull", daemon=True).start()
@@ -700,9 +724,9 @@ class UnifiedKageLinkAgentUI(legacy.KageLinkAgentUI):
                 port_value = int(port.get().strip())
                 if not 1024 <= port_value <= 65535: raise ValueError
             except ValueError:
-                messagebox.showerror("KageLink", "Porta inválida / Invalid port", parent=window); return
+                messagebox.showerror("KageLink", _t(self.lang, "invalid_port"), parent=window); return
             if enabled.get() and not vault.get().strip():
-                messagebox.showerror("LeafOS", "Vault required / Vault obrigatória", parent=window); return
+                messagebox.showerror("LeafOS", _t(self.lang, "select_vault"), parent=window); return
             update_user_settings(language=language.get(), port=port_value, leafos_enabled=enabled.get(), leafos_vault_path=vault.get().strip(), leafos_raw_output_path=raw.get().strip(), leafos_export_ic=export_ic.get(), leafos_export_ooc=export_ooc.get())
             window.destroy(); self._restart_application()
         Button(body, text=_t(self.lang, "save_restart"), command=save, bg=COLORS["approve"], fg=COLORS["text"], relief="flat", padx=18, pady=10).pack(anchor="e", pady=(20, 0))

@@ -40,9 +40,9 @@ class UnifiedKageLinkAgentUI(launcher.UnifiedKageLinkAgentUI):
             )
         except Exception as error:
             self.ui(
-                lambda value=str(error): messagebox.showerror(
+                lambda value=error: messagebox.showerror(
                     "LeafOS",
-                    value,
+                    launcher._t(self.lang, "operation_failed", error=value),
                     parent=self.root,
                 )
             )
@@ -61,18 +61,10 @@ class UnifiedKageLinkAgentUI(launcher.UnifiedKageLinkAgentUI):
         if len(lines) > 8:
             details += f"\n... +{len(lines) - 8}"
 
-        if self.lang == "pt-BR":
-            return (
-                "O Interpreter não conseguiu concluir uma ou mais sessões:\n\n"
-                f"{details}\n\n"
-                "A sessão, o Processor e o RAW foram preservados. "
-                "Use 'Interpretar pendentes' para tentar novamente."
-            )
         return (
-            "The Interpreter could not complete one or more sessions:\n\n"
+            f"{launcher._t(self.lang, 'interpreter_failed')}\n\n"
             f"{details}\n\n"
-            "The session, Processor data and RAW were preserved. "
-            "Use 'Interpret pending' to retry."
+            f"{launcher._t(self.lang, 'interpreter_preserved')}"
         )
 
     def _interpret_pending_worker(

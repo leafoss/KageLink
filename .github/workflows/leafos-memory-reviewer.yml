@@ -61,10 +61,59 @@ jobs:
             throw "Packaged KageLink.exe is unexpectedly small"
           }
           Write-Host ("KageLink.exe: {0:N2} MB" -f ($item.Length / 1MB))
+      - name: Smoke-launch unified desktop
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path "dist\KageLink.exe").Path
+          $process = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 5
+          $process.Refresh()
+          if ($process.HasExited) {
+            throw "KageLink.exe exited during the startup smoke test with code $($process.ExitCode)"
+          }
+          Stop-Process -Id $process.Id -Force
+          Write-Host "KageLink.exe remained alive through first-run UI startup."
+      - name: Prepare final installer inputs
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path "installer\build_output" -Force | Out-Null
+          Copy-Item -LiteralPath "dist\KageLink.exe" -Destination "installer\build_output\KageLink.exe" -Force
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "installer\tools\prepare_cloudflared.ps1"
+          if ($LASTEXITCODE -ne 0) { throw "prepare_cloudflared.ps1 failed" }
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          $known = @(
+            "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+          ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
+          if (-not $known) {
+            choco install innosetup -y --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "Could not install Inno Setup" }
+          }
+      - name: Build final Windows Setup
+        shell: pwsh
+        run: |
+          $iscc = @(
+            "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+          ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
+          if (-not $iscc) { throw "ISCC.exe was not found" }
+          & $iscc "installer\KageLink_PC_Agent.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed" }
+          $setup = "installer\output\KageLink-PC-Agent-Setup-v3.4.1.exe"
+          if (-not (Test-Path -LiteralPath $setup)) { throw "Final Setup was not created" }
+          $item = Get-Item -LiteralPath $setup
+          if ($item.Length -lt 1MB) { throw "Final Setup is unexpectedly small" }
+          Write-Host ("Final Setup: {0:N2} MB" -f ($item.Length / 1MB))
       - uses: actions/upload-artifact@v4
         with:
           name: KageLink-unified-preview
-          path: KageLink Installer/dist/KageLink.exe
+          path: |
+            KageLink Installer/dist/KageLink.exe
+            KageLink Installer/installer/output/KageLink-PC-Agent-Setup-v3.4.1.exe
           if-no-files-found: error
 
   flutter-regression:

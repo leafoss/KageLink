@@ -137,7 +137,7 @@ session_id: 2026-07-26_011
 13864: (***Anbu** Your secondary Element is: Earth*)
 ```
 
-The test must also cover the redundant interpretations observed from the model:
+In the real run, the Reviewer showed that the LLM understood both elements but published them as events attributed to the visible `Anbu` wrapper:
 
 ```text
 Revealing Primary Element
@@ -147,13 +147,15 @@ Revealing Secondary Element
 Anbu revealed the secondary element as Earth.
 ```
 
-Expected Reviewer result after deterministic post-processing:
+That result was used to harden the contract before merge. The automated regression uses the exact observed syntax and IDs and requires final post-processing to produce:
 
 - two neutral `facts` candidates;
 - IDs `13863` and `13864` preserved separately;
 - no `Leafos`/`Anbu` ownership in final statements;
 - redundant model versions only in audit data;
 - mechanical pickup/drop noise remains outside the normal queue.
+
+The manual validation proves the real input and that the pipeline detects the content; the neutral final form added after that log is covered by the corresponding automated regression.
 
 ## 8. Adding new system formats
 

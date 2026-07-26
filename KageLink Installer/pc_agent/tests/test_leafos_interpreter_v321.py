@@ -78,8 +78,8 @@ class LeafOSInterpreterV321Tests(unittest.TestCase):
             messages = [
                 _message(30001, "(***Anbu** drops Pick Axe*)"),
                 _message(30002, "(***Anbu** applies Chakra to the Chakra Paper*)"),
-                _message(30003, "Your primary Element is: Fire"),
-                _message(30004, "Your secondary Element is: Earth"),
+                _message(30003, "(***Anbu** Your primary Element is: Fire*)"),
+                _message(30004, "(***Anbu** Your secondary Element is: Earth*)"),
                 _message(30005, "(***Anbu** drops Large Kunai*)"),
                 _message(30006, "(***Anbu** picks up Large Kunai*)"),
             ]
@@ -114,6 +114,7 @@ class LeafOSInterpreterV321Tests(unittest.TestCase):
             self.assertEqual(payload["salience"]["review_candidates"], 2)
             self.assertEqual(payload["durable_system_revelations"]["detected"], 2)
             self.assertEqual(payload["durable_system_revelations"]["promoted"], 2)
+            self.assertTrue(payload["durable_system_revelations"]["wrapped_log_syntax_supported"])
             self.assertEqual(
                 payload["durable_system_revelations"]["identity_attribution"],
                 "not_inferred",
@@ -124,20 +125,86 @@ class LeafOSInterpreterV321Tests(unittest.TestCase):
             self.assertEqual(len(candidates), 2)
             self.assertTrue(all(item["category"] == "facts" for item in candidates))
 
+    def test_real_validation_log_replaces_model_events_with_neutral_system_facts(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            vault = Path(temp_dir) / "LeafOS-Vault"
+            messages = [
+                _message(13861, "(***Anbu** drops Chakra Paper*)"),
+                _message(13862, "(***Anbu** picks up Chakra Paper*)"),
+                _message(13863, "(***Anbu** Your primary Element is: Fire*)"),
+                _message(13864, "(***Anbu** Your secondary Element is: Earth*)"),
+            ]
+            _write_session(vault, "2026-07-26_011", messages)
+
+            model_result = _base_result()
+            model_result["events"] = [
+                {
+                    "title": "Revealing Primary Element",
+                    "description": "Anbu revealed the primary element as Fire.",
+                    "event_type": "element_reveal",
+                    "confidence": 1.0,
+                    "source_message_ids": [13863],
+                },
+                {
+                    "title": "Revealing Secondary Element",
+                    "description": "Anbu revealed the secondary element as Earth.",
+                    "event_type": "element_reveal",
+                    "confidence": 1.0,
+                    "source_message_ids": [13864],
+                },
+            ]
+
+            v321.LeafOSInterpreter(vault, StaticProvider(model_result)).run_once()
+            output = vault / "70 - LeafOS Inbox" / "Interpretations" / "2026-07-26_011.json"
+            payload = json.loads(output.read_text(encoding="utf-8"))
+
+            self.assertEqual(payload["events"], [])
+            self.assertEqual(len(payload["facts"]), 2)
+            self.assertEqual(
+                {item["statement"] for item in payload["facts"]},
+                {
+                    "The system reported the primary Element as Fire.",
+                    "The system reported the secondary Element as Earth.",
+                },
+            )
+            self.assertEqual(
+                {tuple(item["source_message_ids"]) for item in payload["facts"]},
+                {(13863,), (13864,)},
+            )
+            self.assertEqual(payload["durable_system_revelations"]["detected"], 2)
+            self.assertEqual(payload["durable_system_revelations"]["promoted"], 2)
+            self.assertEqual(payload["durable_system_revelations"]["replaced_model_candidates"], 2)
+            self.assertEqual(payload["durable_system_revelations"]["identity_attribution"], "not_inferred")
+
+            replacements = [
+                item
+                for item in payload["suppressed_candidates"]
+                if item.get("decision") == "replaced_by_durable_system_revelation"
+            ]
+            self.assertEqual(len(replacements), 2)
+            self.assertTrue(all(item.get("category") == "events" for item in replacements))
+
+            reviewer = LeafOSMemoryReviewer(vault)
+            candidates = reviewer.list_candidates("2026-07-26_011")
+            self.assertEqual(len(candidates), 2)
+            self.assertTrue(all(item["category"] == "facts" for item in candidates))
+            self.assertTrue(all("Anbu" not in item["candidate"]["statement"] for item in candidates))
+            self.assertTrue(all("Leafos" not in item["candidate"]["statement"] for item in candidates))
+
     def test_system_revelation_never_binds_anbu_to_primary_character(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             vault = Path(temp_dir) / "LeafOS-Vault"
             _write_session(
                 vault,
-                "2026-07-26_011",
+                "2026-07-26_012",
                 [
                     _message(30101, "(***Anbu** applies Chakra to the Chakra Paper*)"),
-                    _message(30102, "Your primary Element is: Fire"),
+                    _message(30102, "(***Anbu** Your primary Element is: Fire*)"),
                 ],
             )
 
             v321.LeafOSInterpreter(vault, StaticProvider(_base_result())).run_once()
-            output = vault / "70 - LeafOS Inbox" / "Interpretations" / "2026-07-26_011.json"
+            output = vault / "70 - LeafOS Inbox" / "Interpretations" / "2026-07-26_012.json"
             payload = json.loads(output.read_text(encoding="utf-8"))
 
             self.assertEqual(len(payload["facts"]), 1)
@@ -151,8 +218,8 @@ class LeafOSInterpreterV321Tests(unittest.TestCase):
             vault = Path(temp_dir) / "LeafOS-Vault"
             _write_session(
                 vault,
-                "2026-07-26_012",
-                [_message(30201, "Your primary Element is: Fire")],
+                "2026-07-26_013",
+                [_message(30201, "(***Anbu** Your primary Element is: Fire*)")],
             )
             model_result = _base_result()
             model_result["facts"] = [
@@ -165,21 +232,13 @@ class LeafOSInterpreterV321Tests(unittest.TestCase):
             ]
 
             v321.LeafOSInterpreter(vault, StaticProvider(model_result)).run_once()
-            output = vault / "70 - LeafOS Inbox" / "Interpretations" / "2026-07-26_012.json"
+            output = vault / "70 - LeafOS Inbox" / "Interpretations" / "2026-07-26_013.json"
             payload = json.loads(output.read_text(encoding="utf-8"))
 
             self.assertEqual(len(payload["facts"]), 1)
             self.assertEqual(
                 payload["facts"][0]["statement"],
                 "The system reported the primary Element as Fire.",
-            )
-            self.assertFalse(
-                any(
-                    isinstance(item, dict)
-                    and item.get("category") == "facts"
-                    and 30201 in item.get("candidate", {}).get("source_message_ids", [])
-                    for item in payload["suppressed_candidates"]
-                )
             )
             self.assertEqual(payload["salience"]["review_candidates"], 1)
 
@@ -188,14 +247,14 @@ class LeafOSInterpreterV321Tests(unittest.TestCase):
             vault = Path(temp_dir) / "LeafOS-Vault"
             session_path = _write_session(
                 vault,
-                "2026-07-26_013",
-                [_message(30301, "Your primary Element is: Fire")],
+                "2026-07-26_014",
+                [_message(30301, "(***Anbu** Your primary Element is: Fire*)")],
             )
             session = json.loads(session_path.read_text(encoding="utf-8"))
             chunks = v3._chunk_messages(session, 9000, 2)
             fingerprint = v3._session_fingerprint(session, chunk_chars=9000, overlap_messages=2)
 
-            checkpoint_path = vault / "80 - Interpreter" / "Checkpoints" / "2026-07-26_013.json"
+            checkpoint_path = vault / "80 - Interpreter" / "Checkpoints" / "2026-07-26_014.json"
             checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
             checkpoint_path.write_text(
                 json.dumps(
@@ -203,7 +262,7 @@ class LeafOSInterpreterV321Tests(unittest.TestCase):
                         "type": "leafos_interpreter_checkpoint",
                         "schema_version": v3.CHECKPOINT_SCHEMA_VERSION,
                         "prompt_version": v32.PROMPT_VERSION,
-                        "session_id": "2026-07-26_013",
+                        "session_id": "2026-07-26_014",
                         "session_fingerprint": "old-v32-fingerprint",
                         "chunk_chars": 9000,
                         "chunk_overlap_messages": 2,
@@ -216,7 +275,7 @@ class LeafOSInterpreterV321Tests(unittest.TestCase):
 
             interpreter = v321.LeafOSInterpreter(vault, StaticProvider(_base_result()))
             loaded = interpreter._load_checkpoint(
-                session_id="2026-07-26_013",
+                session_id="2026-07-26_014",
                 chunks=chunks,
                 fingerprint=fingerprint,
             )

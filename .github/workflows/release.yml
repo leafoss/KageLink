@@ -1,6 +1,13 @@
 name: Publish KageLink Release
 
 on:
+  pull_request:
+    paths:
+      - "RELEASE_VERSION"
+      - "README.md"
+      - "README.pt-BR.md"
+      - "DOWNLOAD.md"
+      - ".github/workflows/release.yml"
   push:
     branches:
       - main
@@ -32,6 +39,7 @@ jobs:
           echo "Release contract OK for KageLink $version"
 
   windows-release:
+    if: github.event_name != 'pull_request'
     needs: release-contract
     runs-on: windows-latest
     defaults:
@@ -105,6 +113,7 @@ jobs:
           if-no-files-found: error
 
   android-release:
+    if: github.event_name != 'pull_request'
     needs: release-contract
     runs-on: ubuntu-latest
     defaults:
@@ -165,6 +174,7 @@ jobs:
           if-no-files-found: error
 
   publish-release:
+    if: github.event_name != 'pull_request'
     needs:
       - windows-release
       - android-release

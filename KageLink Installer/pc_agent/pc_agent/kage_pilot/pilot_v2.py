@@ -134,13 +134,24 @@ class TemporalCombatPilot:
 
     def run(self, *, seconds: float | None = None) -> int:
         self.reset()
+
+        # Important ordering for BYOND: first bring the exact game window to the
+        # foreground, then wait while the game is already focused, and only after
+        # that allow the first combat key state (normally R). The old ordering
+        # waited while PowerShell was foreground and sent R immediately after the
+        # focus switch, which made real-game diagnosis confusing and fragile.
+        self.controller.activate()
+        self.controller.release_all()
+
         if self.startup_delay_seconds > 0:
             remaining = int(round(self.startup_delay_seconds))
             if remaining > 0:
-                print(f"Kage Pilot v0.2 inicia em / starts in {remaining}s")
+                print(
+                    "Kage Pilot v0.2: jogo em foco / game focused; "
+                    f"controle inicia em / control starts in {remaining}s"
+                )
             self.sleep_fn(self.startup_delay_seconds)
 
-        self.controller.activate()
         started = self.monotonic_fn()
         steps = 0
         try:

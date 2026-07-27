@@ -70,7 +70,18 @@ class WindowsGameController:
         self._controller = GameInputController()
 
     def activate(self) -> None:
+        from pc_agent.windows import ensure_game_window_foreground, is_game_window_foreground
+        from pc_agent.game_window import find_exact_game_window
+
         self._controller.activate()
+        focus = ensure_game_window_foreground(self._controller.title)
+        if not focus.ok:
+            self._controller.deactivate()
+            raise RuntimeError(focus.error or "FOREGROUND_FAILED")
+        hwnd = find_exact_game_window(self._controller.title)
+        if hwnd is None or not is_game_window_foreground(hwnd):
+            self._controller.deactivate()
+            raise RuntimeError("FOREGROUND_FAILED")
 
     def apply_keys(self, keys: tuple[str, ...]) -> None:
         self._controller.apply_state(keys)

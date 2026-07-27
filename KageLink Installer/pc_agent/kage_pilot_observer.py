@@ -25,8 +25,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seconds", type=float, default=None)
     parser.add_argument("--fps", type=float, default=10.0)
 
-    # Real-game calibration from the first Observer screenshots. A left click on
-    # Leafos remains the authoritative way to fine-tune the center at runtime.
+    # Real-game calibration from Observer screenshots. Left-clicking Leafos remains
+    # the authoritative way to refine the player center at runtime.
     parser.add_argument("--player-x", type=float, default=0.51)
     parser.add_argument("--player-y", type=float, default=0.48)
     parser.add_argument("--player-box-width", type=float, default=18.0)
@@ -36,6 +36,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--target-keep", type=float, default=38.0)
     parser.add_argument("--track-ttl", type=float, default=2.0)
     parser.add_argument("--match-distance", type=float, default=105.0)
+
+    # Dynamic scenery memory. These defaults are deliberately conservative: a
+    # region must be dense, repetitive and visually similar before suppression.
+    parser.add_argument("--background-similarity", type=float, default=0.88)
+    parser.add_argument("--background-min-hits", type=float, default=8.0)
+    parser.add_argument("--background-min-age", type=float, default=0.8)
+    parser.add_argument("--no-dynamic-background", action="store_true")
+
+    # Dormant identity memory for recovering an ENTITY ID after visual separation.
+    parser.add_argument("--reacquire-ttl", type=float, default=5.0)
+    parser.add_argument("--reacquire-distance", type=float, default=180.0)
+    parser.add_argument("--reacquire-similarity", type=float, default=0.82)
 
     parser.add_argument("--arena-left", type=float, default=0.04)
     parser.add_argument("--arena-top", type=float, default=0.04)
@@ -70,8 +82,8 @@ def main() -> int:
         arena_bottom=args.arena_bottom,
         player_x=args.player_x,
         player_y=args.player_y,
-        # Kept only for backwards compatibility inside the inherited base config.
-        # The v0.3 runtime now uses the vertical player box below.
+        # Kept for compatibility inside the inherited base configuration. The
+        # actual v0.3 player exclusion is the vertical box below.
         player_exclusion_radius=max(args.player_box_width, args.player_box_height) / 2.0,
         player_box_width=args.player_box_width,
         player_box_height=args.player_box_height,
@@ -80,10 +92,18 @@ def main() -> int:
         target_keep_threshold=args.target_keep,
         track_ttl_seconds=max(0.5, float(args.track_ttl)),
         track_match_distance=max(20.0, float(args.match_distance)),
+        dynamic_background_enabled=not bool(args.no_dynamic_background),
+        background_similarity=args.background_similarity,
+        background_min_dense_hits=args.background_min_hits,
+        background_min_age=args.background_min_age,
+        reacquire_ttl=args.reacquire_ttl,
+        reacquire_distance=args.reacquire_distance,
+        reacquire_similarity=args.reacquire_similarity,
     ).normalized()
 
     observer = StableTargetObserver(config)
-    observer.tracker = MeleeAwareEntityTracker(config)
+    tracker = MeleeAwareEntityTracker(config)
+    observer.tracker = tracker
     source = WindowsGameFrameSource()
     interval = 1.0 / max(1.0, min(30.0, float(args.fps)))
     started = time.monotonic()
@@ -111,7 +131,7 @@ def main() -> int:
         config.normalized()
 
         # The previous center may already have created false tracks. Recalibration
-        # intentionally clears tracker memory and the TARGET lock.
+        # clears entity, target, dynamic-background and dormant identity memory.
         observer.reset()
         print(
             "PLAYER calibrated / calibrado: "
@@ -136,6 +156,17 @@ def main() -> int:
         f"match={config.track_match_distance:.0f}px ttl={config.track_ttl_seconds:.1f}s "
         f"acquire={config.target_acquire_threshold:.0f}% keep={config.target_keep_threshold:.0f}%"
     )
+    print(
+        "BACKGROUND_DYNAMIC: "
+        f"enabled={'yes' if config.dynamic_background_enabled else 'no'} "
+        f"similarity={config.background_similarity:.2f} "
+        f"hits={config.background_min_dense_hits:.0f} age={config.background_min_age:.1f}s"
+    )
+    print(
+        "REACQUIRE: "
+        f"ttl={config.reacquire_ttl:.1f}s distance={config.reacquire_distance:.0f}px "
+        f"similarity={config.reacquire_similarity:.2f}"
+    )
     print("Clique ESQUERDO em Leafos = calibrar PLAYER / LEFT CLICK Leafos = calibrate PLAYER")
     print("Q ou ESC = sair / exit")
 
@@ -151,7 +182,7 @@ def main() -> int:
             mouse_context["arena_rect"] = state.arena_rect
             mouse_context["frame_width"] = int(frame.shape[1])
 
-            preview = render_overlay_v03(frame, state, config)
+            preview = render_overlay_v03(frame, state, config, tracker)
             cv2.putText(
                 preview,
                 "LEFT CLICK Leafos = PLAYER calibration / calibrar PLAYER",

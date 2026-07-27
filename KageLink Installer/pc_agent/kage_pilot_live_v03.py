@@ -27,8 +27,8 @@ VK_F12 = 0x7B
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Kage Pilot v0.3 limited live combat control: R + dead-man movement pulses; "
-            "H shadow-only / controle real limitado: R + pulsos seguros de movimento; H apenas sombra"
+            "Kage Pilot v0.3 live combat: R + dead-man movement/facing pulses + guarded H / "
+            "combate real: R + pulsos seguros de movimento/facing + H protegido"
         )
     )
     parser.add_argument("--seconds", type=float, default=25.0)
@@ -37,6 +37,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--startup-delay", type=float, default=3.0)
     parser.add_argument("--face-pulse", type=float, default=0.055)
     parser.add_argument("--move-pulse", type=float, default=0.09)
+    parser.add_argument("--h-pulse", type=float, default=0.065)
+    parser.add_argument("--h-settle", type=float, default=0.55)
+    parser.add_argument("--disable-h", action="store_true")
     parser.add_argument("--face-refresh", type=float, default=0.45)
     parser.add_argument("--move-confirm-frames", type=int, default=2)
     parser.add_argument("--move-no-progress", type=float, default=1.15)
@@ -82,7 +85,12 @@ def _decision_line(decision, command, burst_state) -> str:
     held = "+".join(command.held_keys) or "-"
     face = command.face_pulse or "-"
     move = command.move_pulse or "-"
-    h_text = "H_READY(SHADOW)" if command.h_shadow_ready else "H_WAIT"
+    if command.h_fire:
+        h_text = "H_FIRE"
+    elif command.h_shadow_ready:
+        h_text = "H_READY"
+    else:
+        h_text = "H_WAIT"
     return (
         f"LIVE {decision.mode} target={target} nav={decision.navigation} "
         f"held={held} move_pulse={move} face_pulse={face} {h_text} "
@@ -134,6 +142,7 @@ def main() -> int:
         move_confirm_frames=args.move_confirm_frames,
         max_no_progress_seconds=args.move_no_progress,
         no_progress_cooldown_seconds=args.move_cooldown,
+        h_enabled=not bool(args.disable_h),
     )
     burst_guard = MotionBurstGuard(
         hold_seconds=args.burst_hold,
@@ -154,23 +163,32 @@ def main() -> int:
     startup_delay = max(0.0, float(args.startup_delay))
     face_pulse_seconds = max(0.02, min(0.12, float(args.face_pulse)))
     move_pulse_seconds = max(0.03, min(0.14, float(args.move_pulse)))
+    h_pulse_seconds = max(0.03, min(0.12, float(args.h_pulse)))
+    h_settle_seconds = max(0.20, min(1.50, float(args.h_settle)))
     seconds = max(1.0, float(args.seconds))
 
-    print("Kage Pilot v0.3 LIMITED LIVE CONTROL - SAFETY REVISION")
-    print("REAL INPUT / CONTROLE REAL: R + DEAD-MAN ARROW PULSES / R + PULSOS DE SETA")
+    print("Kage Pilot v0.3 LIVE CONTROL - H GATE")
+    print("REAL INPUT / CONTROLE REAL: R + DEAD-MAN ARROWS + GUARDED H")
     print("DISTANT TARGETS: CHARACTER-LIKE FILTER / ALVOS DISTANTES: FILTRO DE FORMA")
-    print("H remains SHADOW-ONLY / H continua APENAS SOMBRA")
+    print(
+        "H REAL: enabled / habilitado"
+        if not args.disable_h
+        else "H REAL: disabled / desabilitado (--disable-h)"
+    )
     print("F12 = EMERGENCY STOP / PARADA IMEDIATA")
     print(
         f"GRID={observer.tile_size:.0f}px duration={seconds:.1f}s "
         f"PLAYER=({config.player_x:.4f},{config.player_y:.4f}) "
-        f"move_pulse={move_pulse_seconds:.3f}s confirm={planner.move_confirm_frames} "
-        f"no_progress={planner.max_no_progress_seconds:.2f}s burst_hold={burst_guard.hold_seconds:.2f}s"
+        f"move_pulse={move_pulse_seconds:.3f}s face_pulse={face_pulse_seconds:.3f}s "
+        f"H_pulse={h_pulse_seconds:.3f}s H_settle={h_settle_seconds:.2f}s "
+        f"confirm={planner.move_confirm_frames} no_progress={planner.max_no_progress_seconds:.2f}s "
+        f"burst_hold={burst_guard.hold_seconds:.2f}s"
     )
 
     frames = 0
     started = 0.0
     next_telemetry = 0.0
+    h_settle_until = -1e9
     try:
         controller.activate()
         controller.release_all()
@@ -193,21 +211,36 @@ def main() -> int:
             frame = decode_jpeg(bytes(captured.jpeg))
             state = observer.process(frame)
             now = time.monotonic()
-            decision = engine.decide(state, observer, tracker, now=now)
+
             burst_state = burst_guard.update(
                 active_cells=observer.active_grid_cells,
                 entities=len(state.tracks),
                 now=now,
             )
+            h_settling = now < h_settle_until
+            action_allowed = not burst_state.blocked and not h_settling
+            if h_settling:
+                block_reason = f"h_settle_remaining={max(0.0, h_settle_until - now):.2f}s"
+            else:
+                block_reason = burst_state.reason
+
+            # Do not consume the H cooldown while a safety layer would veto the physical H.
+            decision = engine.decide(
+                state,
+                observer,
+                tracker,
+                now=now,
+                skills_allowed=action_allowed,
+            )
             command = planner.plan(
                 decision,
                 now=now,
-                movement_allowed=not burst_state.blocked,
-                block_reason=burst_state.reason,
+                movement_allowed=action_allowed,
+                block_reason=block_reason,
             )
 
             # Dead-man invariant: every loop first returns to the persistent/base state.
-            # Therefore a directional key from a previous decision cannot remain held.
+            # Therefore a directional/H key from a previous decision cannot remain held.
             controller.apply_keys(command.held_keys)
 
             if command.move_pulse is not None:
@@ -215,11 +248,22 @@ def main() -> int:
                 controller.apply_keys(pulse_keys)
                 time.sleep(move_pulse_seconds)
                 controller.apply_keys(command.held_keys)
-            elif command.face_pulse is not None:
-                pulse_keys = tuple(sorted(set(command.held_keys).union({command.face_pulse})))
-                controller.apply_keys(pulse_keys)
-                time.sleep(face_pulse_seconds)
-                controller.apply_keys(command.held_keys)
+            else:
+                # A melee recovery or real H may explicitly re-face the opponent first.
+                if command.face_pulse is not None:
+                    pulse_keys = tuple(sorted(set(command.held_keys).union({command.face_pulse})))
+                    controller.apply_keys(pulse_keys)
+                    time.sleep(face_pulse_seconds)
+                    controller.apply_keys(command.held_keys)
+
+                if command.h_fire:
+                    # H is a tap, never a held state. It is only reached after a fresh
+                    # facing pulse generated from a validated VISIBLE/OCCLUDED melee target.
+                    h_keys = tuple(sorted(set(command.held_keys).union({"h"})))
+                    controller.apply_keys(h_keys)
+                    time.sleep(h_pulse_seconds)
+                    controller.apply_keys(command.held_keys)
+                    h_settle_until = time.monotonic() + h_settle_seconds
 
             if now >= next_telemetry:
                 print(_decision_line(decision, command, burst_state) + f" reason={command.reason}")
@@ -235,7 +279,9 @@ def main() -> int:
                     "held_keys": list(command.held_keys),
                     "move_pulse": command.move_pulse,
                     "face_pulse": command.face_pulse,
-                    "h_shadow_ready": command.h_shadow_ready,
+                    "h_ready": command.h_shadow_ready,
+                    "h_fire": command.h_fire,
+                    "h_settling": h_settling,
                     "grid_distance": decision.grid_distance,
                     "engagement_stable_seconds": round(decision.engagement_stable_seconds, 4),
                     "safety_state": command.safety_state,

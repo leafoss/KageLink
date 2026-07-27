@@ -6,19 +6,24 @@ import math
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Iterator
 
 from PIL import Image
 
-from .dataset import DatasetStore
+from .dataset import DatasetStore, Sample
 
 FEATURE_SIZE = (16, 9)
 MODEL_VERSION = 1
 IDLE_LABEL = "idle"
 
 
-def action_label(keys: Iterable[str]) -> str:
-    normalized = sorted({str(key).strip().lower() for key in keys if str(key).strip()})
+def _normalized_key_set(keys: Iterable[str]) -> set[str]:
+    return {str(key).strip().lower() for key in keys if str(key).strip()}
+
+
+def action_label(keys: Iterable[str], *, exclude_keys: Iterable[str] = ()) -> str:
+    excluded = _normalized_key_set(exclude_keys)
+    normalized = sorted(_normalized_key_set(keys).difference(excluded))
     return "+".join(normalized) if normalized else IDLE_LABEL
 
 
@@ -43,7 +48,7 @@ class Prediction:
 
 
 class BehaviorCloner:
-    """Small dependency-free behavioral-cloning baseline using action prototypes."""
+    """Small dependency-free behavioral-cloning baseline using visual action prototypes."""
 
     def __init__(self, prototypes: dict[str, list[float]], counts: dict[str, int] | None = None) -> None:
         if not prototypes:
@@ -63,16 +68,22 @@ class BehaviorCloner:
         results: Iterable[str] = ("victory",),
         stride: int = 1,
         include_idle: bool = True,
+        exclude_keys: Iterable[str] = (),
+        use_action_runs: bool = True,
     ) -> "BehaviorCloner":
         stride = max(1, int(stride))
+        excluded = tuple(sorted(_normalized_key_set(exclude_keys)))
         sums: dict[str, list[float]] = {}
         counts: dict[str, int] = defaultdict(int)
         accepted = 0
+
         for session_path in store.session_paths(results=results):
-            for sample in store.samples(session_path):
-                if sample.index % stride:
-                    continue
-                label = action_label(sample.keys)
+            examples = (
+                _action_run_examples(store, session_path, stride=stride, exclude_keys=excluded)
+                if use_action_runs
+                else _frame_examples(store, session_path, stride=stride, exclude_keys=excluded)
+            )
+            for sample, label in examples:
                 if not include_idle and label == IDLE_LABEL:
                     continue
                 jpeg = (session_path / sample.frame).read_bytes()
@@ -83,6 +94,7 @@ class BehaviorCloner:
                     sums[label][index] += value
                 counts[label] += 1
                 accepted += 1
+
         if accepted == 0:
             raise ValueError("NO_TRAINING_SAMPLES")
         prototypes = {
@@ -131,3 +143,51 @@ class BehaviorCloner:
         if tuple(payload.get("feature_size", ())) != FEATURE_SIZE:
             raise ValueError("UNSUPPORTED_FEATURE_SIZE")
         return cls(payload["prototypes"], payload.get("counts"))
+
+
+def _frame_examples(
+    store: DatasetStore,
+    session_path: Path,
+    *,
+    stride: int,
+    exclude_keys: Iterable[str],
+) -> Iterator[tuple[Sample, str]]:
+    for sample in store.samples(session_path):
+        if sample.index % stride:
+            continue
+        yield sample, action_label(sample.keys, exclude_keys=exclude_keys)
+
+
+def _action_run_examples(
+    store: DatasetStore,
+    session_path: Path,
+    *,
+    stride: int,
+    exclude_keys: Iterable[str],
+) -> Iterator[tuple[Sample, str]]:
+    """Yield one representative frame per contiguous action run.
+
+    A key held for several seconds should not receive dozens of training votes
+    only because the Recorder samples the keyboard at roughly 10 FPS.
+    """
+    actions_path = Path(session_path) / "actions.jsonl"
+    if not actions_path.exists():
+        yield from _frame_examples(store, session_path, stride=stride, exclude_keys=exclude_keys)
+        return
+
+    samples_by_index = {sample.index: sample for sample in store.samples(session_path)}
+    run_index = 0
+    with actions_path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            raw = json.loads(line)
+            take = run_index % stride == 0
+            run_index += 1
+            if not take:
+                continue
+            sample = samples_by_index.get(int(raw["start_index"]))
+            if sample is None:
+                continue
+            yield sample, action_label(raw.get("keys", ()), exclude_keys=exclude_keys)

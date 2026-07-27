@@ -7,93 +7,128 @@ from .water_filter_v03c import TemporalRecurrenceWaterAwareEntityTracker
 
 
 class TargetGuardWaterAwareEntityTracker(TemporalRecurrenceWaterAwareEntityTracker):
-    """Temporal-recurrence tracker with conservative TARGET scoring.
+    """Temporal-recurrence tracker with conservative TARGET eligibility.
 
-    Real BYOND validation showed that animated water could still accumulate a high
-    Enemy Score and even remain selected while the track state was LOST. The
-    observer's generic hysteresis only sees numeric score, so this layer converts
-    tracking context into a safer score before target selection runs.
+    Enemy Score remains useful diagnostics, but it is no longer sufficient by itself
+    to acquire TARGET. Real BYOND validation showed animated water producing large
+    scores despite already being recognized as dynamic scenery.
 
-    Rules:
-    - a LOST track is capped below acquire threshold;
-    - a recently-lost current identity may remain just above keep threshold for a
-      short grace period, allowing brief contour drop-outs without an immediate ID
-      switch;
-    - old LOST tracks fall below keep threshold;
-    - mature dynamic-background regions cap non-combat-like tracks below acquire;
-    - very young tracks cannot become TARGET immediately;
-    - OCCLUDED contact is intentionally preserved because it is strong combat
-      evidence and already uses the player-boundary guard.
+    TARGET eligibility is intentionally stricter than ENTITY tracking:
+    - LOST identities remain tracked/reacquirable but are never active TARGETs;
+    - OCCLUDED player contact remains targetable;
+    - a visible entity close to PLAYER may be targetable after a small persistence gate;
+    - a distant entity must show sustained coherent approach behaviour;
+    - a far entity inside a mature dynamic-background region is never targetable;
+    - very young/noisy tracks cannot acquire TARGET immediately.
     """
 
     def __init__(self, config: ObserverConfig) -> None:
-        # Longer environmental memory avoids repeatedly relearning the same animated
-        # water strip while the player remains in the same area.
+        # Keep environmental memory long enough that the same water strip is not
+        # repeatedly relearned while the player remains in the same map area.
         if hasattr(config, "background_memory_ttl"):
             config.background_memory_ttl = max(30.0, float(config.background_memory_ttl))
         super().__init__(config)
-        self.target_lost_grace_seconds = 0.8
+        self.target_min_age_seconds = 0.70
+        self.target_min_observations = 4
+        self.target_near_distance = 145.0
+        self.target_far_max_distance = 280.0
+        self.target_dynamic_region_strength = 0.42
 
-    def _combat_like_for_target(self, track_id: int, player_center: tuple[float, float]) -> bool:
+    def _coherent_approach(self, track_id: int) -> bool:
         track = self._tracks[track_id]
-        context = self._contexts.get(track_id)
-        guard = float(getattr(self.config, "background_player_guard", 78.0))
-        distance = _distance(track.center, player_center)
         coherence = _path_efficiency(track.history)
-
-        if context is not None and context.state == "OCCLUDED":
-            return True
-        if distance <= guard + 55.0:
-            return True
-
-        approaching_coherently = (
+        return (
             track.approaching_player
+            and track.approach_speed >= 5.0
             and track.residual_speed >= 8.0
-            and coherence >= 0.45
+            and coherence >= 0.62
+            and track.hostility_memory >= 0.12
+            and track.observations >= 5
         )
-        established_hostile_motion = (
-            track.hostility_memory >= 0.25
-            and track.residual_speed >= 12.0
-            and coherence >= 0.55
-        )
-        return approaching_coherently or established_hostile_motion
+
+    def target_eligible(
+        self,
+        track_id: int,
+        *,
+        player_center: tuple[float, float],
+        now: float,
+        for_keep: bool = False,
+    ) -> bool:
+        """Return whether an ENTITY may currently act as active TARGET.
+
+        Tracking identity and target selection are deliberately separate. LOST tracks
+        can remain in memory for reacquisition while exposing no active combat lock.
+        """
+
+        track = self._tracks.get(track_id)
+        context = self._contexts.get(track_id)
+        if track is None or context is None:
+            return False
+
+        if context.state == "LOST":
+            return False
+
+        if context.state == "OCCLUDED":
+            # Known contact at PLAYER boundary is direct combat evidence.
+            return True
+
+        if context.state != "VISIBLE":
+            return False
+
+        age = max(0.0, now - track.created_at)
+        if age < self.target_min_age_seconds or track.observations < self.target_min_observations:
+            return False
+
+        distance = _distance(track.center, player_center)
+        region_strength = self.background.region_strength_bbox(track.bbox)
+
+        # Once the environment model strongly recognizes a far region as animated
+        # scenery, no numerical Enemy Score can turn that region into TARGET. A real
+        # opponent crossing that region becomes eligible again when it closes on the
+        # player; OCCLUDED contact is handled above.
+        if region_strength >= self.target_dynamic_region_strength and distance > self.target_near_distance:
+            return False
+
+        # Nearby visible candidates are allowed after the persistence gate. This is
+        # the normal Dojo/melee case and does not depend on perfect Enemy Score.
+        if distance <= self.target_near_distance:
+            return True
+
+        # Distant entities must actually travel coherently toward PLAYER. This is much
+        # harder for animated water to satisfy than a one-frame motion spike.
+        if distance <= self.target_far_max_distance and self._coherent_approach(track_id):
+            return True
+
+        return False
 
     def _apply_target_guard(self, *, player_center: tuple[float, float], now: float) -> None:
+        """Keep scores readable while target_eligible() provides the hard safety gate."""
+
         acquire = float(getattr(self.config, "target_acquire_threshold", self.config.enemy_threshold))
         keep = float(getattr(self.config, "target_keep_threshold", max(0.0, acquire - 15.0)))
-        guard = float(getattr(self.config, "background_player_guard", 78.0))
 
         for track_id, track in self._tracks.items():
             context = self._contexts.get(track_id)
             if context is None:
                 continue
 
-            # Prevent one or two noisy observations from immediately becoming a
-            # target even if instantaneous motion produces a large Enemy Score.
-            age = max(0.0, now - track.created_at)
-            if context.state != "OCCLUDED" and (age < 0.45 or track.observations < 3):
-                track.enemy_score = min(track.enemy_score, max(0.0, acquire - 1.0))
+            if context.state == "OCCLUDED":
+                continue
 
             if context.state == "LOST":
-                since_seen = max(0.0, now - track.last_seen)
-                if since_seen <= self.target_lost_grace_seconds:
-                    # Can keep an already-selected target, but cannot be newly
-                    # acquired because this ceiling stays below acquire threshold.
-                    track.enemy_score = min(track.enemy_score, min(acquire - 1.0, keep + 2.0))
-                else:
-                    track.enemy_score = min(track.enemy_score, max(0.0, keep - 8.0))
+                # LOST may remain as ENTITY memory but must never numerically look like
+                # an active target candidate either.
+                track.enemy_score = min(track.enemy_score, max(0.0, keep - 8.0))
                 continue
 
-            if context.state == "OCCLUDED":
-                # Contact with PLAYER is valid combat evidence. Do not let the
-                # background model suppress it.
-                continue
-
-            region_strength = self.background.region_strength_bbox(track.bbox)
-            distance = _distance(track.center, player_center)
-            inside_dynamic_region = region_strength >= 0.48 and distance > guard + 45.0
-            if inside_dynamic_region and not self._combat_like_for_target(track_id, player_center):
-                track.enemy_score = min(track.enemy_score, max(0.0, keep - 5.0))
+            if not self.target_eligible(
+                track_id,
+                player_center=player_center,
+                now=now,
+                for_keep=False,
+            ):
+                # Preserve diagnostic ranking but keep ineligible tracks below acquire.
+                track.enemy_score = min(track.enemy_score, max(0.0, acquire - 1.0))
 
     def update(
         self,

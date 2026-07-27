@@ -141,6 +141,9 @@ class DojoManager:
     def run_cycle(self) -> str:
         self.controller.activate()
         self.controller.release_all()
+        reset = getattr(self.pilot, "reset", None)
+        if callable(reset):
+            reset()
         self.sequence.execute(self.config.start_sequence)
         self.sleep_fn(max(0.0, self.config.post_start_delay_seconds))
         started = self.time_fn()

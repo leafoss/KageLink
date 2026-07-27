@@ -39,7 +39,7 @@ class KagePilotV03ContextMemoryTests(unittest.TestCase):
     def test_dynamic_background_learns_dense_repetitive_region(self):
         config = V03ObserverConfig(
             background_min_neighbors=2,
-            background_min_dense_hits=3,
+            background_min_dense_hits=2.5,
             background_min_age=0.2,
             background_similarity=0.80,
             background_player_guard=20,

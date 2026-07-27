@@ -56,6 +56,17 @@ def move_decision(*, target_id=7, distance=2, direction="RIGHT"):
     )
 
 
+def face_decision(*, target_id=7, direction="RIGHT", h=False):
+    return SimpleNamespace(
+        base_r=True,
+        navigation=f"FACE_{direction}",
+        h_opportunity=bool(h),
+        reason="melee",
+        target_id=target_id,
+        grid_distance=1,
+    )
+
+
 class KagePilotV03LiveControlTests(unittest.TestCase):
     def test_contact_memory_at_two_cells_holds_instead_of_blind_recover(self):
         engine = ShadowCombatDecisionEngine(combat_active_on_start=True)
@@ -161,9 +172,9 @@ class KagePilotV03LiveControlTests(unittest.TestCase):
         self.assertFalse(recovered.blocked)
 
     def test_motion_burst_veto_returns_to_r_only(self):
-        planner = LiveCombatControlPlanner(move_confirm_frames=2)
+        planner = LiveCombatControlPlanner(move_confirm_frames=2, h_enabled=True)
         command = planner.plan(
-            move_decision(),
+            face_decision(h=True),
             now=1.0,
             movement_allowed=False,
             block_reason="entities_spike=40",
@@ -171,18 +182,23 @@ class KagePilotV03LiveControlTests(unittest.TestCase):
         self.assertEqual(command.held_keys, ("r",))
         self.assertIsNone(command.move_pulse)
         self.assertIsNone(command.face_pulse)
+        self.assertFalse(command.h_fire)
         self.assertEqual(command.safety_state, "MOTION_BURST_HOLD")
+
+    def test_h_settle_veto_has_distinct_state(self):
+        planner = LiveCombatControlPlanner(h_enabled=True)
+        command = planner.plan(
+            face_decision(h=True),
+            now=1.0,
+            movement_allowed=False,
+            block_reason="h_settle_remaining=0.40s",
+        )
+        self.assertFalse(command.h_fire)
+        self.assertEqual(command.safety_state, "H_SETTLE_HOLD")
 
     def test_face_is_short_pulse_not_continuous_hold(self):
         planner = LiveCombatControlPlanner(face_refresh_seconds=0.45)
-        decision = SimpleNamespace(
-            base_r=True,
-            navigation="FACE_LEFT",
-            h_opportunity=False,
-            reason="melee",
-            target_id=7,
-            grid_distance=1,
-        )
+        decision = face_decision(direction="LEFT")
         first = planner.plan(decision, now=1.0)
         second = planner.plan(decision, now=1.1)
         refreshed = planner.plan(decision, now=1.6)
@@ -191,21 +207,69 @@ class KagePilotV03LiveControlTests(unittest.TestCase):
         self.assertIsNone(second.face_pulse)
         self.assertEqual(refreshed.face_pulse, "left")
 
-    def test_h_ready_remains_shadow_only(self):
-        planner = LiveCombatControlPlanner()
-        decision = SimpleNamespace(
-            base_r=True,
-            navigation="FACE_RIGHT",
-            h_opportunity=True,
-            reason="skill window",
-            target_id=7,
-            grid_distance=1,
+    def test_return_from_recovery_forces_one_fresh_facing_pulse(self):
+        planner = LiveCombatControlPlanner(face_refresh_seconds=2.0, move_confirm_frames=2)
+        # Establish a recently confirmed RIGHT face.
+        initial = planner.plan(face_decision(direction="RIGHT"), now=1.0)
+        self.assertEqual(initial.face_pulse, "right")
+        # Recover toward the same direction. Cached face alone must not be trusted after knockback.
+        planner.plan(move_decision(direction="RIGHT"), now=1.1)
+        moved = planner.plan(move_decision(direction="RIGHT"), now=1.2)
+        self.assertEqual(moved.move_pulse, "right")
+        melee_again = planner.plan(face_decision(direction="RIGHT"), now=1.25)
+        self.assertEqual(melee_again.face_pulse, "right")
+        self.assertEqual(melee_again.safety_state, "FACE_RECOVER")
+
+    def test_motion_burst_arms_facing_recovery_when_scene_stabilizes(self):
+        planner = LiveCombatControlPlanner(face_refresh_seconds=2.0)
+        planner.plan(face_decision(direction="UP"), now=1.0)
+        planner.plan(
+            face_decision(direction="UP"),
+            now=1.1,
+            movement_allowed=False,
+            block_reason="active_cells_spike=60",
         )
-        command = planner.plan(decision, now=2.0)
+        recovered = planner.plan(face_decision(direction="UP"), now=1.2)
+        self.assertEqual(recovered.face_pulse, "up")
+        self.assertEqual(recovered.safety_state, "FACE_RECOVER")
+
+    def test_h_opportunity_remains_shadow_only_when_h_disabled(self):
+        planner = LiveCombatControlPlanner(h_enabled=False)
+        command = planner.plan(face_decision(direction="RIGHT", h=True), now=2.0)
         self.assertTrue(command.h_shadow_ready)
+        self.assertFalse(command.h_fire)
         self.assertNotIn("h", command.held_keys)
         self.assertNotEqual(command.face_pulse, "h")
         self.assertNotEqual(command.move_pulse, "h")
+
+    def test_real_h_requires_and_forces_fresh_facing_pulse(self):
+        planner = LiveCombatControlPlanner(h_enabled=True, face_refresh_seconds=2.0)
+        # Recent face pulse would normally suppress a refresh.
+        planner.plan(face_decision(direction="RIGHT", h=False), now=1.0)
+        command = planner.plan(face_decision(direction="RIGHT", h=True), now=1.1)
+        self.assertTrue(command.h_shadow_ready)
+        self.assertTrue(command.h_fire)
+        self.assertEqual(command.face_pulse, "right")
+        self.assertEqual(command.held_keys, ("r",))
+        self.assertEqual(command.safety_state, "H_FIRE")
+
+    def test_skills_blocked_by_safety_do_not_consume_engine_h_cooldown(self):
+        engine = ShadowCombatDecisionEngine(
+            combat_active_on_start=True,
+            h_stable_seconds=0.60,
+            h_cooldown_seconds=2.0,
+        )
+        observer = FakeObserver(metrics(distance=1), mode="VISIBLE")
+        tracker = FakeTracker(state="VISIBLE", side="RIGHT")
+        state = state_with_target(score=90.0)
+
+        first = engine.decide(state, observer, tracker, now=1.0, skills_allowed=True)
+        blocked = engine.decide(state, observer, tracker, now=1.7, skills_allowed=False)
+        released = engine.decide(state, observer, tracker, now=1.8, skills_allowed=True)
+
+        self.assertFalse(first.h_opportunity)
+        self.assertFalse(blocked.h_opportunity)
+        self.assertTrue(released.h_opportunity)
 
 
 if __name__ == "__main__":

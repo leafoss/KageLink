@@ -26,7 +26,7 @@ This first milestone is **observation only**. No key is sent to the game.
 
 ## What the window shows
 
-- `PLAYER #000`: initial camera-relative player anchor, configurable by normalized coordinates.
+- `PLAYER #000`: initial player anchor, configurable by normalized coordinates or direct click in the preview.
 - `ENTITY #NNN`: persistent candidates found from motion and contours.
 - temporal trail for each entity;
 - residual velocity after global scene-motion compensation;
@@ -68,34 +68,43 @@ v0.3 adds OpenCV and NumPy to the PC Agent environment.
 .\.venv-kage-pilot\Scripts\python.exe kage_pilot_observer.py
 ```
 
-Observer-window keys:
+Observer-window controls:
 
 ```text
+left click Leafos = recalibrate PLAYER #000
 Q or ESC = exit
 ```
 
-The Observer does not send these keys to Shinobi Story Online; they are read only by the OpenCV preview window.
+The Observer does not send these actions to Shinobi Story Online; they are read only by the OpenCV preview window.
 
 ## Initial player calibration
 
-The first version uses a camera-relative anchor for the player. Defaults:
+The first real validation showed that the old `0.50 / 0.55` anchor sat below Leafos and allowed the player sprite itself to become an `ENTITY`. The runtime defaults are now approximately:
 
 ```text
-player-x = 0.50
-player-y = 0.55
+player-x = 0.51
+player-y = 0.48
 player-radius = 26
 ```
 
-Example:
+Visual calibration is now the recommended method:
+
+1. run the Observer;
+2. left-click directly on Leafos;
+3. `PLAYER #000` moves immediately;
+4. tracking state is reset so any false player entity created from the old anchor is removed;
+5. PowerShell prints the matching `--player-x` and `--player-y` values.
+
+Manual reuse example:
 
 ```powershell
 .\.venv-kage-pilot\Scripts\python.exe kage_pilot_observer.py `
-  --player-x 0.48 `
-  --player-y 0.58 `
-  --player-radius 30
+  --player-x 0.5100 `
+  --player-y 0.4800 `
+  --player-radius 26
 ```
 
-The `PLAYER #000` circle should cover Leafos without including the opponent. This exclusion prevents the player from being created as a hostile entity.
+The `PLAYER #000` circle is an exclusion zone; it does not need to trace the sprite exactly. It should cover Leafos without blocking too much nearby space. Already-tracked entities may enter this zone during melee without losing their `ENTITY ID`.
 
 ## Validation gate
 

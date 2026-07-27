@@ -14,13 +14,14 @@ _DIRECTION_KEYS = {
 @dataclass(frozen=True, slots=True)
 class LiveControlCommand:
     # held_keys deliberately contains only persistent/base keys (normally R). Directional
-    # movement is emitted as a short move_pulse and must be explicitly released by the
+    # movement and H are emitted as short pulses and must be explicitly released by the
     # runtime after every pulse.
     held_keys: tuple[str, ...]
     face_pulse: str | None
     h_shadow_ready: bool
     reason: str
     move_pulse: str | None = None
+    h_fire: bool = False
     safety_state: str = "OK"
 
 
@@ -40,7 +41,7 @@ class MotionBurstGuard:
     Strong Shinobi Story attacks may emit many short-lived moving particles at once. They
     can look like multiple approaching entities for a few frames. This guard does not try
     to classify the effect visually; it notices the sudden *population spike* relative to
-    the recent scene baseline and temporarily removes movement authority while keeping R.
+    the recent scene baseline and temporarily removes movement/skill authority while R stays on.
     """
 
     def __init__(
@@ -125,12 +126,15 @@ class LiveCombatControlPlanner:
 
     Safety policy:
     - R is the only continuously held combat key;
-    - movement arrows are *dead-man pulses*, never continuous held state;
+    - movement arrows are dead-man pulses, never continuous held state;
     - a distant target/direction must remain stable for several consecutive decisions
       before the first movement pulse;
     - movement is stopped if grid distance fails to improve for too long;
-    - a motion-burst guard may temporarily veto both movement and facing corrections;
-    - H remains shadow-only in this stage.
+    - any motion burst or recovery movement arms a mandatory one-shot facing correction
+      when melee resumes, covering knockback that physically turns the character;
+    - real H is only fired in a validated melee skill window and always requests a fresh
+      facing pulse immediately before the H pulse;
+    - a motion-burst/skill-settle guard may veto movement, facing and H while R stays on.
     """
 
     def __init__(
@@ -140,11 +144,13 @@ class LiveCombatControlPlanner:
         move_confirm_frames: int = 2,
         max_no_progress_seconds: float = 1.15,
         no_progress_cooldown_seconds: float = 0.55,
+        h_enabled: bool = False,
     ) -> None:
         self.face_refresh_seconds = max(0.15, min(2.0, float(face_refresh_seconds)))
         self.move_confirm_frames = max(2, min(6, int(move_confirm_frames)))
         self.max_no_progress_seconds = max(0.4, min(3.0, float(max_no_progress_seconds)))
         self.no_progress_cooldown_seconds = max(0.2, min(2.0, float(no_progress_cooldown_seconds)))
+        self.h_enabled = bool(h_enabled)
 
         self._last_face = "-"
         self._last_face_pulse = -1e9
@@ -154,12 +160,14 @@ class LiveCombatControlPlanner:
         self._move_best_distance: int | None = None
         self._move_last_progress_at = -1e9
         self._move_cooldown_until = -1e9
+        self._force_face_confirmation = False
 
     def reset(self) -> None:
         self._last_face = "-"
         self._last_face_pulse = -1e9
         self._reset_move_evidence()
         self._move_cooldown_until = -1e9
+        self._force_face_confirmation = False
 
     def _reset_move_evidence(self) -> None:
         self._move_target_id = None
@@ -194,20 +202,29 @@ class LiveCombatControlPlanner:
         face_direction = self._direction_from_navigation(decision.navigation, "FACE")
         face_pulse: str | None = None
         move_pulse: str | None = None
+        h_fire = False
         safety_state = "OK"
 
         if not movement_allowed:
             self._reset_move_evidence()
+            # A strong impact can physically turn the BYOND character. Once the scene
+            # stabilizes, force one fresh facing pulse before trusting melee again.
+            self._force_face_confirmation = True
+            hold_state = "H_SETTLE_HOLD" if str(block_reason).startswith("h_settle") else "MOTION_BURST_HOLD"
             return LiveControlCommand(
                 held_keys=tuple(sorted(held)),
                 face_pulse=None,
                 h_shadow_ready=False,
-                reason=f"motion burst hold: {block_reason or 'blocked'}",
+                reason=f"safety hold: {block_reason or 'blocked'}",
                 move_pulse=None,
-                safety_state="MOTION_BURST_HOLD",
+                h_fire=False,
+                safety_state=hold_state,
             )
 
         if move_direction is not None:
+            # Any recovery/approach means the next melee frame must explicitly re-face the
+            # enemy once, even if the requested direction happens to equal the cached face.
+            self._force_face_confirmation = True
             target_id = getattr(decision, "target_id", None)
             distance = getattr(decision, "grid_distance", None)
             distance_value = int(distance) if distance is not None else None
@@ -248,14 +265,31 @@ class LiveCombatControlPlanner:
         else:
             self._reset_move_evidence()
             if face_direction is not None:
+                skill_requested = bool(self.h_enabled and decision.h_opportunity)
+                force_face = self._force_face_confirmation or skill_requested
                 should_refresh = (
-                    face_direction != self._last_face
+                    force_face
+                    or face_direction != self._last_face
                     or now - self._last_face_pulse >= self.face_refresh_seconds
                 )
                 if should_refresh:
                     face_pulse = _DIRECTION_KEYS[face_direction]
                     self._last_face_pulse = now
+                    if self._force_face_confirmation and not skill_requested:
+                        safety_state = "FACE_RECOVER"
                 self._last_face = face_direction
+                self._force_face_confirmation = False
+
+                # H only fires if we can explicitly face a cardinal direction first. The
+                # runtime executes face_pulse -> release -> H pulse -> release.
+                if skill_requested and face_direction in _DIRECTION_KEYS:
+                    h_fire = True
+                    if face_pulse is None:
+                        # Defensive invariant: every real H must be preceded by a fresh
+                        # direction pulse, never only by cached facing state.
+                        face_pulse = _DIRECTION_KEYS[face_direction]
+                        self._last_face_pulse = now
+                    safety_state = "H_FIRE"
 
         return LiveControlCommand(
             held_keys=tuple(sorted(held)),
@@ -263,5 +297,6 @@ class LiveCombatControlPlanner:
             h_shadow_ready=bool(decision.h_opportunity),
             reason=str(decision.reason),
             move_pulse=move_pulse,
+            h_fire=h_fire,
             safety_state=safety_state,
         )

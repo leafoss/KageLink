@@ -99,12 +99,14 @@ def command_train_v2(args: argparse.Namespace) -> int:
     store = DatasetStore(_data_dir(args.data_dir))
     results = ("victory", "defeat") if args.include_defeats else ("victory",)
     base_keys = tuple(args.base_key or ("r",))
-    skill_keys = tuple(args.skill_key or ("h", "v"))
+    skill_keys = tuple(args.skill_key or ("h",))
+    post_combat_keys = tuple(args.post_combat_key or ("v",))
     model = TemporalCombatModel.train(
         store,
         results=results,
         base_keys=base_keys,
         skill_keys=skill_keys,
+        post_combat_keys=post_combat_keys,
         stride=args.stride,
         history_frames=args.history_frames,
     )
@@ -112,6 +114,7 @@ def command_train_v2(args: argparse.Namespace) -> int:
     print(
         f"model={path} version=0.2 base={','.join(model.base_keys) or '-'} "
         f"skills={','.join(model.skill_keys) or '-'} "
+        f"post={','.join(model.post_combat_keys) or '-'} "
         f"nav_runs={sum(model.navigation.counts.values())} "
         f"skill_runs={sum(model.skill.counts.values())}"
     )
@@ -282,6 +285,12 @@ def build_parser() -> argparse.ArgumentParser:
     train_v2.add_argument("--include-defeats", action="store_true")
     train_v2.add_argument("--base-key", action="append", default=[])
     train_v2.add_argument("--skill-key", action="append", default=[])
+    train_v2.add_argument(
+        "--post-combat-key",
+        action="append",
+        default=[],
+        help="Key that marks the post-fight tail, default V / Tecla que marca o pós-luta, padrão V",
+    )
     train_v2.set_defaults(func=command_train_v2)
 
     pilot = sub.add_parser("pilot", help="Legacy v0.1 Pilot / Pilot legado v0.1")

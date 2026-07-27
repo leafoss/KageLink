@@ -2,7 +2,7 @@
 
 ## Goal
 
-v0.3 temporarily stops trying to control combat directly from the whole frame. Before controlling Leafos, the system must build an explicit representation of the world:
+v0.3 temporarily stops trying to control combat directly from the whole frame. Before controlling Leafos, the system must build an explicit world representation:
 
 ```text
 HWND capture
@@ -15,80 +15,177 @@ Lucas–Kanade optical flow
     ↓
 global camera-motion compensation
     ↓
-Entity Tracker
+BACKGROUND_DYNAMIC memory
     ↓
-temporal memory
+Entity Tracker + appearance
+    ↓
+temporal memory / occlusion / relative side
     ↓
 Enemy Score
     ↓
 TARGET LOCK
 ```
 
-This first milestone is **observation only**. No key is sent to the game.
+This milestone remains **observation only**. No key is sent to the game.
 
 ## What the window shows
 
 - `PLAYER #000`: calibratable player anchor;
-- tight vertical player box instead of the old circular exclusion zone;
-- `ENTITY #NNN`: persistent candidates found from motion and contours;
-- temporal trail for each entity;
-- residual velocity after global scene-motion compensation;
-- direction;
-- observed time;
-- approach relative to the player;
-- distance to the player;
-- hostility memory;
-- `ENEMY SCORE` from 0% to 100%;
-- `TARGET LOCK` state;
-- motion mask used to create candidates.
+- tight vertical player box;
+- `ENTITY #NNN`: persistent candidates;
+- temporal trail;
+- residual velocity after camera compensation;
+- direction and relative side (`LEFT/RIGHT/UP/DOWN`);
+- `VISIBLE`, `LOST`, or `OCCLUDED` state;
+- visual similarity used for association;
+- observed time, distance, and approach;
+- hostility memory and `ENEMY SCORE`;
+- `TARGET LOCK`;
+- number of candidates suppressed by `BACKGROUND_DYNAMIC`;
+- dormant identities waiting for reacquisition.
 
 ## PLAYER box
 
-The initial circle has been replaced by a vertical rectangle that more closely matches the volume occupied by the real sprite and protects less empty space.
-
-Current defaults:
+The old circle has been replaced by a vertical rectangle that more closely matches the real sprite volume.
 
 ```text
 player-box-width  = 18 px
 player-box-height = 38 px
 ```
 
-The box is a **spawn exclusion zone for new entities**. It prevents Leafos from becoming an `ENTITY`, but it does not erase an already-known opponent when that enemy enters melee range or overlaps the player.
+The box prevents a new entity from spawning on top of Leafos. An already-known entity may reach the player, but its logical box cannot pass through the `PLAYER #000` core.
 
-The center can be calibrated by left-clicking directly on Leafos in the Observer window. Calibration resets temporal tracking memory to remove false tracks created by the previous position.
+The center remains calibratable by left-clicking directly on Leafos. Recalibration resets the tracker, target lock, environmental memory, and dormant identities.
+
+## BACKGROUND_DYNAMIC
+
+Animated water and similar scenery can create many motion contours even though they are not entities. v0.3 now learns repetitive environmental motion regions instead of hardcoding a map strip.
+
+A region accumulates environmental memory when:
+
+1. several candidates appear close together at the same time;
+2. this repeats in the same area across frames;
+3. the visual patches are similar;
+4. the region is outside the player's immediate guard area.
+
+Once the memory matures, visually similar future candidates in that region stop becoming `ENTITY` tracks.
+
+Initial defaults:
+
+```text
+background cell size       = 32 px
+neighbor radius            = 58 px
+minimum neighbors          = 3
+minimum dense hits         = 8
+minimum age                = 0.8 s
+appearance similarity      = 0.88
+memory TTL                 = 12 s
+```
+
+The panel shows:
+
+```text
+dynamic bg suppressed: N
+dynamic bg cells: N
+```
+
+An isolated opponent should not be learned as background merely by staying visible: environmental learning requires repeated local density.
+
+## Appearance memory
+
+Each candidate receives a lightweight visual signature built from:
+
+- intensity histogram;
+- coarse quadrant structure;
+- edge density.
+
+This is not a neural model. It is a low-cost visual memory used to:
+
+- reduce ID swaps between nearby candidates;
+- recognize similar environmental patterns;
+- help recover the same `ENTITY ID` after temporary visual loss.
+
+Appearance is combined with predicted position, size, and shape in the matching cost.
 
 ## Stable Entity Tracker
 
-The v0.3 tracker now uses four signals to preserve identity:
+The tracker uses:
 
-1. global camera motion estimated with Lucas–Kanade;
-2. the entity's recent residual velocity;
-3. distance from the predicted position;
-4. bounding-box size/shape consistency.
+1. global camera motion from Lucas–Kanade;
+2. entity residual velocity;
+3. predicted position;
+4. bounding-box size/shape;
+5. appearance similarity;
+6. relative side to the player.
 
-Expected position uses both camera motion and recent residual entity velocity. This helps recover the same ID when a contour disappears for a few frames or the target moves rapidly.
-
-Real-test defaults:
+Main parameters:
 
 ```text
 track-match-distance = 105 px
 track-ttl            = 2.0 s
 ```
 
-During short drop-outs, part of the previous velocity is retained and decays gradually instead of being reset immediately.
+During short drop-outs, velocity decays gradually instead of being reset immediately.
 
-## TARGET LOCK hysteresis
+## OCCLUDED / player contact
 
-Acquiring a target and keeping a target are different operations.
+When an observed bounding box tries to cross the player box, the system does not assume the enemy has become part of the PLAYER.
+
+Flow:
+
+```text
+known ENTITY approaches
+    ↓
+remember LEFT / RIGHT / UP / DOWN
+    ↓
+contour enters PLAYER box
+    ↓
+state = OCCLUDED
+    ↓
+logical box is held at PLAYER boundary
+    ↓
+ID + side + clean appearance are preserved
+    ↓
+visual separation
+    ↓
+reacquire the same ID
+```
+
+While `OCCLUDED`, the mixed PLAYER+enemy contour does not replace the clean appearance memory.
+
+## Relative-side memory
+
+Each entity stores its last reliable side:
+
+```text
+LEFT
+RIGHT
+UP
+DOWN
+```
+
+This memory survives occlusion and will later feed the v0.3b controller when deciding recovery direction without relying only on the current frame.
+
+## DORMANT / reacquisition
+
+After exceeding the active TTL, an established identity is not forgotten immediately. It enters a dormant memory for a few seconds.
 
 Defaults:
+
+```text
+reacquire TTL        = 5.0 s
+reacquire distance   = 180 px
+reacquire similarity = 0.82
+```
+
+When a compatible candidate reappears, the same `ENTITY ID` is restored instead of creating a new number.
+
+## TARGET LOCK hysteresis
 
 ```text
 target-acquire = 55%
 target-keep    = 38%
 ```
-
-Flow:
 
 ```text
 no target
@@ -101,26 +198,14 @@ score may fluctuate between 38% and 55%
   ↓
 keep TARGET
   ↓
-score < 38% or entity expires
+score < 38% or identity truly expires
   ↓
 release lock
 ```
 
-This prevents target loss or switching because of small one-frame score fluctuations.
-
 ## Initial Enemy Score
 
-The score is still heuristic. It combines:
-
-- temporal persistence;
-- motion independent from the background;
-- approach toward the player;
-- motion heading relative to the player;
-- plausible distance;
-- candidate shape and size;
-- accumulated hostile-behavior memory.
-
-This score is not a final truth. It exists to make decisions visible and tunable before adding a trained visual model.
+The score remains heuristic and combines persistence, independent motion, approach, heading, distance, shape, and hostility memory. It is still a diagnostic signal rather than final truth.
 
 ## Installation
 
@@ -130,55 +215,57 @@ From `KageLink Installer/pc_agent`:
 .\.venv-kage-pilot\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-v0.3 uses OpenCV and NumPy in the PC Agent environment.
-
 ## Run
 
 ```powershell
 .\.venv-kage-pilot\Scripts\python.exe kage_pilot_observer.py
 ```
 
-Optional parameters:
+Useful additional parameters:
 
 ```powershell
 .\.venv-kage-pilot\Scripts\python.exe kage_pilot_observer.py `
-  --player-box-width 18 `
-  --player-box-height 38 `
-  --match-distance 105 `
-  --track-ttl 2.0 `
-  --target-acquire 55 `
-  --target-keep 38
+  --background-similarity 0.88 `
+  --background-min-hits 8 `
+  --background-min-age 0.8 `
+  --reacquire-ttl 5 `
+  --reacquire-distance 180 `
+  --reacquire-similarity 0.82
 ```
 
-Observer-window controls:
+To compare with environmental filtering disabled:
+
+```powershell
+.\.venv-kage-pilot\Scripts\python.exe kage_pilot_observer.py --no-dynamic-background
+```
+
+Controls:
 
 ```text
 left-click Leafos = recalibrate PLAYER
 Q or ESC          = exit
 ```
 
-The Observer does not send these actions to Shinobi Story Online; they are read only by the OpenCV preview window.
-
 ## Validation gate
 
-v0.3a is considered validated when, during a real fight:
+v0.3a is considered validated when:
 
-1. `PLAYER #000` tightly covers the sprite with a vertical box;
+1. `PLAYER #000` tightly covers the sprite;
 2. the player itself does not spawn as an `ENTITY`;
-3. the same opponent keeps the same `ENTITY ID` for several seconds;
-4. the tracker does not classify the whole background as enemies when the camera moves;
-5. `approaches player` changes to `YES` when the opponent advances;
-6. distance to the player increases after knockback;
-7. the real opponent's `Enemy Score` exceeds objects and temporary effects;
-8. once acquired, `TARGET LOCK` survives small score fluctuations;
-9. the box and trail continue following the target.
+3. water/repetitive effects are progressively suppressed;
+4. the same opponent keeps the same ID for several seconds;
+5. `TARGET LOCK` survives small score fluctuations;
+6. player contact produces `OCCLUDED` without the box crossing PLAYER;
+7. relative side remains stable through occlusion;
+8. the same ID can be recovered after a short separation;
+9. camera motion does not become an avalanche of enemies.
 
 ## Next milestone
 
-Only after the Observer is validated will the v0.3b controller be added:
+Only after this perception layer is validated will the v0.3b controller be added:
 
 ```text
 SEARCH → APPROACH → MELEE → DISPLACED → RECOVER → POST_COMBAT
 ```
 
-`LEFT`, `RIGHT`, `R +REP`, and `H` decisions will be based on target spatial state rather than whole-frame visual similarity.
+`LEFT`, `RIGHT`, `R +REP`, and `H` will be decided from the target's spatial and temporal state, not whole-frame similarity.

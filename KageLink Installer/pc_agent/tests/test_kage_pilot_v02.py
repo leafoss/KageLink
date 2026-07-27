@@ -84,6 +84,33 @@ class KagePilotV02Tests(unittest.TestCase):
             self.assertEqual(loaded.skill_keys, ("h",))
             self.assertEqual(loaded.post_combat_keys, ("v",))
 
+    def test_leading_v_from_previous_victory_does_not_discard_next_fight(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            writer = SessionWriter(root, session_id="next-fight", started_at=0.0)
+            # Recorder already opened the next session; V belongs to meditation
+            # from the previous victory and must be ignored, not treated as EOF.
+            writer.append(jpeg(20), timestamp=0.0, keys=("v",))
+            writer.append(jpeg(30), timestamp=0.1, keys=())
+            writer.append(jpeg(60), timestamp=0.2, keys=("r",))
+            writer.append(jpeg(100), timestamp=0.3, keys=("r", "right"))
+            writer.append(jpeg(140), timestamp=0.4, keys=("r", "h"))
+            writer.append(jpeg(180), timestamp=0.5, keys=("r", "left"))
+            writer.finalize("victory", ended_at=0.6)
+
+            model = TemporalCombatModel.train(
+                DatasetStore(root),
+                base_keys=("r",),
+                skill_keys=("h",),
+                post_combat_keys=("v",),
+                history_frames=1,
+            )
+            self.assertEqual(sum(model.navigation.counts.values()), 4)
+            self.assertIn("right", model.navigation.counts)
+            self.assertIn("left", model.navigation.counts)
+            self.assertIn("h", model.skill.counts)
+            self.assertNotIn("v", model.skill.counts)
+
     def test_temporal_features_include_change(self):
         stationary = temporal_features(jpeg(40), jpeg(40))
         moving = temporal_features(jpeg(40), jpeg(180))

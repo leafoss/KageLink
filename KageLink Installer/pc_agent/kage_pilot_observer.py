@@ -6,8 +6,8 @@ import time
 import cv2
 
 from pc_agent.kage_pilot.entity_observer import decode_jpeg
+from pc_agent.kage_pilot.guarded_observer_v03 import TargetEligibleObserver
 from pc_agent.kage_pilot.observer_runtime_v03 import (
-    StableTargetObserver,
     V03ObserverConfig,
     render_overlay_v03,
 )
@@ -15,6 +15,10 @@ from pc_agent.kage_pilot.persistent_water_tracker_v03 import (
     PersistentBackgroundWaterAwareEntityTracker as WaterAwareEntityTracker,
 )
 from pc_agent.kage_pilot.recorder import WindowsGameFrameSource
+
+
+DEFAULT_PLAYER_X = 0.5181
+DEFAULT_PLAYER_Y = 0.4706
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -28,8 +32,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--fps", type=float, default=10.0)
     parser.add_argument("--telemetry-seconds", type=float, default=2.0)
 
-    parser.add_argument("--player-x", type=float, default=0.51)
-    parser.add_argument("--player-y", type=float, default=0.48)
+    # Calibrated from the latest validated combat run. Left-click remains available
+    # for refinement, but this should put PLAYER #000 on Leafos by default.
+    parser.add_argument("--player-x", type=float, default=DEFAULT_PLAYER_X)
+    parser.add_argument("--player-y", type=float, default=DEFAULT_PLAYER_Y)
     parser.add_argument("--player-box-width", type=float, default=18.0)
     parser.add_argument("--player-box-height", type=float, default=38.0)
 
@@ -119,7 +125,7 @@ def main() -> int:
         reacquire_similarity=args.reacquire_similarity,
     ).normalized()
 
-    observer = StableTargetObserver(config)
+    observer = TargetEligibleObserver(config)
     tracker = WaterAwareEntityTracker(config)
     observer.tracker = tracker
     source = WindowsGameFrameSource()
@@ -169,7 +175,7 @@ def main() -> int:
     print("Nenhuma tecla sera enviada ao jogo / No key will be sent to the game")
     print(
         "PLAYER inicial / initial: "
-        f"x={config.player_x:.2f} y={config.player_y:.2f} "
+        f"x={config.player_x:.4f} y={config.player_y:.4f} "
         f"box={config.player_box_width:.0f}x{config.player_box_height:.0f}px"
     )
     print(
@@ -183,6 +189,7 @@ def main() -> int:
         f"similarity={config.background_similarity:.2f} "
         f"hits={config.background_min_dense_hits:.0f} age={config.background_min_age:.1f}s"
     )
+    print("TARGET GUARD v2: LOST=never-active dynamic-bg-far=blocked")
     print(
         "REACQUIRE: "
         f"ttl={config.reacquire_ttl:.1f}s distance={config.reacquire_distance:.0f}px "

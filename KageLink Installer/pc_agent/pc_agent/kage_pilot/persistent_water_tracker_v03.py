@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from .water_filter_v03 import WaterAwareEntityTracker
+from .water_filter_v03b import CombatSelectiveWaterAwareEntityTracker
 
 
-class PersistentBackgroundWaterAwareEntityTracker(WaterAwareEntityTracker):
+class PersistentBackgroundWaterAwareEntityTracker(CombatSelectiveWaterAwareEntityTracker):
     """Keep learned dynamic-background memory across PLAYER recalibration resets."""
 
     def reset(self) -> None:

@@ -39,7 +39,7 @@ class ShadowCombatDecisionEngine:
         h_cooldown_seconds: float = 2.0,
         h_min_score: float = 55.0,
         engagement_gap_seconds: float = 0.75,
-        combat_active_on_start: bool = True,
+        combat_active_on_start: bool = False,
     ) -> None:
         self.h_stable_seconds = max(0.0, float(h_stable_seconds))
         self.h_cooldown_seconds = max(0.0, float(h_cooldown_seconds))

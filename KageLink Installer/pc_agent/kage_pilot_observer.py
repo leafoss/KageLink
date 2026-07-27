@@ -6,7 +6,7 @@ import time
 import cv2
 
 from pc_agent.kage_pilot.entity_observer import decode_jpeg
-from pc_agent.kage_pilot.grid_target_observer_v03b import StrictGridTargetObserver as GridTargetObserver
+from pc_agent.kage_pilot.grid_target_observer_v03c import FrameAlignedGridTargetObserver as GridTargetObserver
 from pc_agent.kage_pilot.observer_runtime_v03 import (
     V03ObserverConfig,
     render_overlay_v03,
@@ -217,7 +217,8 @@ def main() -> int:
     print("TARGET GUARD v3: grid-approach required outside adjacent cell; LOST only via CONTACT MEMORY")
     print(
         "GRID: "
-        f"size={observer.tile_size:.0f}px contact_lock={observer.contact_lock_seconds:.1f}s "
+        f"size={observer.tile_size:.0f}px aligned=frame-origin "
+        f"contact_lock={observer.contact_lock_seconds:.1f}s "
         f"overlay={'yes' if observer.show_grid else 'no'}"
     )
     print(

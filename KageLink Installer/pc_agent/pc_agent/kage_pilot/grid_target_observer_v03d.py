@@ -10,23 +10,23 @@ from .grid_target_observer_v03c import FrameAlignedGridTargetObserver
 
 
 class TileCalibratedGridTargetObserver(FrameAlignedGridTargetObserver):
-    """64px tile-aligned hybrid observer with confirmed contact memory.
+    """32px logical-grid hybrid observer with confirmed local contact memory.
 
-    Real BYOND screenshots showed that the previous 32px lattice cuts through a
-    character sprite roughly halfway. The visual/world cell hypothesis is therefore
-    64x64px. The grid origin is auto-calibrated so PLAYER sits at the centre of a cell.
+    Real water/combat validation established 32x32 as the useful behavioural grid.
+    Sprite artwork may span multiple cells; the grid represents navigation geometry.
 
-    CONTACT MEMORY is also hardened: a noisy adjacent contour must be observed in the
-    same side/cell for multiple frames before it may open the contact latch. A currently
-    locked/occluded target may still keep the latch immediately, preserving the useful
-    melee behaviour seen in real combat logs.
+    CONTACT MEMORY is intentionally local to PLAYER. A noisy adjacent contour must be
+    observed in the same side/cell for multiple frames before it may open the contact
+    latch. Once visual evidence is lost, that memory may preserve identity/facing only
+    while the predicted target remains in the contact neighbourhood (d <= 1). It can
+    never become a distant pursuit target by itself.
     """
 
     def __init__(
         self,
         config,
         *,
-        tile_size: float = 64.0,
+        tile_size: float = 32.0,
         contact_lock_seconds: float = 2.8,
         show_grid: bool = True,
         auto_align_grid: bool = True,
@@ -56,7 +56,6 @@ class TileCalibratedGridTargetObserver(FrameAlignedGridTargetObserver):
         return float(self.grid_origin_x), float(self.grid_origin_y)
 
     def request_grid_realign(self) -> None:
-        """Recompute the lattice offset from PLAYER on the next frame."""
         if self.auto_align_grid:
             self._grid_alignment_ready = False
 
@@ -109,8 +108,6 @@ class TileCalibratedGridTargetObserver(FrameAlignedGridTargetObserver):
             key = self._contact_key(track)
             seen.add(key)
             hits, previous_time = self._contact_evidence.get(key, (0, now))
-            # Continuity is intentionally short. A single random water contour cannot
-            # accumulate evidence across long gaps.
             if now - previous_time > 0.55:
                 hits = 0
             hits += 1
@@ -134,8 +131,6 @@ class TileCalibratedGridTargetObserver(FrameAlignedGridTargetObserver):
         context = self.tracker.context_for(track.track_id)
         metrics = self._last_metrics[track.track_id]
 
-        # A currently held target is allowed to remain in contact while the visual
-        # contour is degrading. New adjacent acquisitions require confirmed evidence.
         if metrics.grid_distance <= 1:
             if for_keep and self._grid_target_id == track.track_id:
                 return context.state in {"VISIBLE", "OCCLUDED"}
@@ -146,7 +141,6 @@ class TileCalibratedGridTargetObserver(FrameAlignedGridTargetObserver):
         return super()._grid_eligible(track, state, for_keep=for_keep)
 
     def _latch_contact(self, track, state) -> None:
-        # An already locked target or a confirmed contact may open/refresh the latch.
         if self._grid_target_id == track.track_id or self._contact_confirmed(track):
             super()._latch_contact(track, state)
 
@@ -164,15 +158,60 @@ class TileCalibratedGridTargetObserver(FrameAlignedGridTargetObserver):
             side = context.last_visible_side if context.last_visible_side != "-" else context.relative_side
             if not self._same_contact_side(side):
                 continue
-            # Rebinding may happen after only one frame because the latch itself proves
-            # there was a previously validated contact in this local neighbourhood.
             candidates.append(track)
         selected = max(candidates, key=lambda item: item.enemy_score, default=None)
         return selected.track_id if selected is not None else None
 
+    def _select_grid_target(self, state) -> int | None:
+        """Select TARGET with a strict local-only CONTACT_MEMORY rule."""
+        current_id = self._grid_target_id
+        current = next((track for track in state.tracks if track.track_id == current_id), None)
+
+        if current is not None:
+            context = self.tracker.context_for(current.track_id)
+            self._latch_contact(current, state)
+            metrics = self._last_metrics[current.track_id]
+
+            # Critical safety invariant: CONTACT_MEMORY exists only in the local melee
+            # neighbourhood. If a LOST prediction drifts two or more cells away, do not
+            # preserve it as TARGET and never let it become a pursuit command.
+            if (
+                context.state == "LOST"
+                and state.timestamp <= self._contact_latch_until
+                and metrics.grid_distance <= 1
+            ):
+                self._target_mode = "CONTACT_MEMORY"
+                return current.track_id
+
+            if self._grid_eligible(current, state, for_keep=True):
+                self._target_mode = context.state
+                return current.track_id
+
+        rebound_id = self._contact_rebind(state)
+        if rebound_id is not None:
+            rebound = next(track for track in state.tracks if track.track_id == rebound_id)
+            self._latch_contact(rebound, state)
+            self._target_mode = "CONTACT_REBIND"
+            return rebound_id
+
+        eligible = []
+        for track in state.tracks:
+            if not self._grid_eligible(track, state, for_keep=False):
+                continue
+            if track.enemy_score >= self.config.target_acquire_threshold:
+                eligible.append(track)
+
+        selected = max(eligible, key=lambda item: item.enemy_score, default=None)
+        if selected is None:
+            self._target_mode = "NONE"
+            return None
+
+        self._latch_contact(selected, state)
+        context = self.tracker.context_for(selected.track_id)
+        self._target_mode = context.state
+        return selected.track_id
+
     def process(self, frame_bgr: np.ndarray, *, timestamp: float | None = None):
-        # Bypass the parent grid selection once so alignment can be established before
-        # cell metrics are computed for this frame.
         state = TargetEligibleObserver.process(self, frame_bgr, timestamp=timestamp)
         self._align_grid_to_player(state)
         self._active_cells = self._aligned_active_cells(state)

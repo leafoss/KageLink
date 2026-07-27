@@ -6,7 +6,7 @@ import time
 import cv2
 
 from pc_agent.kage_pilot.entity_observer import decode_jpeg
-from pc_agent.kage_pilot.guarded_observer_v03 import TargetEligibleObserver
+from pc_agent.kage_pilot.grid_target_observer_v03 import GridTargetObserver
 from pc_agent.kage_pilot.observer_runtime_v03 import (
     V03ObserverConfig,
     render_overlay_v03,
@@ -19,6 +19,7 @@ from pc_agent.kage_pilot.recorder import WindowsGameFrameSource
 
 DEFAULT_PLAYER_X = 0.5181
 DEFAULT_PLAYER_Y = 0.4706
+DEFAULT_GRID_SIZE = 32.0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -53,6 +54,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--reacquire-distance", type=float, default=180.0)
     parser.add_argument("--reacquire-similarity", type=float, default=0.82)
 
+    # Hybrid fixed-grid evidence. 32 px is the current working tile hypothesis and
+    # remains configurable so real BYOND validation can correct it without code edits.
+    parser.add_argument("--grid-size", type=float, default=DEFAULT_GRID_SIZE)
+    parser.add_argument("--contact-lock-seconds", type=float, default=2.8)
+    parser.add_argument("--no-grid-overlay", action="store_true")
+
     parser.add_argument("--arena-left", type=float, default=0.04)
     parser.add_argument("--arena-top", type=float, default=0.04)
     parser.add_argument("--arena-right", type=float, default=0.96)
@@ -77,16 +84,28 @@ def _calibrate_player_from_click(
     return player_x, player_y
 
 
-def _telemetry_line(state, tracker, *, started: float) -> str:
+def _telemetry_line(state, tracker, observer: GridTargetObserver, *, started: float) -> str:
     target = state.target
     if target is None:
         target_text = "none"
+        grid_text = "-"
     else:
         context = tracker.context_for(target.track_id)
+        metrics = observer.metrics_for(target.track_id)
+        state_name = observer.target_mode if observer.target_mode != "NONE" else context.state
         target_text = (
-            f"#{target.track_id:03d}/{context.state}/{context.relative_side}/"
+            f"#{target.track_id:03d}/{state_name}/{context.relative_side}/"
             f"{target.enemy_score:.1f}%"
         )
+        if metrics is None:
+            grid_text = "-"
+        else:
+            grid_text = (
+                f"cell={metrics.cell[0]},{metrics.cell[1]} "
+                f"d={metrics.grid_distance} toward={metrics.toward_steps} "
+                f"away={metrics.away_steps} net={metrics.net_closer} "
+                f"bg={metrics.background_strength:.2f}"
+            )
     return (
         f"OBS t={time.monotonic() - started:6.1f}s "
         f"entities={len(state.tracks):3d} "
@@ -95,7 +114,8 @@ def _telemetry_line(state, tracker, *, started: float) -> str:
         f"suppressed={tracker.background.suppressed_last_frame:3d} "
         f"pruned={getattr(tracker, 'background_pruned_last_frame', 0):3d} "
         f"dormant={tracker.dormant_count:3d} "
-        f"target={target_text}"
+        f"grid_active={observer.active_grid_cells:3d} "
+        f"target={target_text} grid[{grid_text}]"
     )
 
 
@@ -125,7 +145,12 @@ def main() -> int:
         reacquire_similarity=args.reacquire_similarity,
     ).normalized()
 
-    observer = TargetEligibleObserver(config)
+    observer = GridTargetObserver(
+        config,
+        tile_size=args.grid_size,
+        contact_lock_seconds=args.contact_lock_seconds,
+        show_grid=not bool(args.no_grid_overlay),
+    )
     tracker = WaterAwareEntityTracker(config)
     observer.tracker = tracker
     source = WindowsGameFrameSource()
@@ -189,7 +214,12 @@ def main() -> int:
         f"similarity={config.background_similarity:.2f} "
         f"hits={config.background_min_dense_hits:.0f} age={config.background_min_age:.1f}s"
     )
-    print("TARGET GUARD v2: LOST=never-active dynamic-bg-far=blocked")
+    print("TARGET GUARD v3: grid-approach required away from contact; LOST only via CONTACT MEMORY")
+    print(
+        "GRID: "
+        f"size={observer.tile_size:.0f}px contact_lock={observer.contact_lock_seconds:.1f}s "
+        f"overlay={'yes' if observer.show_grid else 'no'}"
+    )
     print(
         "REACQUIRE: "
         f"ttl={config.reacquire_ttl:.1f}s distance={config.reacquire_distance:.0f}px "
@@ -213,10 +243,11 @@ def main() -> int:
 
             now = time.monotonic()
             if now >= next_telemetry:
-                print(_telemetry_line(state, tracker, started=started))
+                print(_telemetry_line(state, tracker, observer, started=started))
                 next_telemetry = now + telemetry_interval
 
             preview = render_overlay_v03(frame, state, config, tracker)
+            preview = observer.draw_grid_overlay(preview, state)
             cv2.putText(
                 preview,
                 "LEFT CLICK Leafos = PLAYER calibration / calibrar PLAYER",

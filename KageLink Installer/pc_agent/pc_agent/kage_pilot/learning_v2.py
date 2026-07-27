@@ -213,6 +213,14 @@ class TemporalCombatModel:
             actions_path = Path(session_path) / "actions.jsonl"
             if not actions_path.exists():
                 continue
+
+            # Recorder starts the next session immediately after F11/F12. In the
+            # real Dojo flow Rafael then presses V to meditate, so that V often
+            # belongs to the *leading tail* of the next session rather than the
+            # fight that just ended. Ignore leading rest/idle data until the base
+            # combat key (R by default) appears. Once combat has started, a later
+            # post-combat key marks the end of useful combat data for that session.
+            combat_started = False
             run_index = 0
             with actions_path.open("r", encoding="utf-8") as handle:
                 for line in handle:
@@ -222,10 +230,13 @@ class TemporalCombatModel:
                     raw = json.loads(line)
                     raw_keys = _key_set(raw.get("keys", ()))
 
-                    # In Shinobi Story Online V is meditation/rest after the
-                    # fight. Once a post-combat key appears in a victorious
-                    # demonstration, the remaining tail is not combat data.
-                    if raw_keys.intersection(post_combat):
+                    if not combat_started:
+                        if raw_keys.intersection(post_combat):
+                            continue
+                        if not raw_keys.intersection(base):
+                            continue
+                        combat_started = True
+                    elif raw_keys.intersection(post_combat):
                         break
 
                     take = run_index % stride == 0

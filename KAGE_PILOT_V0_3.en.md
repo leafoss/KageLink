@@ -55,28 +55,32 @@ player-box-height = 38 px
 
 The box prevents a new entity from spawning on top of Leafos. An already-known entity may reach the player, but its logical box cannot pass through the `PLAYER #000` core.
 
-The center remains calibratable by left-clicking directly on Leafos. Recalibration resets the tracker, target lock, environmental memory, and dormant identities.
+The center remains calibratable by left-clicking directly on Leafos. Recalibration resets the tracker and TARGET LOCK while preserving already-learned environmental memory.
 
 ## BACKGROUND_DYNAMIC
 
-Animated water and similar scenery can create many motion contours even though they are not entities. v0.3 now learns repetitive environmental motion regions instead of hardcoding a map strip.
+Animated water and similar scenery can create many motion contours even though they are not entities. Real validation showed that water contours may be spread across a wide band, so the current filter no longer requires three candidates to be close together in the same frame.
 
-A region accumulates environmental memory when:
+Environmental memory uses **temporal recurrence by region**:
 
-1. several candidates appear close together at the same time;
-2. this repeats in the same area across frames;
-3. the visual patches are similar;
-4. the region is outside the player's immediate guard area.
+```text
+motion returns to the same cell
+        ↓
+accumulate hits over time
+        ↓
+cell matures
+        ↓
+BACKGROUND_DYNAMIC
+```
 
-Once the memory matures, visually similar future candidates in that region stop becoming `ENTITY` tracks.
+Appearance remains supporting evidence but is no longer mandatory for clearly scenery-like contours. Vertical character-shaped candidates require stronger regional and visual evidence before suppression.
 
 Initial defaults:
 
 ```text
 background cell size       = 32 px
-neighbor radius            = 58 px
-minimum neighbors          = 3
-minimum dense hits         = 8
+minimum frame activity     = 3 remote candidates
+minimum temporal hits      = 8
 minimum age                = 0.8 s
 appearance similarity      = 0.88
 memory TTL                 = 12 s
@@ -89,7 +93,7 @@ dynamic bg suppressed: N
 dynamic bg cells: N
 ```
 
-An isolated opponent should not be learned as background merely by staying visible: environmental learning requires repeated local density.
+The combat tracker protects candidates close to the player, in `OCCLUDED`, or moving toward the player with a coherent trajectory. Existing tracks inside a strongly dynamic region may also be retroactively removed as `BACKGROUND_DYNAMIC`.
 
 ## Appearance memory
 
@@ -230,7 +234,8 @@ Useful additional parameters:
   --background-min-age 0.8 `
   --reacquire-ttl 5 `
   --reacquire-distance 180 `
-  --reacquire-similarity 0.82
+  --reacquire-similarity 0.82 `
+  --telemetry-seconds 2
 ```
 
 To compare with environmental filtering disabled:
@@ -245,6 +250,16 @@ Controls:
 left-click Leafos = recalibrate PLAYER
 Q or ESC          = exit
 ```
+
+## Telemetry
+
+By default the Observer prints one line every 2 seconds:
+
+```text
+OBS t= 12.0s entities=15 bg_mature=8 bg_strong=3 suppressed=6 pruned=2 dormant=1 target=#042/VISIBLE/RIGHT/67.0%
+```
+
+This makes it possible to evaluate dynamic-background learning and TARGET evolution over time instead of relying on a single screenshot.
 
 ## Validation gate
 

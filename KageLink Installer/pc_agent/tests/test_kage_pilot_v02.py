@@ -43,7 +43,7 @@ class FakeController:
 
 
 class KagePilotV02Tests(unittest.TestCase):
-    def test_temporal_model_separates_navigation_and_skills(self):
+    def test_temporal_model_separates_navigation_and_skills_and_cuts_v_tail(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             writer = SessionWriter(root, session_id="fight", started_at=0.0)
@@ -51,21 +51,28 @@ class KagePilotV02Tests(unittest.TestCase):
             writer.append(jpeg(60), timestamp=0.1, keys=("r", "right"))
             writer.append(jpeg(100), timestamp=0.2, keys=("r", "h"))
             writer.append(jpeg(160), timestamp=0.3, keys=("r", "left"))
-            writer.append(jpeg(220), timestamp=0.4, keys=("r", "v"))
-            writer.finalize("victory", ended_at=0.5)
+            writer.append(jpeg(220), timestamp=0.4, keys=("v",))
+            writer.append(jpeg(240), timestamp=0.5, keys=())
+            writer.finalize("victory", ended_at=0.6)
 
             model = TemporalCombatModel.train(
                 DatasetStore(root),
                 base_keys=("r",),
-                skill_keys=("h", "v"),
+                skill_keys=("h",),
+                post_combat_keys=("v",),
                 history_frames=1,
             )
             self.assertEqual(model.base_keys, ("r",))
+            self.assertEqual(model.skill_keys, ("h",))
+            self.assertEqual(model.post_combat_keys, ("v",))
             self.assertIn("right", model.navigation.prototypes)
             self.assertIn("left", model.navigation.prototypes)
             self.assertIn("h", model.skill.prototypes)
-            self.assertIn("v", model.skill.prototypes)
+            self.assertNotIn("v", model.skill.prototypes)
             self.assertIn("idle", model.skill.prototypes)
+            # V and everything after it are post-fight, so only the first four
+            # action runs are eligible for combat learning.
+            self.assertEqual(sum(model.navigation.counts.values()), 4)
 
             prediction = model.predict(jpeg(20), jpeg(60))
             self.assertEqual(prediction.navigation.keys, ("right",))
@@ -74,7 +81,8 @@ class KagePilotV02Tests(unittest.TestCase):
             model.save(path)
             loaded = TemporalCombatModel.load(path)
             self.assertEqual(loaded.base_keys, ("r",))
-            self.assertEqual(loaded.skill_keys, ("h", "v"))
+            self.assertEqual(loaded.skill_keys, ("h",))
+            self.assertEqual(loaded.post_combat_keys, ("v",))
 
     def test_temporal_features_include_change(self):
         stationary = temporal_features(jpeg(40), jpeg(40))
@@ -83,16 +91,33 @@ class KagePilotV02Tests(unittest.TestCase):
         self.assertTrue(all(abs(value) < 1e-9 for value in stationary[half:]))
         self.assertTrue(any(abs(value) > 0.1 for value in moving[half:]))
 
-    def test_pilot_holds_r_and_skill_uses_cooldown(self):
+    def test_policy_uses_real_exemplars_not_only_centroid(self):
+        low = temporal_features(jpeg(0), jpeg(0))
+        high = temporal_features(jpeg(255), jpeg(255))
+        middle = temporal_features(jpeg(125), jpeg(125))
+        policy = PrototypePolicy.from_examples([
+            ("idle", low),
+            ("idle", high),
+            ("right", middle),
+        ])
+        self.assertTrue(policy.exemplars)
+        self.assertEqual(policy.predict_features(middle).label, "right")
+
+    def test_pilot_holds_r_and_requires_idle_rearm_for_skill(self):
         previous = jpeg(10)
         current = jpeg(200)
         features = temporal_features(previous, current)
-        nav = PrototypePolicy({"right": features}, {"right": 1})
-        skill = PrototypePolicy({"h": features}, {"h": 1})
-        model = TemporalCombatModel(nav, skill, base_keys=("r",), skill_keys=("h",))
-        source = FakeFrameSource([current, current])
+        idle_features = temporal_features(current, current)
+        nav = PrototypePolicy({"right": features}, {"right": 1}, {"right": [features]})
+        skill = PrototypePolicy(
+            {"h": features, "idle": idle_features},
+            {"h": 1, "idle": 1},
+            {"h": [features], "idle": [idle_features]},
+        )
+        model = TemporalCombatModel(nav, skill, base_keys=("r",), skill_keys=("h",), post_combat_keys=("v",))
+        source = FakeFrameSource([current, current, current, current])
         controller = FakeController()
-        clock = iter([10.0, 10.1])
+        clock = iter([10.0, 11.5, 11.6, 13.0])
         pilot = TemporalCombatPilot(
             model,
             source,
@@ -109,8 +134,18 @@ class KagePilotV02Tests(unittest.TestCase):
         second = pilot.step()
         self.assertEqual(first.applied_keys, ("h", "r", "right"))
         self.assertEqual(first.skill_fired, ("h",))
-        self.assertEqual(second.applied_keys, ("r", "right"))
+        # Even though cooldown has elapsed, H cannot fire again until skill
+        # prediction returns to idle at least once.
         self.assertEqual(second.skill_fired, ())
+
+        # Force one idle observation to rearm, then restore H-like temporal
+        # context and verify H can fire again.
+        pilot.model.skill = PrototypePolicy({"idle": idle_features}, {"idle": 1}, {"idle": [idle_features]})
+        third = pilot.step()
+        self.assertEqual(third.skill_fired, ())
+        pilot.model.skill = PrototypePolicy({"h": idle_features}, {"h": 1}, {"h": [idle_features]})
+        fourth = pilot.step()
+        self.assertEqual(fourth.skill_fired, ("h",))
 
 
 if __name__ == "__main__":

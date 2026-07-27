@@ -75,9 +75,21 @@ def command_mark(args: argparse.Namespace) -> int:
 def command_train(args: argparse.Namespace) -> int:
     store = DatasetStore(_data_dir(args.data_dir))
     results = ("victory", "defeat") if args.include_defeats else ("victory",)
-    model = BehaviorCloner.train(store, results=results, stride=args.stride, include_idle=not args.no_idle)
+    model = BehaviorCloner.train(
+        store,
+        results=results,
+        stride=args.stride,
+        include_idle=not args.no_idle,
+        exclude_keys=args.exclude_key or (),
+        use_action_runs=not args.frame_samples,
+    )
     path = model.save(Path(args.model))
-    print(f"model={path} actions={len(model.prototypes)} samples={sum(model.counts.values())}")
+    mode = "frames" if args.frame_samples else "action-runs"
+    excluded = ",".join(args.exclude_key or ()) or "-"
+    print(
+        f"model={path} mode={mode} exclude={excluded} "
+        f"actions={len(model.prototypes)} samples={sum(model.counts.values())}"
+    )
     return 0
 
 
@@ -85,7 +97,14 @@ def command_pilot(args: argparse.Namespace) -> int:
     model = BehaviorCloner.load(Path(args.model))
     frame_source = WindowsGameFrameSource()
     controller = WindowsGameController()
-    pilot = Pilot(model, frame_source, controller, min_confidence=args.confidence, decision_hz=args.hz)
+    pilot = Pilot(
+        model,
+        frame_source,
+        controller,
+        min_confidence=args.confidence,
+        decision_hz=args.hz,
+        base_keys=tuple(args.hold_key or ()),
+    )
     try:
         pilot.run(seconds=args.seconds)
     except KeyboardInterrupt:
@@ -128,7 +147,14 @@ def command_dojo(args: argparse.Namespace) -> int:
     config = DojoConfig.load(Path(args.config))
     frame_source = WindowsGameFrameSource()
     controller = WindowsGameController()
-    pilot = Pilot(model, frame_source, controller, min_confidence=args.confidence, decision_hz=args.hz)
+    pilot = Pilot(
+        model,
+        frame_source,
+        controller,
+        min_confidence=args.confidence,
+        decision_hz=args.hz,
+        base_keys=tuple(args.hold_key or ()),
+    )
     manager = DojoManager(config, frame_source, controller, pilot)
     try:
         results = manager.run(args.cycles)
@@ -158,9 +184,20 @@ def build_parser() -> argparse.ArgumentParser:
     train = sub.add_parser("train", help="Train behavioral clone / Treinar clone comportamental")
     train.add_argument("--data-dir")
     train.add_argument("--model", default="kage_pilot_model.json")
-    train.add_argument("--stride", type=int, default=2)
+    train.add_argument("--stride", type=int, default=1)
     train.add_argument("--include-defeats", action="store_true")
     train.add_argument("--no-idle", action="store_true")
+    train.add_argument(
+        "--exclude-key",
+        action="append",
+        default=[],
+        help="Ignore a held/base key while learning; repeatable / Ignorar tecla-base mantida",
+    )
+    train.add_argument(
+        "--frame-samples",
+        action="store_true",
+        help="Use legacy frame-by-frame training instead of action runs",
+    )
     train.set_defaults(func=command_train)
 
     pilot = sub.add_parser("pilot", help="Run learned combat only / Executar apenas combate aprendido")
@@ -168,6 +205,12 @@ def build_parser() -> argparse.ArgumentParser:
     pilot.add_argument("--seconds", type=float)
     pilot.add_argument("--confidence", type=float, default=0.08)
     pilot.add_argument("--hz", type=float, default=10.0)
+    pilot.add_argument(
+        "--hold-key",
+        action="append",
+        default=[],
+        help="Keep a base key held while Pilot runs; repeatable / Manter tecla-base pressionada",
+    )
     pilot.set_defaults(func=command_pilot)
 
     template = sub.add_parser("capture-template", help="Capture visual state template / Capturar template visual")
@@ -186,6 +229,12 @@ def build_parser() -> argparse.ArgumentParser:
     dojo.add_argument("--cycles", type=int, default=1)
     dojo.add_argument("--confidence", type=float, default=0.08)
     dojo.add_argument("--hz", type=float, default=10.0)
+    dojo.add_argument(
+        "--hold-key",
+        action="append",
+        default=[],
+        help="Keep a base key held during combat; repeatable / Manter tecla-base durante o combate",
+    )
     dojo.set_defaults(func=command_dojo)
     return parser
 

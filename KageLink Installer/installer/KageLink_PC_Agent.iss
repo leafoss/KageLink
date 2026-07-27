@@ -1,5 +1,5 @@
 ﻿#define MyAppName "KageLink"
-#define MyAppVersion "3.4.1"
+#define MyAppVersion "3.4.2"
 #define MyAppPublisher "KageLink"
 #define MyAppExeName "KageLink.exe"
 
@@ -15,7 +15,7 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=output
-OutputBaseFilename=KageLink-PC-Agent-Setup-v3.4.1
+OutputBaseFilename=KageLink-PC-Agent-Setup-v3.4.2
 SetupIconFile=assets\kagelink.ico
 WizardImageFile=assets\wizard_large.bmp
 WizardSmallImageFile=assets\wizard_small.bmp
@@ -24,7 +24,7 @@ SolidCompression=yes
 ShowLanguageDialog=yes
 LanguageDetectionMethod=uilanguage
 UninstallDisplayIcon={app}\KageLink.exe
-VersionInfoVersion=3.4.1.0
+VersionInfoVersion=3.4.2.0
 AppMutex=Local\KageLinkPcAgent_v3
 CloseApplications=yes
 RestartApplications=no
@@ -83,18 +83,4 @@ begin
     Result := 'pt-BR'
   else
     Result := 'en-US';
-end;
-
-procedure CurStepChanged(CurStep: TSetupStep);
-begin
-  if CurStep = ssPostInstall then
-    SaveStringToFile(ExpandConstant('{app}\install_language.txt'), SelectedLanguageTag, False);
-end;
-
-procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
-begin
-  if CurUninstallStep = usUninstall then
-    RemoveDataOnUninstall := MsgBox(ExpandConstant('{cm:RemoveUserData}'), mbConfirmation, MB_YESNO) = IDYES;
-  if (CurUninstallStep = usPostUninstall) and RemoveDataOnUninstall then
-    DelTree(ExpandConstant('{app}'), True, True, True);
 end;

@@ -18,7 +18,10 @@ class V03ObserverConfig(ObserverConfig):
     target_keep_threshold: float = 38.0
 
     def normalized(self) -> "V03ObserverConfig":
-        super().normalized()
+        # dataclass(slots=True) may replace the class object during decoration,
+        # which makes zero-argument super() unsafe on some Python versions.
+        # Call the concrete base implementation explicitly instead.
+        ObserverConfig.normalized(self)
         self.player_box_width = max(6.0, min(80.0, float(self.player_box_width)))
         self.player_box_height = max(10.0, min(120.0, float(self.player_box_height)))
         self.target_acquire_threshold = max(0.0, min(100.0, float(self.target_acquire_threshold)))

@@ -15,11 +15,12 @@ At this stage Kage Pilot **sends real keys**, but only:
 ## Movement rules
 
 - `d <= 1 cell`: MELEE. Keep R and only correct facing with a short pulse when needed.
-- `d >= 2 cells`: APPROACH/RECOVER. Keep R and hold the arrow toward the TARGET.
+- `d >= 2 cells`: APPROACH/RECOVER only with current visual confirmation (`VISIBLE`/`OCCLUDED`). Keep R and hold the arrow toward the TARGET.
 - TARGET temporarily unavailable: keep R but do not move blindly.
-- CONTACT_MEMORY preserves the last visually confirmed direction.
+- `CONTACT_MEMORY` preserves identity/facing only in local contact (`d <= 1`). It never authorizes distant pursuit.
+- A distant target inside a region with strong `BACKGROUND_DYNAMIC` evidence produces `BACKGROUND_HOLD`, not movement.
 
-The rule `d >= 2 => RECOVER` is deliberate: it prevents the v0.2 failure where Leafos was knocked back and kept attacking empty space.
+Recovery is deliberately conservative: after knockback, if the enemy is not currently visually confirmed, Leafos holds position with R. He only runs again once the opponent reappears as `VISIBLE` or `OCCLUDED`. This prevents chasing water/effects from predicted memory alone.
 
 ## Safety
 
@@ -40,6 +41,8 @@ The rule `d >= 2 => RECOVER` is deliberate: it prevents the v0.2 failure where L
 
 1. R stays active throughout combat.
 2. When the enemy crosses sides, Leafos corrects facing without continuously walking into the target.
-3. After knockback, `d >= 2` produces RECOVER/MOVE in the correct direction.
-4. During a short TARGET loss, Leafos holds position instead of chasing noise.
-5. `H_READY(SHADOW)` may appear, but H is not executed in this stage.
+3. After knockback, a visually confirmed target at `d >= 2` produces RECOVER/MOVE in the correct direction.
+4. `CONTACT_MEMORY d >= 2` never produces movement.
+5. Strong `BACKGROUND_DYNAMIC` regions do not authorize pursuit.
+6. During a short TARGET loss, Leafos holds position instead of chasing noise.
+7. `H_READY(SHADOW)` may appear, but H is not executed in this stage.

@@ -6,13 +6,13 @@ import time
 import cv2
 
 from pc_agent.kage_pilot.entity_observer import decode_jpeg
-from pc_agent.kage_pilot.entity_tracker_v03 import MeleeAwareEntityTracker
 from pc_agent.kage_pilot.observer_runtime_v03 import (
     StableTargetObserver,
     V03ObserverConfig,
     render_overlay_v03,
 )
 from pc_agent.kage_pilot.recorder import WindowsGameFrameSource
+from pc_agent.kage_pilot.water_filter_v03 import WaterAwareEntityTracker
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -25,8 +25,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seconds", type=float, default=None)
     parser.add_argument("--fps", type=float, default=10.0)
 
-    # Real-game calibration from Observer screenshots. Left-clicking Leafos remains
-    # the authoritative way to refine the player center at runtime.
     parser.add_argument("--player-x", type=float, default=0.51)
     parser.add_argument("--player-y", type=float, default=0.48)
     parser.add_argument("--player-box-width", type=float, default=18.0)
@@ -37,14 +35,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--track-ttl", type=float, default=2.0)
     parser.add_argument("--match-distance", type=float, default=105.0)
 
-    # Dynamic scenery memory. These defaults are deliberately conservative: a
-    # region must be dense, repetitive and visually similar before suppression.
     parser.add_argument("--background-similarity", type=float, default=0.88)
     parser.add_argument("--background-min-hits", type=float, default=8.0)
     parser.add_argument("--background-min-age", type=float, default=0.8)
     parser.add_argument("--no-dynamic-background", action="store_true")
 
-    # Dormant identity memory for recovering an ENTITY ID after visual separation.
     parser.add_argument("--reacquire-ttl", type=float, default=5.0)
     parser.add_argument("--reacquire-distance", type=float, default=180.0)
     parser.add_argument("--reacquire-similarity", type=float, default=0.82)
@@ -82,8 +77,6 @@ def main() -> int:
         arena_bottom=args.arena_bottom,
         player_x=args.player_x,
         player_y=args.player_y,
-        # Kept for compatibility inside the inherited base configuration. The
-        # actual v0.3 player exclusion is the vertical box below.
         player_exclusion_radius=max(args.player_box_width, args.player_box_height) / 2.0,
         player_box_width=args.player_box_width,
         player_box_height=args.player_box_height,
@@ -102,7 +95,7 @@ def main() -> int:
     ).normalized()
 
     observer = StableTargetObserver(config)
-    tracker = MeleeAwareEntityTracker(config)
+    tracker = WaterAwareEntityTracker(config)
     observer.tracker = tracker
     source = WindowsGameFrameSource()
     interval = 1.0 / max(1.0, min(30.0, float(args.fps)))
@@ -129,9 +122,6 @@ def main() -> int:
 
         config.player_x, config.player_y = calibrated
         config.normalized()
-
-        # The previous center may already have created false tracks. Recalibration
-        # clears entity, target, dynamic-background and dormant identity memory.
         observer.reset()
         print(
             "PLAYER calibrated / calibrado: "
@@ -157,7 +147,7 @@ def main() -> int:
         f"acquire={config.target_acquire_threshold:.0f}% keep={config.target_keep_threshold:.0f}%"
     )
     print(
-        "BACKGROUND_DYNAMIC: "
+        "BACKGROUND_DYNAMIC v2 occupancy: "
         f"enabled={'yes' if config.dynamic_background_enabled else 'no'} "
         f"similarity={config.background_similarity:.2f} "
         f"hits={config.background_min_dense_hits:.0f} age={config.background_min_age:.1f}s"

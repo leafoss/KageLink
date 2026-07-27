@@ -24,14 +24,12 @@ class ShadowCombatDecisionEngine:
     into the action that a future controller would take.
 
     Important BYOND combat semantics learned from real tests:
-    - R is a combat-session base state and must remain logically ON even while visual
-      TARGET is temporarily unavailable;
-    - visual ENTITY ids are disposable. H stability belongs to the logical engagement,
-      not one OpenCV track id;
-    - CONTACT_MEMORY preserves the last visually confirmed facing direction instead of
-      trusting stale geometry while sprites overlap;
-    - grid distance is authoritative for recovery: d<=1 is melee, d>=2 means the
-      character must move back toward the target even if CONTACT_MEMORY still exists.
+    - R is a combat-session base state and remains logically ON while TARGET is briefly lost;
+    - visual ENTITY ids are disposable; H stability belongs to the logical engagement;
+    - CONTACT_MEMORY preserves facing only in local melee and never authorizes blind pursuit;
+    - d<=1 is melee; d>=2 recovery requires current visual confirmation;
+    - strong dynamic-background evidence blocks movement pursuit even if an upstream
+      detector temporarily labels the region as TARGET.
     """
 
     def __init__(
@@ -42,12 +40,14 @@ class ShadowCombatDecisionEngine:
         h_min_score: float = 55.0,
         engagement_gap_seconds: float = 0.75,
         combat_active_on_start: bool = False,
+        pursuit_background_block: float = 0.50,
     ) -> None:
         self.h_stable_seconds = max(0.0, float(h_stable_seconds))
         self.h_cooldown_seconds = max(0.0, float(h_cooldown_seconds))
         self.h_min_score = max(0.0, min(100.0, float(h_min_score)))
         self.engagement_gap_seconds = max(0.1, min(3.0, float(engagement_gap_seconds)))
         self.combat_active_on_start = bool(combat_active_on_start)
+        self.pursuit_background_block = max(0.0, min(1.0, float(pursuit_background_block)))
         self._combat_active = self.combat_active_on_start
         self._contact_since: float | None = None
         self._last_contact_at = -1e9
@@ -136,9 +136,6 @@ class ShadowCombatDecisionEngine:
         else:
             face = measured_face if measured_face != "-" else self._last_confirmed_face
 
-        # Grid distance is the authoritative combat geometry. CONTACT_MEMORY can preserve
-        # identity/facing, but it must not trick the controller into standing still after
-        # a knockback that moved target/player two or more cells apart.
         melee_range = metrics.grid_distance <= 1
 
         if melee_range:
@@ -157,12 +154,29 @@ class ShadowCombatDecisionEngine:
                 f"logical engagement d={metrics.grid_distance} mode={observer.target_mode}; "
                 f"stable={stable_for:.2f}s"
             )
+        elif not visual_confirmation or observer.target_mode == "CONTACT_MEMORY":
+            # Memory is useful to avoid losing the opponent in melee, but movement toward a
+            # remembered distant position is exactly how the first live run chased water.
+            navigation = "HOLD"
+            mode = "MEMORY_HOLD"
+            reason = (
+                f"distant target lacks current visual confirmation; d={metrics.grid_distance}; "
+                f"mode={observer.target_mode}; no blind pursuit / sem perseguicao cega"
+            )
+        elif float(getattr(metrics, "background_strength", 0.0)) >= self.pursuit_background_block:
+            navigation = "HOLD"
+            mode = "BACKGROUND_HOLD"
+            reason = (
+                f"dynamic-background pursuit blocked; d={metrics.grid_distance}; "
+                f"bg={float(getattr(metrics, 'background_strength', 0.0)):.2f}"
+            )
         else:
             navigation = f"MOVE_{face}" if face != "-" else "HOLD"
-            mode = "RECOVER" if observer.target_mode in {"OCCLUDED", "CONTACT_MEMORY", "CONTACT_REBIND"} else "APPROACH"
+            mode = "RECOVER" if observer.target_mode in {"OCCLUDED", "CONTACT_REBIND"} else "APPROACH"
             reason = (
-                f"target {dx:+d},{dy:+d} cells from player; d={metrics.grid_distance}; "
-                f"toward={metrics.toward_steps} away={metrics.away_steps}; mode={observer.target_mode}"
+                f"visually confirmed target {dx:+d},{dy:+d} cells from player; "
+                f"d={metrics.grid_distance}; toward={metrics.toward_steps} "
+                f"away={metrics.away_steps}; bg={float(getattr(metrics, 'background_strength', 0.0)):.2f}"
             )
 
         skill_ready = (

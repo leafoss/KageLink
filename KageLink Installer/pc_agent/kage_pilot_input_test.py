@@ -14,9 +14,9 @@ KEYEVENTF_SCANCODE = 0x0008
 MAPVK_VK_TO_VSC = 0
 
 # Reuse the exact INPUT/INPUT_UNION/KEYBDINPUT layout from game_control.py.
-# SendInput rejects a cbSize that does not match Windows' real INPUT structure
-# with ERROR_INVALID_PARAMETER (87). The previous diagnostic defined a
-# keyboard-only union, which was too small on 64-bit Windows.
+# BYOND supports +REP macros, so this diagnostic intentionally differs from
+# the previous pulse test: one initial key-down is followed by repeated
+# key-down events WITHOUT key-up in between, then a single final key-up.
 _user32.MapVirtualKeyW.argtypes = (wintypes.UINT, wintypes.UINT)
 _user32.MapVirtualKeyW.restype = wintypes.UINT
 
@@ -54,13 +54,13 @@ def _send_scan_code(scan_code: int, *, down: bool) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Kage Pilot hardware scan-code diagnostic / diagnóstico por scan code físico"
+        description="Kage Pilot BYOND +REP diagnostic / diagnóstico de repetição BYOND"
     )
-    parser.add_argument("--scan-key", default="r", help="Letter to test by hardware scan code / Letra para testar")
-    parser.add_argument("--scan-seconds", type=float, default=4.0, help="Total scan-code test duration / Duração total")
-    parser.add_argument("--pulse-down", type=float, default=0.08, help="Seconds scan code stays down / Tempo pressionado")
-    parser.add_argument("--pulse-gap", type=float, default=0.08, help="Seconds between scan-code pulses / Intervalo")
-    parser.add_argument("--tap-key", default="h", help="Known-good virtual-key comparison / Tecla de comparação")
+    parser.add_argument("--repeat-key", default="r", help="Letter to hold/repeat / Letra para manter e repetir")
+    parser.add_argument("--repeat-seconds", type=float, default=4.0, help="Total repeat test duration / Duração total")
+    parser.add_argument("--repeat-delay", type=float, default=0.35, help="Delay before repeats begin / Atraso antes da repetição")
+    parser.add_argument("--repeat-interval", type=float, default=0.05, help="Seconds between repeated key-down events / Intervalo")
+    parser.add_argument("--tap-key", default="h", help="Known-good comparison key / Tecla de comparação")
     parser.add_argument("--tap-seconds", type=float, default=0.15, help="Comparison tap duration / Duração do toque")
     parser.add_argument("--startup-delay", type=float, default=3.0, help="Seconds after game focus before input / Atraso após foco")
     return parser
@@ -68,17 +68,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
-    scan_key = str(args.scan_key).strip().lower()
+    repeat_key = str(args.repeat_key).strip().lower()
     tap_key = str(args.tap_key).strip().lower()
-    scan_seconds = max(0.5, float(args.scan_seconds))
-    pulse_down = max(0.02, float(args.pulse_down))
-    pulse_gap = max(0.02, float(args.pulse_gap))
+    repeat_seconds = max(0.8, float(args.repeat_seconds))
+    repeat_delay = max(0.05, float(args.repeat_delay))
+    repeat_interval = max(0.01, float(args.repeat_interval))
     tap_seconds = max(0.03, float(args.tap_seconds))
     startup_delay = max(0.0, float(args.startup_delay))
-    scan_code = _scan_code_for_letter(scan_key)
+    scan_code = _scan_code_for_letter(repeat_key)
 
-    print("Kage Pilot SCAN-CODE INPUT TEST / TESTE DE SCAN CODE")
-    print(f"hardware scan: {scan_key.upper()} = 0x{scan_code:02X}")
+    print("Kage Pilot BYOND +REP INPUT TEST / TESTE DE REPETIÇÃO BYOND")
+    print(f"hardware scan: {repeat_key.upper()} = 0x{scan_code:02X}")
     print(f"INPUT struct size={ctypes.sizeof(INPUT)} bytes")
 
     controller = WindowsGameController(recover_foreground=True, debug=True)
@@ -86,21 +86,31 @@ def main() -> int:
     controller.release_all()
 
     print("Shinobi Story Online em foco / in foreground")
-    print(f"Em / in {startup_delay:.1f}s: pulsos físicos / hardware pulses {scan_key.upper()}")
+    print(f"Em / in {startup_delay:.1f}s: {repeat_key.upper()} DOWN + repeated DOWN events")
+    print(f"repeat_delay={repeat_delay:.2f}s repeat_interval={repeat_interval:.2f}s")
     time.sleep(startup_delay)
 
-    started = time.monotonic()
-    pulses = 0
+    repeats = 0
+    pressed = False
     try:
-        print(f"INPUT scan_pulse={scan_key}")
-        while time.monotonic() - started < scan_seconds:
-            _send_scan_code(scan_code, down=True)
-            time.sleep(pulse_down)
-            _send_scan_code(scan_code, down=False)
-            pulses += 1
-            time.sleep(pulse_gap)
+        print(f"INPUT repeat_hold={repeat_key}")
+        _send_scan_code(scan_code, down=True)
+        pressed = True
 
-        print(f"INPUT scan_pulses={pulses}")
+        # Mimic a physical held key more closely than the previous pulse tests.
+        # The key stays logically down while repeated KEYDOWN events are emitted.
+        time.sleep(repeat_delay)
+        repeat_started = time.monotonic()
+        repeat_budget = max(0.0, repeat_seconds - repeat_delay)
+        while time.monotonic() - repeat_started < repeat_budget:
+            _send_scan_code(scan_code, down=True)
+            repeats += 1
+            time.sleep(repeat_interval)
+
+        _send_scan_code(scan_code, down=False)
+        pressed = False
+        print(f"INPUT repeated_down_events={repeats}")
+
         print(f"INPUT comparison_tap={tap_key}")
         controller.apply_keys((tap_key,))
         time.sleep(tap_seconds)
@@ -109,11 +119,11 @@ def main() -> int:
         print("INPUT TEST COMPLETE / TESTE CONCLUÍDO")
         return 0
     finally:
-        # Always release the scan-code key as well as controller-managed keys.
-        try:
-            _send_scan_code(scan_code, down=False)
-        except Exception:
-            pass
+        if pressed:
+            try:
+                _send_scan_code(scan_code, down=False)
+            except Exception:
+                pass
         controller.release_all()
 
 

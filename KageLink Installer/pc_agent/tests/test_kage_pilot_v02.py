@@ -34,6 +34,9 @@ class FakeFrameSource:
 class FakeController:
     def __init__(self):
         self.events = []
+        self.repeat_keys = set()
+        self.recover_foreground = False
+        self.debug = False
 
     def activate(self): self.events.append(("activate",))
     def apply_keys(self, keys): self.events.append(("keys", tuple(keys)))
@@ -156,6 +159,11 @@ class KagePilotV02Tests(unittest.TestCase):
             monotonic_fn=lambda: next(clock),
         )
         pilot._previous_jpeg = previous
+
+        # Windows runtime exposes repeat_keys; v0.2 configures combat base keys
+        # such as R to use the verified BYOND +REP physical-hold behavior.
+        self.assertEqual(controller.repeat_keys, {"r"})
+        self.assertTrue(controller.recover_foreground)
 
         first = pilot.step()
         second = pilot.step()

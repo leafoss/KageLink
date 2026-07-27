@@ -1,133 +1,206 @@
-# Kage Pilot v0.3 — Live Control Gate 2 (PT-BR)
+# Kage Pilot v0.3 — Live Control Gate 3 (PT-BR)
 
 ## Objetivo
 
-Validar combate real completo preservando as proteções que impediram runaway e adicionando o primeiro uso real da habilidade `H`.
-
-Nesta etapa o Kage Pilot envia:
-
-- `R` como estado-base de combate;
-- pulsos curtos de setas para aproximação/recuperação;
-- pulsos curtos de direção para corrigir facing em melee;
-- `H` como tap curto, somente em janela validada de habilidade.
-
-## Regra dead-man para movimento
-
-Setas nunca permanecem em estado sustentado. Toda iteração retorna explicitamente para `R` antes de qualquer pulso direcional.
+Fechar o primeiro ciclo autônomo do Dojo sem alterar o núcleo de combate já validado:
 
 ```text
-R
-↓
-R + RIGHT por ~90 ms
-↓
-R novamente
+COMBAT
+→ vitória autoritativa pelo chat
+→ R OFF
+→ localizar líder do Dojo
+→ ficar adjacente
+→ V ON
+→ recuperar HP/Chakra
+→ V OFF
+→ READY
 ```
 
-Continuar andando exige nova autorização da percepção em ciclos seguintes.
+## Combate preservado
 
-## Correção de facing após impacto/knockback
+A v0.3 já validou em jogo real:
 
-Golpes do inimigo podem empurrar Leafos e também virar fisicamente o personagem para o lado errado. A posição do TARGET pode continuar correta mesmo quando o facing físico mudou.
+- GRID lógica 32×32;
+- TARGET híbrido com memória de contato;
+- filtro de água/background;
+- proteção contra partículas de impacto;
+- `R` como estado-base de combate BYOND;
+- movimento por pulsos dead-man;
+- recuperação após knockback;
+- correção explícita de facing;
+- `H` real protegido;
+- primeira vitória autônoma.
 
-Agora qualquer uma destas situações arma uma correção obrigatória:
+Durante combate:
 
-- APPROACH/RECOVER;
-- `MOTION_BURST_HOLD` causado por impacto/partículas.
+- `R` é a única tecla que pode permanecer logicamente ativa;
+- setas são pulsos curtos, nunca estado sustentado;
+- `H` é sempre um tap curto e só pode disparar em melee validado;
+- antes de `H`, o Pilot força um pulso de facing para o TARGET;
+- depois de `H`, existe `H_SETTLE_HOLD`;
+- `MOTION_BURST_HOLD` bloqueia movimento/facing/H durante picos de vento/partículas, mantendo apenas R.
 
-Quando o sistema volta para `d <= 1`, o primeiro frame de melee força exatamente um novo pulso para a direção do inimigo, mesmo que essa direção seja igual ao último facing memorizado.
+## Vitória autoritativa pelo chat
 
-O estado aparece como:
+A vitória **não** é inferida por `target=none` ou desaparecimento visual do inimigo.
+
+O Kage Pilot lê diretamente o chat do Shinobi Story Online e observa somente texto novo depois do início da luta.
+
+A família autoritativa é:
 
 ```text
-FACE_RECOVER
+<qualquer nome/rank> has been Knocked-Out
 ```
 
-## H real protegido
-
-`H` é liberado apenas quando:
-
-- TARGET está em melee (`d <= 1`);
-- há confirmação visual atual (`VISIBLE`/`OCCLUDED`);
-- não é somente `CONTACT_MEMORY`;
-- Enemy Score atende o mínimo;
-- engagement estável atende o tempo mínimo;
-- cooldown terminou;
-- não existe `MOTION_BURST_HOLD` nem `H_SETTLE_HOLD`.
-
-Antes de cada H real, o controlador força um pulso fresco para a direção do TARGET. A sequência física é:
+Exemplo real informado:
 
 ```text
-R
-↓
-R + direção por ~55 ms
-↓
-R
-↓
-R + H por ~65 ms
-↓
-R
+Jounin: Tamura, Seijun has been Knocked-Out
 ```
 
-O log mostra:
+O matcher tolera também `has been knocked out`, mas não aceita apenas `knocked down` nem desaparecimento do TARGET.
+
+Ao receber a mensagem:
 
 ```text
-H_FIRE
+VICTORY_CHAT
+→ release_all()
+→ R OFF imediatamente
+→ encerra COMBAT
+→ inicia POST_COMBAT
 ```
 
-O H pode ser desabilitado para regressão com `--disable-h`.
+Tudo que já estava no chat antes da luta é baseline e não pode gerar vitória retroativa.
 
-## H_SETTLE_HOLD
+## Pós-combate — líder do Dojo
 
-O próprio jutsu pode produzir animação/partículas. Após cada H existe uma janela padrão de aproximadamente `0,55 s`:
+O pós-combate usa como template o sprite real do líder do Dojo fornecido pelo usuário.
+
+Estado:
 
 ```text
-H_SETTLE_HOLD
-→ R continua
-→ nenhuma seta
-→ nenhum novo facing
-→ nenhum novo H
+SEEK_DOJO_LEADER
 ```
 
-Isso evita reagir ao efeito visual produzido pela própria habilidade.
+Regras:
+
+- busca o sprite dentro da arena capturada;
+- exige confirmação em múltiplos frames;
+- enquanto o NPC não estiver visível, não anda às cegas;
+- navega com pulsos curtos de seta, **sem R**;
+- converte PLAYER e líder para a GRID 32×32;
+- qualquer uma das oito células adjacentes é válida;
+- distância Chebyshev `<= 1` significa que chegou ao lado do NPC.
+
+## Meditação com V
+
+`V` é um **toggle**, nunca uma tecla mantida.
+
+Ao chegar ao lado do líder:
+
+```text
+V TAP
+→ entra em meditação
+→ nenhuma tecla é mantida
+```
+
+Durante meditação o Kage Pilot lê as barras de HP e Chakra do HUD do GAME.
+
+Critério atual:
+
+```text
+HP >= 90%
+E
+Chakra >= 50%
+```
+
+Os dois limites precisam permanecer válidos em múltiplas leituras consecutivas.
+
+Quando ambos forem alcançados:
+
+```text
+V TAP
+→ sai da meditação
+→ READY
+```
+
+Não existe `V HOLD`.
+
+## Movimento dead-man
+
+Um `MOVE_RIGHT`, por exemplo:
+
+```text
+estado-base
+↓
+RIGHT por ~90 ms
+↓
+RIGHT OFF obrigatoriamente
+↓
+nova percepção necessária para outro passo
+```
+
+Uma decisão ruim não pode deixar uma seta permanentemente pressionada.
 
 ## Confirmação e watchdog de perseguição
 
-- alvo/direção distante precisa aparecer em pelo menos 2 decisões consecutivas antes do primeiro pulso;
-- troca de `ENTITY ID` distante reinicia a confirmação;
-- se a distância na GRID não melhorar por aproximadamente 1,15 s, ocorre `NO_PROGRESS_HOLD`;
-- `CONTACT_MEMORY d >= 2` nunca autoriza perseguição;
-- alvo distante em região `BACKGROUND_DYNAMIC` forte gera `BACKGROUND_HOLD`.
-
-## Guarda de impacto/partículas
-
-`MotionBurstGuard` monitora células ativas e população de entidades. Um pico súbito gera `MOTION_BURST_HOLD` por aproximadamente `0,75 s`, mantendo apenas R.
-
-Esse estado também arma uma correção obrigatória de facing assim que o melee volta a ser confiável.
+- alvo/direção distante precisa permanecer coerente antes do primeiro pulso;
+- troca de `ENTITY ID` distante reinicia confirmação;
+- falta de progresso na GRID produz `NO_PROGRESS_HOLD`;
+- `CONTACT_MEMORY` distante nunca autoriza perseguição;
+- background dinâmico forte bloqueia perseguição;
+- partículas pequenas não possuem autoridade para navegação distante.
 
 ## Segurança
 
-- Duração padrão: 25 segundos.
-- `F12`: parada imediata global.
-- Perda de foreground interrompe o controle.
-- `finally` libera R, setas e H.
-- setas e H são sempre pulsos curtos, nunca estados mantidos.
-- pós-combate automático com V ainda não está habilitado.
+- `F12`: parada imediata global;
+- perda de foreground interrompe controle;
+- `finally` libera R/H/setas;
+- vitória pelo chat libera todas as teclas antes do pós-combate;
+- pós-combate nunca reativa R;
+- se o líder não for localizado, o personagem fica parado;
+- timeout de pós-combate não inventa sucesso de recuperação;
+- se o runtime iniciou meditação e o pós-combate expira normalmente, V é tocado uma vez para não deixar o personagem preso em meditação;
+- F12 não envia ação adicional depois da parada de emergência.
 
-## Comando
+## Comando atual
 
 ```powershell
-.\.venv-kage-pilot\Scripts\python.exe kage_pilot_live_v03.py --seconds 45 --log kage_pilot_live_test_4.jsonl
+.\.venv-kage-pilot\Scripts\python.exe kage_pilot_live_v03.py --seconds 60 --log kage_pilot_live_test_5.jsonl
+```
+
+Defaults do pós-combate:
+
+```text
+chat poll:               0,25 s
+leader threshold:        0,72
+leader confirm:          2 frames
+HP target:               90%
+Chakra target:           50%
+recovery confirmation:   3 frames
+post-combat timeout:     120 s
+V pulse:                 0,08 s
 ```
 
 ## Estados úteis no log
 
-- `MOVE_CONFIRM`: aguardando confirmação antes de andar.
-- `MOVE_PULSE`: pulso de recuperação/aproximação.
-- `FACE_RECOVER`: facing obrigatório após knockback/impacto.
-- `H_FIRE`: H realmente enviado.
-- `H_SETTLE_HOLD`: pausa de percepção/controle depois do próprio H.
-- `MOTION_BURST_HOLD`: impacto/partículas; ações bloqueadas exceto R.
-- `NO_PROGRESS_HOLD`: distância não melhorou.
-- `MOVE_COOLDOWN`: pausa antes de reconsiderar perseguição.
-- `MEMORY_HOLD`: memória sem visão suficiente para perseguir.
-- `BACKGROUND_HOLD`: candidato em região ambiental dinâmica forte.
+Combate:
+
+- `MOVE_CONFIRM`
+- `MOVE_PULSE`
+- `FACE_RECOVER`
+- `H_FIRE`
+- `H_SETTLE_HOLD`
+- `MOTION_BURST_HOLD`
+- `NO_PROGRESS_HOLD`
+- `MOVE_COOLDOWN`
+- `MEMORY_HOLD`
+- `BACKGROUND_HOLD`
+
+Pós-combate:
+
+- `VICTORY_CHAT`
+- `SEEK_DOJO_LEADER`
+- `START_MEDITATION`
+- `MEDITATING`
+- `READY`

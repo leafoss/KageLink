@@ -84,3 +84,17 @@ begin
   else
     Result := 'en-US';
 end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+    SaveStringToFile(ExpandConstant('{app}\install_language.txt'), SelectedLanguageTag, False);
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usUninstall then
+    RemoveDataOnUninstall := MsgBox(ExpandConstant('{cm:RemoveUserData}'), mbConfirmation, MB_YESNO) = IDYES;
+  if (CurUninstallStep = usPostUninstall) and RemoveDataOnUninstall then
+    DelTree(ExpandConstant('{app}'), True, True, True);
+end;

@@ -55,28 +55,32 @@ player-box-height = 38 px
 
 A caixa impede a criação de uma nova entidade em cima do próprio Leafos. Uma entidade já conhecida pode chegar até o player, mas sua caixa lógica não atravessa o núcleo do `PLAYER #000`.
 
-A posição continua calibrável com clique esquerdo diretamente sobre Leafos. A recalibração reinicia tracker, lock, memória ambiental e identidades dormentes.
+A posição continua calibrável com clique esquerdo diretamente sobre Leafos. A recalibração reinicia tracker e TARGET LOCK, mas preserva a memória ambiental já aprendida.
 
 ## BACKGROUND_DYNAMIC
 
-A água e outros elementos animados podem gerar muitos contornos apesar de não serem entidades. A v0.3 agora aprende regiões ambientais de movimento repetitivo em vez de codificar manualmente uma faixa do mapa.
+A água e outros elementos animados podem gerar muitos contornos apesar de não serem entidades. A validação real mostrou que a água pode produzir contornos espalhados por uma faixa larga; por isso o filtro atual não exige mais que três candidatos estejam próximos no mesmo frame.
 
-Uma região acumula memória ambiental quando:
+A memória ambiental usa **recorrência temporal por região**:
 
-1. vários candidatos aparecem próximos ao mesmo tempo;
-2. isso se repete na mesma área por vários frames;
-3. os patches visuais são semelhantes;
-4. a região fica longe da zona imediata do player.
+```text
+movimento reaparece na mesma célula
+        ↓
+acumula hits ao longo do tempo
+        ↓
+célula amadurece
+        ↓
+BACKGROUND_DYNAMIC
+```
 
-Quando a memória amadurece, novos candidatos visualmente semelhantes naquela região deixam de virar `ENTITY`.
+A aparência continua como evidência de apoio, mas deixou de ser obrigatória para contornos claramente parecidos com cenário. Candidatos verticais com formato de personagem exigem evidência regional e visual mais forte antes de serem suprimidos.
 
 Padrões iniciais:
 
 ```text
 background cell size       = 32 px
-neighbor radius            = 58 px
-minimum neighbors          = 3
-minimum dense hits         = 8
+minimum frame activity     = 3 candidatos remotos
+minimum temporal hits      = 8
 minimum age                = 0.8 s
 appearance similarity      = 0.88
 memory TTL                 = 12 s
@@ -89,7 +93,7 @@ dynamic bg suppressed: N
 dynamic bg cells: N
 ```
 
-Um inimigo isolado não deve ser aprendido como fundo apenas por permanecer visível: o aprendizado ambiental exige densidade local de candidatos repetitivos.
+O tracker de combate protege candidatos próximos ao player, em `OCCLUDED` ou com trajetória coerente de aproximação. Tracks antigos dentro de uma região fortemente dinâmica também podem ser removidos retroativamente como `BACKGROUND_DYNAMIC`.
 
 ## Memória de aparência
 
@@ -230,7 +234,8 @@ Parâmetros adicionais úteis:
   --background-min-age 0.8 `
   --reacquire-ttl 5 `
   --reacquire-distance 180 `
-  --reacquire-similarity 0.82
+  --reacquire-similarity 0.82 `
+  --telemetry-seconds 2
 ```
 
 Para comparar sem filtragem ambiental:
@@ -245,6 +250,16 @@ Controles:
 clique esquerdo em Leafos = recalibrar PLAYER
 Q ou ESC                  = sair
 ```
+
+## Telemetria
+
+Por padrão, o Observer imprime uma linha a cada 2 segundos:
+
+```text
+OBS t= 12.0s entities=15 bg_mature=8 bg_strong=3 suppressed=6 pruned=2 dormant=1 target=#042/VISIBLE/RIGHT/67.0%
+```
+
+Isso permite avaliar a evolução do fundo dinâmico e do TARGET ao longo do tempo, em vez de depender apenas de uma captura de tela.
 
 ## Critério de validação
 

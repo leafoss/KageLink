@@ -8,7 +8,7 @@ import time
 
 from pc_agent.kage_pilot.entity_observer import decode_jpeg
 from pc_agent.kage_pilot.grid_target_observer_v03d import TileCalibratedGridTargetObserver
-from pc_agent.kage_pilot.live_control_v03 import LiveCombatControlPlanner
+from pc_agent.kage_pilot.live_control_v03 import LiveCombatControlPlanner, MotionBurstGuard
 from pc_agent.kage_pilot.observer_runtime_v03 import V03ObserverConfig
 from pc_agent.kage_pilot.persistent_water_tracker_v03 import (
     PersistentBackgroundWaterAwareEntityTracker,
@@ -27,8 +27,8 @@ VK_F12 = 0x7B
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Kage Pilot v0.3 limited live combat control: R + movement only; H shadow-only / "
-            "controle real limitado: R + movimento; H apenas sombra"
+            "Kage Pilot v0.3 limited live combat control: R + dead-man movement pulses; "
+            "H shadow-only / controle real limitado: R + pulsos seguros de movimento; H apenas sombra"
         )
     )
     parser.add_argument("--seconds", type=float, default=25.0)
@@ -36,7 +36,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--telemetry-seconds", type=float, default=0.75)
     parser.add_argument("--startup-delay", type=float, default=3.0)
     parser.add_argument("--face-pulse", type=float, default=0.055)
+    parser.add_argument("--move-pulse", type=float, default=0.09)
     parser.add_argument("--face-refresh", type=float, default=0.45)
+    parser.add_argument("--move-confirm-frames", type=int, default=2)
+    parser.add_argument("--move-no-progress", type=float, default=1.15)
+    parser.add_argument("--move-cooldown", type=float, default=0.55)
+    parser.add_argument("--burst-hold", type=float, default=0.75)
+    parser.add_argument("--burst-min-active-cells", type=int, default=18)
+    parser.add_argument("--burst-min-entities", type=int, default=20)
     parser.add_argument("--player-x", type=float, default=DEFAULT_PLAYER_X)
     parser.add_argument("--player-y", type=float, default=DEFAULT_PLAYER_Y)
     parser.add_argument("--player-box-width", type=float, default=18.0)
@@ -70,14 +77,16 @@ def _f12_pressed() -> bool:
         return False
 
 
-def _decision_line(decision, command) -> str:
+def _decision_line(decision, command, burst_state) -> str:
     target = f"#{decision.target_id:03d}" if decision.target_id is not None else "none"
     held = "+".join(command.held_keys) or "-"
-    pulse = command.face_pulse or "-"
+    face = command.face_pulse or "-"
+    move = command.move_pulse or "-"
     h_text = "H_READY(SHADOW)" if command.h_shadow_ready else "H_WAIT"
     return (
         f"LIVE {decision.mode} target={target} nav={decision.navigation} "
-        f"held={held} face_pulse={pulse} {h_text} "
+        f"held={held} move_pulse={move} face_pulse={face} {h_text} "
+        f"safety={command.safety_state} cells={burst_state.active_cells} entities={burst_state.entities} "
         f"engaged={decision.engagement_stable_seconds:.1f}s"
     )
 
@@ -120,7 +129,17 @@ def main() -> int:
         engagement_gap_seconds=args.engagement_gap,
         combat_active_on_start=True,
     )
-    planner = LiveCombatControlPlanner(face_refresh_seconds=args.face_refresh)
+    planner = LiveCombatControlPlanner(
+        face_refresh_seconds=args.face_refresh,
+        move_confirm_frames=args.move_confirm_frames,
+        max_no_progress_seconds=args.move_no_progress,
+        no_progress_cooldown_seconds=args.move_cooldown,
+    )
+    burst_guard = MotionBurstGuard(
+        hold_seconds=args.burst_hold,
+        min_active_cells=args.burst_min_active_cells,
+        min_entities=args.burst_min_entities,
+    )
     source = WindowsGameFrameSource()
     controller = WindowsGameController(recover_foreground=False, debug=bool(args.debug_input))
     controller.repeat_keys = {"r"}
@@ -134,15 +153,18 @@ def main() -> int:
     telemetry_interval = max(0.1, float(args.telemetry_seconds))
     startup_delay = max(0.0, float(args.startup_delay))
     face_pulse_seconds = max(0.02, min(0.12, float(args.face_pulse)))
+    move_pulse_seconds = max(0.03, min(0.14, float(args.move_pulse)))
     seconds = max(1.0, float(args.seconds))
 
-    print("Kage Pilot v0.3 LIMITED LIVE CONTROL")
-    print("REAL INPUT / CONTROLE REAL: R + ARROWS ONLY / SOMENTE R + SETAS")
+    print("Kage Pilot v0.3 LIMITED LIVE CONTROL - SAFETY REVISION")
+    print("REAL INPUT / CONTROLE REAL: R + DEAD-MAN ARROW PULSES / R + PULSOS DE SETA")
     print("H remains SHADOW-ONLY / H continua APENAS SOMBRA")
     print("F12 = EMERGENCY STOP / PARADA IMEDIATA")
     print(
         f"GRID={observer.tile_size:.0f}px duration={seconds:.1f}s "
-        f"PLAYER=({config.player_x:.4f},{config.player_y:.4f})"
+        f"PLAYER=({config.player_x:.4f},{config.player_y:.4f}) "
+        f"move_pulse={move_pulse_seconds:.3f}s confirm={planner.move_confirm_frames} "
+        f"no_progress={planner.max_no_progress_seconds:.2f}s burst_hold={burst_guard.hold_seconds:.2f}s"
     )
 
     frames = 0
@@ -171,18 +193,35 @@ def main() -> int:
             state = observer.process(frame)
             now = time.monotonic()
             decision = engine.decide(state, observer, tracker, now=now)
-            command = planner.plan(decision, now=now)
+            burst_state = burst_guard.update(
+                active_cells=observer.active_grid_cells,
+                entities=len(state.tracks),
+                now=now,
+            )
+            command = planner.plan(
+                decision,
+                now=now,
+                movement_allowed=not burst_state.blocked,
+                block_reason=burst_state.reason,
+            )
 
-            if command.face_pulse is not None:
+            # Dead-man invariant: every loop first returns to the persistent/base state.
+            # Therefore a directional key from a previous decision cannot remain held.
+            controller.apply_keys(command.held_keys)
+
+            if command.move_pulse is not None:
+                pulse_keys = tuple(sorted(set(command.held_keys).union({command.move_pulse})))
+                controller.apply_keys(pulse_keys)
+                time.sleep(move_pulse_seconds)
+                controller.apply_keys(command.held_keys)
+            elif command.face_pulse is not None:
                 pulse_keys = tuple(sorted(set(command.held_keys).union({command.face_pulse})))
                 controller.apply_keys(pulse_keys)
                 time.sleep(face_pulse_seconds)
                 controller.apply_keys(command.held_keys)
-            else:
-                controller.apply_keys(command.held_keys)
 
             if now >= next_telemetry:
-                print(_decision_line(decision, command) + f" reason={decision.reason}")
+                print(_decision_line(decision, command, burst_state) + f" reason={command.reason}")
                 next_telemetry = now + telemetry_interval
 
             if log_handle is not None:
@@ -193,11 +232,17 @@ def main() -> int:
                     "navigation": decision.navigation,
                     "face": decision.face,
                     "held_keys": list(command.held_keys),
+                    "move_pulse": command.move_pulse,
                     "face_pulse": command.face_pulse,
                     "h_shadow_ready": command.h_shadow_ready,
                     "grid_distance": decision.grid_distance,
                     "engagement_stable_seconds": round(decision.engagement_stable_seconds, 4),
-                    "reason": decision.reason,
+                    "safety_state": command.safety_state,
+                    "active_grid_cells": burst_state.active_cells,
+                    "entities": burst_state.entities,
+                    "burst_blocked": burst_state.blocked,
+                    "burst_reason": burst_state.reason,
+                    "reason": command.reason,
                 }
                 log_handle.write(json.dumps(row, ensure_ascii=False) + "\n")
 

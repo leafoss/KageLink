@@ -24,8 +24,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--seconds", type=float, default=None)
     parser.add_argument("--fps", type=float, default=10.0)
-    parser.add_argument("--player-x", type=float, default=0.50)
-    parser.add_argument("--player-y", type=float, default=0.55)
+    # Calibrated from the first real v0.3 Observer screenshot. The previous
+    # 0.50/0.55 anchor was visibly below Leafos and allowed the player sprite to
+    # become an ENTITY candidate. Runtime click calibration can refine this.
+    parser.add_argument("--player-x", type=float, default=0.51)
+    parser.add_argument("--player-y", type=float, default=0.48)
     parser.add_argument("--player-radius", type=float, default=26.0)
     parser.add_argument("--enemy-threshold", type=float, default=55.0)
     parser.add_argument("--arena-left", type=float, default=0.04)
@@ -34,6 +37,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--arena-bottom", type=float, default=0.86)
     parser.add_argument("--window-name", default="Kage Pilot v0.3 - Entity Observer")
     return parser
+
+
+def _calibrate_player_from_click(
+    click_x: int,
+    click_y: int,
+    arena_rect: tuple[int, int, int, int],
+) -> tuple[float, float] | None:
+    """Convert a preview click inside the arena to normalized player coords."""
+    x0, y0, x1, y1 = arena_rect
+    if not (x0 <= click_x < x1 and y0 <= click_y < y1):
+        return None
+    width = max(1, x1 - x0)
+    height = max(1, y1 - y0)
+    player_x = max(0.0, min(1.0, (float(click_x) - x0) / width))
+    player_y = max(0.0, min(1.0, (float(click_y) - y0) / height))
+    return player_x, player_y
 
 
 def main() -> int:
@@ -55,11 +74,56 @@ def main() -> int:
     interval = 1.0 / max(1.0, min(30.0, float(args.fps)))
     started = time.monotonic()
     frames = 0
+    window_name = str(args.window_name)
+
+    # Updated every frame so the mouse callback can map preview coordinates back
+    # to the current arena. The panel lives to the right of frame_width and is
+    # intentionally not clickable for calibration.
+    mouse_context: dict[str, object] = {
+        "arena_rect": None,
+        "frame_width": 0,
+    }
+
+    def on_mouse(event: int, x: int, y: int, flags: int, userdata: object) -> None:
+        del flags, userdata
+        if event != cv2.EVENT_LBUTTONDOWN:
+            return
+        frame_width = int(mouse_context.get("frame_width", 0) or 0)
+        arena_rect = mouse_context.get("arena_rect")
+        if frame_width <= 0 or x >= frame_width or not isinstance(arena_rect, tuple):
+            return
+        calibrated = _calibrate_player_from_click(x, y, arena_rect)
+        if calibrated is None:
+            return
+        config.player_x, config.player_y = calibrated
+        config.normalized()
+
+        # A wrong anchor may already have created the player itself as an ENTITY.
+        # Reset temporal state so tracking restarts cleanly around the new anchor.
+        observer.reset()
+        print(
+            "PLAYER calibrated / calibrado: "
+            f"x={config.player_x:.4f} y={config.player_y:.4f} "
+            f"radius={config.player_exclusion_radius:.1f}"
+        )
+        print(
+            "Reuse / reutilizar: "
+            f"--player-x {config.player_x:.4f} --player-y {config.player_y:.4f}"
+        )
 
     print("Kage Pilot v0.3 ENTITY OBSERVER")
     print("READ ONLY / SOMENTE OBSERVACAO")
     print("Nenhuma tecla sera enviada ao jogo / No key will be sent to the game")
+    print(
+        "PLAYER inicial / initial: "
+        f"x={config.player_x:.2f} y={config.player_y:.2f} "
+        f"radius={config.player_exclusion_radius:.0f}"
+    )
+    print("Clique ESQUERDO em Leafos = calibrar PLAYER / LEFT CLICK Leafos = calibrate PLAYER")
     print("F10, Q ou ESC = sair / exit")
+
+    cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
+    cv2.setMouseCallback(window_name, on_mouse)
 
     try:
         while args.seconds is None or time.monotonic() - started < float(args.seconds):
@@ -67,8 +131,22 @@ def main() -> int:
             captured = source.capture()
             frame = decode_jpeg(bytes(captured.jpeg))
             state = observer.process(frame)
+            mouse_context["arena_rect"] = state.arena_rect
+            mouse_context["frame_width"] = int(frame.shape[1])
+
             preview = render_overlay(frame, state, config)
-            cv2.imshow(str(args.window_name), preview)
+            # Keep calibration discoverable inside the visual tool itself.
+            cv2.putText(
+                preview,
+                "LEFT CLICK Leafos = PLAYER calibration / calibrar PLAYER",
+                (12, 20),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.43,
+                (235, 235, 235),
+                1,
+                cv2.LINE_AA,
+            )
+            cv2.imshow(window_name, preview)
             frames += 1
 
             key = cv2.waitKey(1) & 0xFF

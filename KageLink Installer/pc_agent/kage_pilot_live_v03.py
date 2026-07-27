@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import time
 
+from pc_agent.config import load_config
 from pc_agent.kage_pilot.entity_observer import decode_jpeg
 from pc_agent.kage_pilot.live_control_v03 import LiveCombatControlPlanner, MotionBurstGuard
 from pc_agent.kage_pilot.observer_runtime_v03 import V03ObserverConfig
@@ -14,6 +15,11 @@ from pc_agent.kage_pilot.persistent_water_tracker_v03 import (
     PersistentBackgroundWaterAwareEntityTracker,
 )
 from pc_agent.kage_pilot.pilot import WindowsGameController
+from pc_agent.kage_pilot.post_combat_v03 import (
+    ChatVictoryWatcher,
+    DojoLeaderDetector,
+    PostCombatRecoveryEngine,
+)
 from pc_agent.kage_pilot.recorder import WindowsGameFrameSource
 from pc_agent.kage_pilot.shadow_combat_v03 import ShadowCombatDecisionEngine
 
@@ -27,11 +33,11 @@ VK_F12 = 0x7B
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Kage Pilot v0.3 live combat: R + dead-man movement/facing pulses + guarded H / "
-            "combate real: R + pulsos seguros de movimento/facing + H protegido"
+            "Kage Pilot v0.3 combat + authoritative chat victory + Dojo recovery / "
+            "combate + vitoria pelo chat + recuperacao no Dojo"
         )
     )
-    parser.add_argument("--seconds", type=float, default=25.0)
+    parser.add_argument("--seconds", type=float, default=60.0)
     parser.add_argument("--fps", type=float, default=8.0)
     parser.add_argument("--telemetry-seconds", type=float, default=0.75)
     parser.add_argument("--startup-delay", type=float, default=3.0)
@@ -68,6 +74,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--h-cooldown", type=float, default=2.0)
     parser.add_argument("--h-min-score", type=float, default=55.0)
     parser.add_argument("--engagement-gap", type=float, default=0.75)
+
+    # Authoritative victory + post-combat recovery.
+    parser.add_argument("--chat-poll-seconds", type=float, default=0.25)
+    parser.add_argument("--disable-post-combat", action="store_true")
+    parser.add_argument("--post-combat-timeout", type=float, default=120.0)
+    parser.add_argument("--leader-threshold", type=float, default=0.72)
+    parser.add_argument("--leader-confirm-frames", type=int, default=2)
+    parser.add_argument("--recovery-hp", type=float, default=0.90)
+    parser.add_argument("--recovery-chakra", type=float, default=0.50)
+    parser.add_argument("--recovery-confirm-frames", type=int, default=3)
+    parser.add_argument("--v-pulse", type=float, default=0.08)
+
     parser.add_argument("--log", type=Path, default=None)
     parser.add_argument("--debug-input", action="store_true")
     return parser
@@ -99,9 +117,22 @@ def _decision_line(decision, command, burst_state) -> str:
     )
 
 
+def _post_line(decision) -> str:
+    leader_score = "-" if decision.leader_score is None else f"{decision.leader_score:.3f}"
+    leader_distance = "-" if decision.leader_distance is None else str(decision.leader_distance)
+    hp = "-" if decision.health is None else f"{decision.health * 100:.0f}%"
+    chakra = "-" if decision.chakra is None else f"{decision.chakra * 100:.0f}%"
+    move = decision.move_pulse or "-"
+    v_text = "V_TAP" if decision.tap_v else "V_WAIT"
+    return (
+        f"POST {decision.state} leader_score={leader_score} d={leader_distance} "
+        f"move_pulse={move} {v_text} HP={hp} Chakra={chakra} reason={decision.reason}"
+    )
+
+
 def main() -> int:
     args = build_parser().parse_args()
-    config = V03ObserverConfig(
+    observer_config = V03ObserverConfig(
         player_x=args.player_x,
         player_y=args.player_y,
         player_exclusion_radius=max(args.player_box_width, args.player_box_height) / 2.0,
@@ -122,13 +153,13 @@ def main() -> int:
     ).normalized()
 
     observer = ParticleSafeGridTargetObserver(
-        config,
+        observer_config,
         tile_size=args.grid_size,
         contact_lock_seconds=args.contact_lock_seconds,
         show_grid=False,
         contact_confirm_frames=args.contact_confirm_frames,
     )
-    tracker = PersistentBackgroundWaterAwareEntityTracker(config)
+    tracker = PersistentBackgroundWaterAwareEntityTracker(observer_config)
     observer.tracker = tracker
     engine = ShadowCombatDecisionEngine(
         h_stable_seconds=args.h_stable_seconds,
@@ -149,6 +180,17 @@ def main() -> int:
         min_active_cells=args.burst_min_active_cells,
         min_entities=args.burst_min_entities,
     )
+
+    app_config = load_config()
+    victory_watcher = ChatVictoryWatcher(app_config.game_title, app_config.chat_class)
+    post_engine = PostCombatRecoveryEngine(
+        leader_detector=DojoLeaderDetector(threshold=args.leader_threshold),
+        leader_confirm_frames=args.leader_confirm_frames,
+        health_target=args.recovery_hp,
+        chakra_target=args.recovery_chakra,
+        recovery_confirm_frames=args.recovery_confirm_frames,
+    )
+
     source = WindowsGameFrameSource()
     controller = WindowsGameController(recover_foreground=False, debug=bool(args.debug_input))
     controller.repeat_keys = {"r"}
@@ -160,35 +202,36 @@ def main() -> int:
 
     interval = 1.0 / max(1.0, min(20.0, float(args.fps)))
     telemetry_interval = max(0.1, float(args.telemetry_seconds))
+    chat_poll_interval = max(0.10, min(2.0, float(args.chat_poll_seconds)))
     startup_delay = max(0.0, float(args.startup_delay))
     face_pulse_seconds = max(0.02, min(0.12, float(args.face_pulse)))
     move_pulse_seconds = max(0.03, min(0.14, float(args.move_pulse)))
     h_pulse_seconds = max(0.03, min(0.12, float(args.h_pulse)))
     h_settle_seconds = max(0.20, min(1.50, float(args.h_settle)))
-    seconds = max(1.0, float(args.seconds))
+    v_pulse_seconds = max(0.03, min(0.20, float(args.v_pulse)))
+    combat_seconds = max(1.0, float(args.seconds))
+    post_timeout = max(5.0, float(args.post_combat_timeout))
 
-    print("Kage Pilot v0.3 LIVE CONTROL - H GATE")
-    print("REAL INPUT / CONTROLE REAL: R + DEAD-MAN ARROWS + GUARDED H")
-    print("DISTANT TARGETS: CHARACTER-LIKE FILTER / ALVOS DISTANTES: FILTRO DE FORMA")
-    print(
-        "H REAL: enabled / habilitado"
-        if not args.disable_h
-        else "H REAL: disabled / desabilitado (--disable-h)"
-    )
+    print("Kage Pilot v0.3 LIVE CONTROL - FULL DOJO RECOVERY GATE")
+    print("VICTORY: authoritative chat phrase / frase autoritativa: 'has been Knocked-Out'")
+    print("REAL INPUT: R + dead-man arrows + guarded H; POST: arrows + V toggle")
     print("F12 = EMERGENCY STOP / PARADA IMEDIATA")
     print(
-        f"GRID={observer.tile_size:.0f}px duration={seconds:.1f}s "
-        f"PLAYER=({config.player_x:.4f},{config.player_y:.4f}) "
-        f"move_pulse={move_pulse_seconds:.3f}s face_pulse={face_pulse_seconds:.3f}s "
-        f"H_pulse={h_pulse_seconds:.3f}s H_settle={h_settle_seconds:.2f}s "
-        f"confirm={planner.move_confirm_frames} no_progress={planner.max_no_progress_seconds:.2f}s "
-        f"burst_hold={burst_guard.hold_seconds:.2f}s"
+        f"GRID={observer.tile_size:.0f}px combat_timeout={combat_seconds:.1f}s "
+        f"PLAYER=({observer_config.player_x:.4f},{observer_config.player_y:.4f}) "
+        f"recovery=HP>={args.recovery_hp*100:.0f}% Chakra>={args.recovery_chakra*100:.0f}% "
+        f"leader_threshold={args.leader_threshold:.2f}"
     )
 
     frames = 0
     started = 0.0
     next_telemetry = 0.0
+    next_chat_poll = 0.0
     h_settle_until = -1e9
+    victory_signal = None
+    emergency_stop = False
+    post_ready = False
+
     try:
         controller.activate()
         controller.release_all()
@@ -199,13 +242,35 @@ def main() -> int:
             )
             time.sleep(startup_delay)
 
+        # Everything already in chat before this point is historical and cannot end this fight.
+        victory_watcher.prime()
+
         started = time.monotonic()
         next_telemetry = started
-        while time.monotonic() - started < seconds:
+        next_chat_poll = started
+
+        while time.monotonic() - started < combat_seconds:
             loop_started = time.monotonic()
             if _f12_pressed():
                 print("F12 STOP / PARADA F12")
+                emergency_stop = True
                 break
+
+            now = time.monotonic()
+            if now >= next_chat_poll:
+                victory_signal = victory_watcher.poll()
+                next_chat_poll = now + chat_poll_interval
+                if victory_signal is not None:
+                    # Authoritative KO: stop every combat key before doing anything else.
+                    controller.release_all()
+                    print(f"VICTORY_CHAT / VITORIA_CHAT: {victory_signal.text}")
+                    if log_handle is not None:
+                        log_handle.write(json.dumps({
+                            "t": round(now - started, 4),
+                            "event": "victory_chat",
+                            "text": victory_signal.text,
+                        }, ensure_ascii=False) + "\n")
+                    break
 
             captured = source.capture()
             frame = decode_jpeg(bytes(captured.jpeg))
@@ -224,7 +289,6 @@ def main() -> int:
             else:
                 block_reason = burst_state.reason
 
-            # Do not consume the H cooldown while a safety layer would veto the physical H.
             decision = engine.decide(
                 state,
                 observer,
@@ -239,8 +303,7 @@ def main() -> int:
                 block_reason=block_reason,
             )
 
-            # Dead-man invariant: every loop first returns to the persistent/base state.
-            # Therefore a directional/H key from a previous decision cannot remain held.
+            # Dead-man invariant: every loop returns to base state before a pulse.
             controller.apply_keys(command.held_keys)
 
             if command.move_pulse is not None:
@@ -249,7 +312,6 @@ def main() -> int:
                 time.sleep(move_pulse_seconds)
                 controller.apply_keys(command.held_keys)
             else:
-                # A melee recovery or real H may explicitly re-face the opponent first.
                 if command.face_pulse is not None:
                     pulse_keys = tuple(sorted(set(command.held_keys).union({command.face_pulse})))
                     controller.apply_keys(pulse_keys)
@@ -257,8 +319,6 @@ def main() -> int:
                     controller.apply_keys(command.held_keys)
 
                 if command.h_fire:
-                    # H is a tap, never a held state. It is only reached after a fresh
-                    # facing pulse generated from a validated VISIBLE/OCCLUDED melee target.
                     h_keys = tuple(sorted(set(command.held_keys).union({"h"})))
                     controller.apply_keys(h_keys)
                     time.sleep(h_pulse_seconds)
@@ -272,6 +332,7 @@ def main() -> int:
             if log_handle is not None:
                 row = {
                     "t": round(now - started, 4),
+                    "phase": "combat",
                     "target_id": decision.target_id,
                     "mode": decision.mode,
                     "navigation": decision.navigation,
@@ -286,7 +347,7 @@ def main() -> int:
                     "engagement_stable_seconds": round(decision.engagement_stable_seconds, 4),
                     "safety_state": command.safety_state,
                     "active_grid_cells": burst_state.active_cells,
-                    "entities": burst_state.entities,
+                    "entities": len(state.tracks),
                     "burst_blocked": burst_state.blocked,
                     "burst_reason": burst_state.reason,
                     "reason": command.reason,
@@ -297,6 +358,82 @@ def main() -> int:
             elapsed = time.monotonic() - loop_started
             if elapsed < interval:
                 time.sleep(interval - elapsed)
+
+        if (
+            victory_signal is not None
+            and not emergency_stop
+            and not bool(args.disable_post_combat)
+        ):
+            # R/H/arrows are already released by the victory transition. Post-combat never
+            # re-enables R; it owns only dead-man arrows and the V toggle.
+            controller.release_all()
+            print("POST_COMBAT / POS-COMBATE: SEEK_DOJO_LEADER")
+            post_started = time.monotonic()
+            next_post_telemetry = post_started
+
+            while time.monotonic() - post_started < post_timeout:
+                loop_started = time.monotonic()
+                if _f12_pressed():
+                    print("F12 STOP during post-combat / PARADA F12 no pos-combate")
+                    emergency_stop = True
+                    break
+
+                captured = source.capture()
+                frame = decode_jpeg(bytes(captured.jpeg))
+                state = observer.process(frame)
+                now = time.monotonic()
+                post = post_engine.step(frame, state, observer, now=now)
+
+                # Post-combat has no persistent key state at all.
+                controller.apply_keys(())
+
+                if post.move_pulse is not None:
+                    controller.apply_keys((post.move_pulse,))
+                    time.sleep(move_pulse_seconds)
+                    controller.apply_keys(())
+
+                if post.tap_v:
+                    controller.tap("v", v_pulse_seconds)
+
+                if now >= next_post_telemetry:
+                    print(_post_line(post))
+                    next_post_telemetry = now + telemetry_interval
+
+                if log_handle is not None:
+                    log_handle.write(json.dumps({
+                        "t": round(now - post_started, 4),
+                        "phase": "post_combat",
+                        "state": post.state,
+                        "move_pulse": post.move_pulse,
+                        "tap_v": post.tap_v,
+                        "leader_score": post.leader_score,
+                        "leader_distance": post.leader_distance,
+                        "health": post.health,
+                        "chakra": post.chakra,
+                        "reason": post.reason,
+                    }, ensure_ascii=False) + "\n")
+
+                frames += 1
+                if post.state == "READY":
+                    post_ready = True
+                    print("READY / PRONTO: HP and Chakra recovery thresholds reached")
+                    break
+
+                elapsed = time.monotonic() - loop_started
+                if elapsed < interval:
+                    time.sleep(interval - elapsed)
+
+            if not post_ready and not emergency_stop:
+                print(
+                    f"POST_COMBAT_TIMEOUT state={post_engine.state} / "
+                    f"TIMEOUT_POS_COMBATE estado={post_engine.state}"
+                )
+                # Timeout is not an emergency stop. If this runtime itself started meditation,
+                # toggle V off so it does not leave the game in an ambiguous persistent state.
+                if post_engine.state == "MEDITATING":
+                    controller.tap("v", v_pulse_seconds)
+                    print("V OFF after post-combat timeout / V OFF apos timeout")
+
     except KeyboardInterrupt:
         print("Keyboard interrupt / interrupcao de teclado")
     except Exception as exc:
@@ -309,7 +446,13 @@ def main() -> int:
 
     duration = max(1e-6, time.monotonic() - started) if started else 0.0
     fps = frames / duration if duration > 0 else 0.0
-    print(f"Live stopped / Controle encerrado: frames={frames} fps={fps:.1f}")
+    result = (
+        "ready" if post_ready else
+        "victory" if victory_signal is not None else
+        "stopped" if emergency_stop else
+        "timeout"
+    )
+    print(f"Live stopped / Controle encerrado: result={result} frames={frames} fps={fps:.1f}")
     return 0
 
 

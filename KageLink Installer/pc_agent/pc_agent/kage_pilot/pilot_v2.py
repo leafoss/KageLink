@@ -18,15 +18,19 @@ class CombatStep:
 class TemporalCombatPilot:
     """Kage Pilot v0.2 runtime.
 
-    R (or other configured base keys) remains held as the combat state.
+    R (or other configured base keys) remains logically active as the combat
+    state. On the Windows controller those base keys are emitted with BYOND's
+    verified physical-hold pattern: scan-code KEYDOWN, initial repeat delay,
+    repeated KEYDOWN events without intervening KEYUP, then one final KEYUP.
+
     Navigation is predicted independently from skills. Skills are edge-like
     actions protected by both a cooldown and an idle rearm gate: after a jutsu
     fires, the skill policy must return to idle before the same jutsu can fire
     again. This prevents a classifier that gets stuck on H from spamming it.
 
-    On the Windows controller, v0.2 opts into safe foreground recovery. Recovery
-    releases synthetic keys, reacquires the exact Shinobi Story Online window,
-    verifies foreground state, then reapplies the requested key state.
+    On the Windows controller, v0.2 also opts into safe foreground recovery.
+    Recovery releases synthetic keys, reacquires the exact Shinobi Story Online
+    window, verifies foreground state, then reapplies the requested state.
     """
 
     def __init__(
@@ -60,12 +64,14 @@ class TemporalCombatPilot:
         self._skill_rearmed = True
         self._last_debug_signature: tuple | None = None
 
-        # Only v0.2 opts into automatic recovery; legacy Pilot behavior stays
-        # strict. Fake/test controllers simply do not expose these attributes.
+        # Only v0.2 opts into automatic recovery and BYOND repeat-held combat
+        # keys. Fake/test controllers simply do not expose these attributes.
         if hasattr(controller, "recover_foreground"):
             setattr(controller, "recover_foreground", True)
         if hasattr(controller, "debug"):
             setattr(controller, "debug", self.debug)
+        if hasattr(controller, "repeat_keys"):
+            setattr(controller, "repeat_keys", set(self.model.base_keys))
 
     def reset(self) -> None:
         self._previous_jpeg = None
@@ -137,9 +143,7 @@ class TemporalCombatPilot:
 
         # Important ordering for BYOND: first bring the exact game window to the
         # foreground, then wait while the game is already focused, and only after
-        # that allow the first combat key state (normally R). The old ordering
-        # waited while PowerShell was foreground and sent R immediately after the
-        # focus switch, which made real-game diagnosis confusing and fragile.
+        # that allow the first combat key state (normally R).
         self.controller.activate()
         self.controller.release_all()
 

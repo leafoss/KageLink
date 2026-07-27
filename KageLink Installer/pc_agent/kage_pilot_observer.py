@@ -6,7 +6,7 @@ import time
 import cv2
 
 from pc_agent.kage_pilot.entity_observer import decode_jpeg
-from pc_agent.kage_pilot.grid_target_observer_v03c import FrameAlignedGridTargetObserver as GridTargetObserver
+from pc_agent.kage_pilot.grid_target_observer_v03d import TileCalibratedGridTargetObserver as GridTargetObserver
 from pc_agent.kage_pilot.observer_runtime_v03 import (
     V03ObserverConfig,
     render_overlay_v03,
@@ -19,7 +19,7 @@ from pc_agent.kage_pilot.recorder import WindowsGameFrameSource
 
 DEFAULT_PLAYER_X = 0.5181
 DEFAULT_PLAYER_Y = 0.4706
-DEFAULT_GRID_SIZE = 32.0
+DEFAULT_GRID_SIZE = 64.0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -54,10 +54,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--reacquire-distance", type=float, default=180.0)
     parser.add_argument("--reacquire-similarity", type=float, default=0.82)
 
-    # Hybrid fixed-grid evidence. 32 px is the current working tile hypothesis and
-    # remains configurable so real BYOND validation can correct it without code edits.
+    # The NPC/player references show one complete character occupying roughly a 64px
+    # vertical band. The grid is therefore 64x64 by default and is automatically offset
+    # so PLAYER is centred inside one cell. Manual origins remain available for tests.
     parser.add_argument("--grid-size", type=float, default=DEFAULT_GRID_SIZE)
+    parser.add_argument("--grid-origin-x", type=float, default=None)
+    parser.add_argument("--grid-origin-y", type=float, default=None)
     parser.add_argument("--contact-lock-seconds", type=float, default=2.8)
+    parser.add_argument("--contact-confirm-frames", type=int, default=2)
     parser.add_argument("--no-grid-overlay", action="store_true")
 
     parser.add_argument("--arena-left", type=float, default=0.04)
@@ -106,6 +110,7 @@ def _telemetry_line(state, tracker, observer: GridTargetObserver, *, started: fl
                 f"away={metrics.away_steps} net={metrics.net_closer} "
                 f"bg={metrics.background_strength:.2f}"
             )
+    origin_x, origin_y = observer.grid_origin
     return (
         f"OBS t={time.monotonic() - started:6.1f}s "
         f"entities={len(state.tracks):3d} "
@@ -115,6 +120,7 @@ def _telemetry_line(state, tracker, observer: GridTargetObserver, *, started: fl
         f"pruned={getattr(tracker, 'background_pruned_last_frame', 0):3d} "
         f"dormant={tracker.dormant_count:3d} "
         f"grid_active={observer.active_grid_cells:3d} "
+        f"origin={origin_x:.1f},{origin_y:.1f} "
         f"target={target_text} grid[{grid_text}]"
     )
 
@@ -145,11 +151,22 @@ def main() -> int:
         reacquire_similarity=args.reacquire_similarity,
     ).normalized()
 
+    manual_origin = args.grid_origin_x is not None or args.grid_origin_y is not None
+    if manual_origin and (args.grid_origin_x is None or args.grid_origin_y is None):
+        raise SystemExit(
+            "GRID origin requires both --grid-origin-x and --grid-origin-y / "
+            "origem da GRID requer os dois parametros"
+        )
+
     observer = GridTargetObserver(
         config,
         tile_size=args.grid_size,
         contact_lock_seconds=args.contact_lock_seconds,
         show_grid=not bool(args.no_grid_overlay),
+        auto_align_grid=not manual_origin,
+        grid_origin_x=args.grid_origin_x,
+        grid_origin_y=args.grid_origin_y,
+        contact_confirm_frames=args.contact_confirm_frames,
     )
     tracker = WaterAwareEntityTracker(config)
     observer.tracker = tracker
@@ -181,6 +198,7 @@ def main() -> int:
         config.player_x, config.player_y = calibrated
         config.normalized()
         observer.reset()
+        observer.request_grid_realign()
         print(
             "PLAYER calibrated / calibrado: "
             f"x={config.player_x:.4f} y={config.player_y:.4f} "
@@ -189,6 +207,10 @@ def main() -> int:
         print(
             "Reuse / reutilizar: "
             f"--player-x {config.player_x:.4f} --player-y {config.player_y:.4f}"
+        )
+        print(
+            "GRID will realign to PLAYER centre / "
+            "GRID sera realinhada ao centro do PLAYER"
         )
         print(
             "BACKGROUND memory preserved / memoria de fundo preservada: "
@@ -214,11 +236,16 @@ def main() -> int:
         f"similarity={config.background_similarity:.2f} "
         f"hits={config.background_min_dense_hits:.0f} age={config.background_min_age:.1f}s"
     )
-    print("TARGET GUARD v3: grid-approach required outside adjacent cell; LOST only via CONTACT MEMORY")
+    print(
+        "TARGET GUARD v4: 64px tile trajectory + confirmed CONTACT MEMORY; "
+        "LOST cannot create contact"
+    )
+    alignment = "PLAYER-centred auto" if not manual_origin else "manual"
     print(
         "GRID: "
-        f"size={observer.tile_size:.0f}px aligned=frame-origin "
+        f"size={observer.tile_size:.0f}px alignment={alignment} "
         f"contact_lock={observer.contact_lock_seconds:.1f}s "
+        f"contact_confirm={observer.contact_confirm_frames} frames "
         f"overlay={'yes' if observer.show_grid else 'no'}"
     )
     print(

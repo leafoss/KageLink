@@ -1,0 +1,60 @@
+from __future__ import annotations
+
+import argparse
+import time
+
+from pc_agent.kage_pilot.pilot import WindowsGameController
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Kage Pilot raw keyboard diagnostic / diagnóstico bruto de teclado"
+    )
+    parser.add_argument("--hold-key", default="r", help="Key to keep held / Tecla a manter pressionada")
+    parser.add_argument("--hold-seconds", type=float, default=3.0, help="Hold duration / Duração")
+    parser.add_argument("--tap-key", default="h", help="Key to tap while base key stays held / Tecla para toque")
+    parser.add_argument("--tap-seconds", type=float, default=0.15, help="Tap duration / Duração do toque")
+    parser.add_argument("--startup-delay", type=float, default=3.0, help="Seconds before control starts / Atraso inicial")
+    return parser
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    hold_key = str(args.hold_key).strip().lower()
+    tap_key = str(args.tap_key).strip().lower()
+    hold_seconds = max(0.2, float(args.hold_seconds))
+    tap_seconds = max(0.03, float(args.tap_seconds))
+    startup_delay = max(0.0, float(args.startup_delay))
+
+    print("Kage Pilot INPUT TEST / TESTE DE ENTRADA")
+    print(f"Em / in {startup_delay:.1f}s: segurar/hold {hold_key.upper()} por {hold_seconds:.1f}s")
+    print(f"Depois / then: {hold_key.upper()} + toque/tap {tap_key.upper()} por {tap_seconds:.2f}s")
+    print("Deixe o Shinobi Story Online em primeiro plano / Keep the game in foreground")
+    time.sleep(startup_delay)
+
+    controller = WindowsGameController(recover_foreground=True, debug=True)
+    controller.activate()
+    interval = 0.10
+    started = time.monotonic()
+    try:
+        print(f"INPUT hold={hold_key}")
+        while time.monotonic() - started < hold_seconds:
+            # Reasserting the same state does not resend KEYDOWN while focus is
+            # healthy. It only gives the controller a chance to detect/recover
+            # foreground loss safely.
+            controller.apply_keys((hold_key,))
+            time.sleep(interval)
+
+        print(f"INPUT tap={tap_key} with_hold={hold_key}")
+        controller.apply_keys((hold_key, tap_key))
+        time.sleep(tap_seconds)
+        controller.apply_keys((hold_key,))
+        time.sleep(0.35)
+        print("INPUT TEST COMPLETE / TESTE CONCLUÍDO")
+        return 0
+    finally:
+        controller.release_all()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

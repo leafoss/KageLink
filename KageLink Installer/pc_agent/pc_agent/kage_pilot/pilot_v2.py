@@ -23,6 +23,10 @@ class TemporalCombatPilot:
     actions protected by both a cooldown and an idle rearm gate: after a jutsu
     fires, the skill policy must return to idle before the same jutsu can fire
     again. This prevents a classifier that gets stuck on H from spamming it.
+
+    On the Windows controller, v0.2 opts into safe foreground recovery. Recovery
+    releases synthetic keys, reacquires the exact Shinobi Story Online window,
+    verifies foreground state, then reapplies the requested key state.
     """
 
     def __init__(
@@ -55,6 +59,13 @@ class TemporalCombatPilot:
         self._last_skill_fire: dict[str, float] = {}
         self._skill_rearmed = True
         self._last_debug_signature: tuple | None = None
+
+        # Only v0.2 opts into automatic recovery; legacy Pilot behavior stays
+        # strict. Fake/test controllers simply do not expose these attributes.
+        if hasattr(controller, "recover_foreground"):
+            setattr(controller, "recover_foreground", True)
+        if hasattr(controller, "debug"):
+            setattr(controller, "debug", self.debug)
 
     def reset(self) -> None:
         self._previous_jpeg = None

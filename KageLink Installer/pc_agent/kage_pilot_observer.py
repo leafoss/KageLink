@@ -5,13 +5,13 @@ import time
 
 import cv2
 
-from pc_agent.kage_pilot.entity_observer import (
-    EntityObserver,
-    ObserverConfig,
-    decode_jpeg,
-    render_overlay,
-)
+from pc_agent.kage_pilot.entity_observer import decode_jpeg
 from pc_agent.kage_pilot.entity_tracker_v03 import MeleeAwareEntityTracker
+from pc_agent.kage_pilot.observer_runtime_v03 import (
+    StableTargetObserver,
+    V03ObserverConfig,
+    render_overlay_v03,
+)
 from pc_agent.kage_pilot.recorder import WindowsGameFrameSource
 
 
@@ -24,13 +24,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--seconds", type=float, default=None)
     parser.add_argument("--fps", type=float, default=10.0)
-    # Calibrated from the first real v0.3 Observer screenshot. The previous
-    # 0.50/0.55 anchor was visibly below Leafos and allowed the player sprite to
-    # become an ENTITY candidate. Runtime click calibration can refine this.
+
+    # Real-game calibration from the first Observer screenshots. A left click on
+    # Leafos remains the authoritative way to fine-tune the center at runtime.
     parser.add_argument("--player-x", type=float, default=0.51)
     parser.add_argument("--player-y", type=float, default=0.48)
-    parser.add_argument("--player-radius", type=float, default=26.0)
-    parser.add_argument("--enemy-threshold", type=float, default=55.0)
+    parser.add_argument("--player-box-width", type=float, default=18.0)
+    parser.add_argument("--player-box-height", type=float, default=38.0)
+
+    parser.add_argument("--target-acquire", type=float, default=55.0)
+    parser.add_argument("--target-keep", type=float, default=38.0)
+    parser.add_argument("--track-ttl", type=float, default=2.0)
+    parser.add_argument("--match-distance", type=float, default=105.0)
+
     parser.add_argument("--arena-left", type=float, default=0.04)
     parser.add_argument("--arena-top", type=float, default=0.04)
     parser.add_argument("--arena-right", type=float, default=0.96)
@@ -57,18 +63,26 @@ def _calibrate_player_from_click(
 
 def main() -> int:
     args = build_parser().parse_args()
-    config = ObserverConfig(
+    config = V03ObserverConfig(
         arena_left=args.arena_left,
         arena_top=args.arena_top,
         arena_right=args.arena_right,
         arena_bottom=args.arena_bottom,
         player_x=args.player_x,
         player_y=args.player_y,
-        player_exclusion_radius=args.player_radius,
-        enemy_threshold=args.enemy_threshold,
+        # Kept only for backwards compatibility inside the inherited base config.
+        # The v0.3 runtime now uses the vertical player box below.
+        player_exclusion_radius=max(args.player_box_width, args.player_box_height) / 2.0,
+        player_box_width=args.player_box_width,
+        player_box_height=args.player_box_height,
+        enemy_threshold=args.target_acquire,
+        target_acquire_threshold=args.target_acquire,
+        target_keep_threshold=args.target_keep,
+        track_ttl_seconds=max(0.5, float(args.track_ttl)),
+        track_match_distance=max(20.0, float(args.match_distance)),
     ).normalized()
 
-    observer = EntityObserver(config)
+    observer = StableTargetObserver(config)
     observer.tracker = MeleeAwareEntityTracker(config)
     source = WindowsGameFrameSource()
     interval = 1.0 / max(1.0, min(30.0, float(args.fps)))
@@ -76,9 +90,6 @@ def main() -> int:
     frames = 0
     window_name = str(args.window_name)
 
-    # Updated every frame so the mouse callback can map preview coordinates back
-    # to the current arena. The panel lives to the right of frame_width and is
-    # intentionally not clickable for calibration.
     mouse_context: dict[str, object] = {
         "arena_rect": None,
         "frame_width": 0,
@@ -95,16 +106,17 @@ def main() -> int:
         calibrated = _calibrate_player_from_click(x, y, arena_rect)
         if calibrated is None:
             return
+
         config.player_x, config.player_y = calibrated
         config.normalized()
 
-        # A wrong anchor may already have created the player itself as an ENTITY.
-        # Reset temporal state so tracking restarts cleanly around the new anchor.
+        # The previous center may already have created false tracks. Recalibration
+        # intentionally clears tracker memory and the TARGET lock.
         observer.reset()
         print(
             "PLAYER calibrated / calibrado: "
             f"x={config.player_x:.4f} y={config.player_y:.4f} "
-            f"radius={config.player_exclusion_radius:.1f}"
+            f"box={config.player_box_width:.0f}x{config.player_box_height:.0f}px"
         )
         print(
             "Reuse / reutilizar: "
@@ -117,10 +129,15 @@ def main() -> int:
     print(
         "PLAYER inicial / initial: "
         f"x={config.player_x:.2f} y={config.player_y:.2f} "
-        f"radius={config.player_exclusion_radius:.0f}"
+        f"box={config.player_box_width:.0f}x{config.player_box_height:.0f}px"
+    )
+    print(
+        "TRACK lock: "
+        f"match={config.track_match_distance:.0f}px ttl={config.track_ttl_seconds:.1f}s "
+        f"acquire={config.target_acquire_threshold:.0f}% keep={config.target_keep_threshold:.0f}%"
     )
     print("Clique ESQUERDO em Leafos = calibrar PLAYER / LEFT CLICK Leafos = calibrate PLAYER")
-    print("F10, Q ou ESC = sair / exit")
+    print("Q ou ESC = sair / exit")
 
     cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
     cv2.setMouseCallback(window_name, on_mouse)
@@ -134,8 +151,7 @@ def main() -> int:
             mouse_context["arena_rect"] = state.arena_rect
             mouse_context["frame_width"] = int(frame.shape[1])
 
-            preview = render_overlay(frame, state, config)
-            # Keep calibration discoverable inside the visual tool itself.
+            preview = render_overlay_v03(frame, state, config)
             cv2.putText(
                 preview,
                 "LEFT CLICK Leafos = PLAYER calibration / calibrar PLAYER",

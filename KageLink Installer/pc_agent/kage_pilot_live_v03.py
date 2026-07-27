@@ -7,9 +7,9 @@ from pathlib import Path
 import time
 
 from pc_agent.kage_pilot.entity_observer import decode_jpeg
-from pc_agent.kage_pilot.grid_target_observer_v03d import TileCalibratedGridTargetObserver
 from pc_agent.kage_pilot.live_control_v03 import LiveCombatControlPlanner, MotionBurstGuard
 from pc_agent.kage_pilot.observer_runtime_v03 import V03ObserverConfig
+from pc_agent.kage_pilot.particle_safe_grid_target_v03 import ParticleSafeGridTargetObserver
 from pc_agent.kage_pilot.persistent_water_tracker_v03 import (
     PersistentBackgroundWaterAwareEntityTracker,
 )
@@ -113,7 +113,7 @@ def main() -> int:
         reacquire_similarity=args.reacquire_similarity,
     ).normalized()
 
-    observer = TileCalibratedGridTargetObserver(
+    observer = ParticleSafeGridTargetObserver(
         config,
         tile_size=args.grid_size,
         contact_lock_seconds=args.contact_lock_seconds,
@@ -158,6 +158,7 @@ def main() -> int:
 
     print("Kage Pilot v0.3 LIMITED LIVE CONTROL - SAFETY REVISION")
     print("REAL INPUT / CONTROLE REAL: R + DEAD-MAN ARROW PULSES / R + PULSOS DE SETA")
+    print("DISTANT TARGETS: CHARACTER-LIKE FILTER / ALVOS DISTANTES: FILTRO DE FORMA")
     print("H remains SHADOW-ONLY / H continua APENAS SOMBRA")
     print("F12 = EMERGENCY STOP / PARADA IMEDIATA")
     print(

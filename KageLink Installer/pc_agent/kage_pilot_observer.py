@@ -11,8 +11,10 @@ from pc_agent.kage_pilot.observer_runtime_v03 import (
     V03ObserverConfig,
     render_overlay_v03,
 )
+from pc_agent.kage_pilot.persistent_water_tracker_v03 import (
+    PersistentBackgroundWaterAwareEntityTracker as WaterAwareEntityTracker,
+)
 from pc_agent.kage_pilot.recorder import WindowsGameFrameSource
-from pc_agent.kage_pilot.water_filter_v03 import WaterAwareEntityTracker
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -131,6 +133,10 @@ def main() -> int:
         print(
             "Reuse / reutilizar: "
             f"--player-x {config.player_x:.4f} --player-y {config.player_y:.4f}"
+        )
+        print(
+            "BACKGROUND memory preserved / memoria de fundo preservada: "
+            f"cells={tracker.background.mature_cells} strong={tracker.background.strong_cells}"
         )
 
     print("Kage Pilot v0.3 ENTITY OBSERVER")

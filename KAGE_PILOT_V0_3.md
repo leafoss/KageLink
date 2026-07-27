@@ -15,80 +15,177 @@ Lucas–Kanade optical flow
     ↓
 compensação do movimento global da câmera
     ↓
-Entity Tracker
+BACKGROUND_DYNAMIC memory
     ↓
-memória temporal
+Entity Tracker + aparência
+    ↓
+memória temporal / oclusão / lado relativo
     ↓
 Enemy Score
     ↓
 TARGET LOCK
 ```
 
-Esta primeira etapa é **somente observação**. Nenhuma tecla é enviada ao jogo.
+Esta etapa continua **somente observação**. Nenhuma tecla é enviada ao jogo.
 
 ## O que aparece na janela
 
 - `PLAYER #000`: âncora calibrável do jogador;
-- caixa vertical apertada do player, em vez do antigo círculo de exclusão;
-- `ENTITY #NNN`: candidatos persistentes encontrados por movimento e contornos;
-- trilha temporal de cada entidade;
-- velocidade residual após compensar o movimento global da cena;
-- direção;
-- tempo observado;
-- aproximação em relação ao player;
-- distância ao player;
-- memória de hostilidade;
-- `ENEMY SCORE` de 0% a 100%;
-- estado de `TARGET LOCK`;
-- máscara de movimento usada para criar candidatos.
+- caixa vertical apertada do player;
+- `ENTITY #NNN`: candidatos persistentes;
+- trilha temporal;
+- velocidade residual após compensação da câmera;
+- direção e lado relativo (`LEFT/RIGHT/UP/DOWN`);
+- estado `VISIBLE`, `LOST` ou `OCCLUDED`;
+- similaridade visual usada para associação;
+- tempo observado, distância e aproximação;
+- memória de hostilidade e `ENEMY SCORE`;
+- `TARGET LOCK`;
+- contagem de candidatos descartados por `BACKGROUND_DYNAMIC`;
+- identidades dormentes aguardando reacquisition.
 
 ## Caixa do PLAYER
 
-O círculo inicial foi substituído por um retângulo vertical, mais próximo do volume ocupado pelo sprite real e com menos área vazia protegida.
-
-Padrão atual:
+O antigo círculo foi substituído por um retângulo vertical mais próximo do volume real do sprite.
 
 ```text
 player-box-width  = 18 px
 player-box-height = 38 px
 ```
 
-A caixa é uma **zona de exclusão para criação de novas entidades**. Ela impede que o próprio Leafos seja criado como `ENTITY`, mas não apaga uma entidade já conhecida quando um inimigo entra em melee ou sobrepõe o player.
+A caixa impede a criação de uma nova entidade em cima do próprio Leafos. Uma entidade já conhecida pode chegar até o player, mas sua caixa lógica não atravessa o núcleo do `PLAYER #000`.
 
-A posição pode ser calibrada clicando com o botão esquerdo exatamente sobre Leafos na janela do Observer. A calibração reinicia a memória temporal para remover falsos tracks criados pela posição anterior.
+A posição continua calibrável com clique esquerdo diretamente sobre Leafos. A recalibração reinicia tracker, lock, memória ambiental e identidades dormentes.
+
+## BACKGROUND_DYNAMIC
+
+A água e outros elementos animados podem gerar muitos contornos apesar de não serem entidades. A v0.3 agora aprende regiões ambientais de movimento repetitivo em vez de codificar manualmente uma faixa do mapa.
+
+Uma região acumula memória ambiental quando:
+
+1. vários candidatos aparecem próximos ao mesmo tempo;
+2. isso se repete na mesma área por vários frames;
+3. os patches visuais são semelhantes;
+4. a região fica longe da zona imediata do player.
+
+Quando a memória amadurece, novos candidatos visualmente semelhantes naquela região deixam de virar `ENTITY`.
+
+Padrões iniciais:
+
+```text
+background cell size       = 32 px
+neighbor radius            = 58 px
+minimum neighbors          = 3
+minimum dense hits         = 8
+minimum age                = 0.8 s
+appearance similarity      = 0.88
+memory TTL                 = 12 s
+```
+
+O painel mostra:
+
+```text
+dynamic bg suppressed: N
+dynamic bg cells: N
+```
+
+Um inimigo isolado não deve ser aprendido como fundo apenas por permanecer visível: o aprendizado ambiental exige densidade local de candidatos repetitivos.
+
+## Memória de aparência
+
+Cada candidato recebe uma assinatura visual leve construída a partir de:
+
+- histograma de intensidade;
+- estrutura grosseira em quadrantes;
+- densidade de bordas.
+
+Não é um modelo neural. É uma memória visual barata usada para:
+
+- reduzir troca de IDs entre candidatos próximos;
+- reconhecer padrões ambientais semelhantes;
+- ajudar a recuperar o mesmo `ENTITY ID` depois de uma perda visual.
+
+A aparência entra junto com posição prevista, tamanho e formato no custo de matching.
 
 ## Entity Tracker estável
 
-O tracker v0.3 agora usa quatro sinais para preservar identidade:
+O tracker usa:
 
-1. movimento global da câmera estimado por Lucas–Kanade;
-2. velocidade residual recente da própria entidade;
-3. distância até a posição prevista;
-4. consistência de tamanho/formato da bounding box.
+1. movimento global da câmera por Lucas–Kanade;
+2. velocidade residual da entidade;
+3. posição prevista;
+4. tamanho/formato da bounding box;
+5. similaridade de aparência;
+6. lado relativo ao player.
 
-A posição esperada de uma entidade considera tanto o movimento da câmera quanto sua velocidade residual recente. Isso ajuda a recuperar o mesmo ID quando um contorno some por poucos frames ou quando o alvo sofre um deslocamento rápido.
-
-Parâmetros padrão de teste real:
+Parâmetros principais:
 
 ```text
 track-match-distance = 105 px
 track-ttl            = 2.0 s
 ```
 
-Durante pequenos drop-outs, parte da velocidade anterior é preservada e decai gradualmente em vez de ser zerada imediatamente.
+Durante drop-outs curtos, a velocidade decai gradualmente em vez de zerar instantaneamente.
 
-## TARGET LOCK com hysteresis
+## OCCLUDED / contato com PLAYER
 
-Adquirir um alvo e manter um alvo são operações diferentes.
+Quando a bounding box observada tenta atravessar a caixa do jogador, o sistema não assume que o inimigo virou parte do PLAYER.
+
+Fluxo:
+
+```text
+ENTITY conhecida aproxima
+    ↓
+memoriza LEFT / RIGHT / UP / DOWN
+    ↓
+contorno entra na caixa do PLAYER
+    ↓
+state = OCCLUDED
+    ↓
+caixa lógica é mantida na borda do PLAYER
+    ↓
+ID + lado + aparência limpa são preservados
+    ↓
+separação visual
+    ↓
+reacquire do mesmo ID
+```
+
+Durante `OCCLUDED`, a assinatura visual do contorno misturado PLAYER+inimigo não substitui a aparência limpa memorizada.
+
+## Memória de lado relativo
+
+Cada entidade guarda seu último lado confiável:
+
+```text
+LEFT
+RIGHT
+UP
+DOWN
+```
+
+Essa memória é mantida durante oclusão e será usada futuramente pelo controlador v0.3b para decidir direção de recuperação sem depender apenas do frame atual.
+
+## DORMANT / reacquisition
+
+Depois de exceder o TTL ativo, uma identidade estabelecida não é imediatamente esquecida. Ela entra numa memória dormente por alguns segundos.
 
 Padrões:
+
+```text
+reacquire TTL        = 5.0 s
+reacquire distance   = 180 px
+reacquire similarity = 0.82
+```
+
+Se um candidato compatível reaparecer, o mesmo `ENTITY ID` é restaurado em vez de criar um novo número.
+
+## TARGET LOCK com hysteresis
 
 ```text
 target-acquire = 55%
 target-keep    = 38%
 ```
-
-Fluxo:
 
 ```text
 sem alvo
@@ -101,26 +198,14 @@ score pode oscilar entre 38% e 55%
   ↓
 continua TARGET
   ↓
-score < 38% ou entidade expira
+score < 38% ou identidade realmente expira
   ↓
 solta o lock
 ```
 
-Isso evita trocar/perder o alvo por pequenas oscilações de um único frame.
-
 ## Enemy Score inicial
 
-O score ainda é heurístico. Ele combina:
-
-- persistência temporal;
-- movimento independente do cenário;
-- aproximação do player;
-- direção do movimento em relação ao player;
-- distância plausível;
-- formato/tamanho do candidato;
-- memória acumulada de comportamento hostil.
-
-Esse score não é uma verdade final. Ele existe para tornar as decisões visíveis e calibráveis antes de introduzir um modelo visual treinado.
+O score continua heurístico e combina persistência, movimento independente, aproximação, direção, distância, formato e memória de hostilidade. Ele continua sendo diagnóstico, não uma verdade final.
 
 ## Instalação
 
@@ -130,55 +215,57 @@ Na pasta `KageLink Installer/pc_agent`:
 .\.venv-kage-pilot\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-A v0.3 usa OpenCV e NumPy no ambiente do PC Agent.
-
 ## Executar
 
 ```powershell
 .\.venv-kage-pilot\Scripts\python.exe kage_pilot_observer.py
 ```
 
-Parâmetros opcionais:
+Parâmetros adicionais úteis:
 
 ```powershell
 .\.venv-kage-pilot\Scripts\python.exe kage_pilot_observer.py `
-  --player-box-width 18 `
-  --player-box-height 38 `
-  --match-distance 105 `
-  --track-ttl 2.0 `
-  --target-acquire 55 `
-  --target-keep 38
+  --background-similarity 0.88 `
+  --background-min-hits 8 `
+  --background-min-age 0.8 `
+  --reacquire-ttl 5 `
+  --reacquire-distance 180 `
+  --reacquire-similarity 0.82
 ```
 
-Controles da janela de observação:
+Para comparar sem filtragem ambiental:
+
+```powershell
+.\.venv-kage-pilot\Scripts\python.exe kage_pilot_observer.py --no-dynamic-background
+```
+
+Controles:
 
 ```text
 clique esquerdo em Leafos = recalibrar PLAYER
 Q ou ESC                  = sair
 ```
 
-O Observer não envia essas ações ao Shinobi Story Online; elas são lidas apenas pela janela de preview do OpenCV.
-
 ## Critério de validação
 
-A v0.3a será considerada validada quando, durante uma luta real:
+A v0.3a será considerada validada quando:
 
-1. `PLAYER #000` cobrir o sprite com uma caixa vertical apertada;
-2. o próprio player não nascer como `ENTITY`;
-3. o mesmo inimigo mantiver o mesmo `ENTITY ID` por vários segundos;
-4. o tracker não interpretar o cenário inteiro como inimigos quando a câmera se mover;
-5. `approaches player` mudar para `SIM` quando o inimigo avançar;
-6. a distância ao player aumentar depois de um empurrão;
-7. o `Enemy Score` do inimigo real superar objetos e efeitos temporários;
-8. depois de adquirido, o `TARGET LOCK` sobreviver a pequenas oscilações de score;
-9. a caixa e a trilha continuarem acompanhando o alvo.
+1. `PLAYER #000` cobrir corretamente o sprite;
+2. o player não nascer como `ENTITY`;
+3. água/efeitos repetitivos forem progressivamente suprimidos;
+4. o mesmo inimigo mantiver o mesmo ID por vários segundos;
+5. `TARGET LOCK` sobreviver a pequenas oscilações;
+6. contato com o player produzir `OCCLUDED` sem a caixa atravessar o PLAYER;
+7. o lado relativo continuar estável durante a oclusão;
+8. o mesmo ID puder ser recuperado depois de uma separação curta;
+9. o movimento de câmera não virar uma avalanche de inimigos.
 
 ## Próxima etapa
 
-Somente após validar o Observer será criado o controlador v0.3b:
+Somente após validar essa percepção será criado o controlador v0.3b:
 
 ```text
 SEARCH → APPROACH → MELEE → DISPLACED → RECOVER → POST_COMBAT
 ```
 
-A decisão de `LEFT`, `RIGHT`, `R +REP` e `H` será baseada no estado espacial do alvo, não em semelhança global entre frames.
+`LEFT`, `RIGHT`, `R +REP` e `H` serão decididos a partir do estado espacial e temporal do alvo, não por semelhança global entre frames.

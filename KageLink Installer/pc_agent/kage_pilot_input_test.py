@@ -5,38 +5,18 @@ import ctypes
 import time
 from ctypes import wintypes
 
+from pc_agent.game_control import INPUT, INPUT_KEYBOARD, INPUT_UNION, KEYBDINPUT, _user32
 from pc_agent.kage_pilot.pilot import WindowsGameController
 
 
-INPUT_KEYBOARD = 1
 KEYEVENTF_KEYUP = 0x0002
 KEYEVENTF_SCANCODE = 0x0008
 MAPVK_VK_TO_VSC = 0
-ULONG_PTR = ctypes.c_size_t
 
-
-class KEYBDINPUT(ctypes.Structure):
-    _fields_ = [
-        ("wVk", wintypes.WORD),
-        ("wScan", wintypes.WORD),
-        ("dwFlags", wintypes.DWORD),
-        ("time", wintypes.DWORD),
-        ("dwExtraInfo", ULONG_PTR),
-    ]
-
-
-class INPUT_UNION(ctypes.Union):
-    _fields_ = [("ki", KEYBDINPUT)]
-
-
-class INPUT(ctypes.Structure):
-    _anonymous_ = ("union",)
-    _fields_ = [("type", wintypes.DWORD), ("union", INPUT_UNION)]
-
-
-_user32 = ctypes.WinDLL("user32", use_last_error=True)
-_user32.SendInput.argtypes = (wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int)
-_user32.SendInput.restype = wintypes.UINT
+# Reuse the exact INPUT/INPUT_UNION/KEYBDINPUT layout from game_control.py.
+# SendInput rejects a cbSize that does not match Windows' real INPUT structure
+# with ERROR_INVALID_PARAMETER (87). The previous diagnostic defined a
+# keyboard-only union, which was too small on 64-bit Windows.
 _user32.MapVirtualKeyW.argtypes = (wintypes.UINT, wintypes.UINT)
 _user32.MapVirtualKeyW.restype = wintypes.UINT
 
@@ -99,6 +79,7 @@ def main() -> int:
 
     print("Kage Pilot SCAN-CODE INPUT TEST / TESTE DE SCAN CODE")
     print(f"hardware scan: {scan_key.upper()} = 0x{scan_code:02X}")
+    print(f"INPUT struct size={ctypes.sizeof(INPUT)} bytes")
 
     controller = WindowsGameController(recover_foreground=True, debug=True)
     controller.activate()

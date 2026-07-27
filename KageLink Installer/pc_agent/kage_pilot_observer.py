@@ -19,7 +19,7 @@ from pc_agent.kage_pilot.recorder import WindowsGameFrameSource
 
 DEFAULT_PLAYER_X = 0.5181
 DEFAULT_PLAYER_Y = 0.4706
-DEFAULT_GRID_SIZE = 64.0
+DEFAULT_GRID_SIZE = 32.0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -54,9 +54,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--reacquire-distance", type=float, default=180.0)
     parser.add_argument("--reacquire-similarity", type=float, default=0.82)
 
-    # The NPC/player references show one complete character occupying roughly a 64px
-    # vertical band. The grid is therefore 64x64 by default and is automatically offset
-    # so PLAYER is centred inside one cell. Manual origins remain available for tests.
+    # Real water/combat validation showed that 32x32 is the useful logical lattice.
+    # The sprite artwork may span multiple cells; the grid is behavioural/navigation
+    # geometry, not a requirement that the whole sprite fit inside one square.
     parser.add_argument("--grid-size", type=float, default=DEFAULT_GRID_SIZE)
     parser.add_argument("--grid-origin-x", type=float, default=None)
     parser.add_argument("--grid-origin-y", type=float, default=None)
@@ -237,7 +237,7 @@ def main() -> int:
         f"hits={config.background_min_dense_hits:.0f} age={config.background_min_age:.1f}s"
     )
     print(
-        "TARGET GUARD v4: 64px tile trajectory + confirmed CONTACT MEMORY; "
+        "TARGET GUARD v4: grid trajectory + confirmed CONTACT MEMORY; "
         "LOST cannot create contact"
     )
     alignment = "PLAYER-centred auto" if not manual_origin else "manual"

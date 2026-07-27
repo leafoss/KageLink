@@ -64,35 +64,77 @@ class Pilot:
 
 
 class WindowsGameController:
-    def __init__(self) -> None:
+    """Safe Windows controller used by Kage Pilot.
+
+    Legacy callers keep the strict abort-on-focus-loss behavior by default.
+    Kage Pilot v0.2 can opt into one-step focus recovery. Recovery always
+    releases synthetic keys first, revalidates the exact game window, brings
+    it to the foreground, and only then sends the desired state again.
+    """
+
+    def __init__(self, *, recover_foreground: bool = False, debug: bool = False) -> None:
         from pc_agent.game_control import GameInputController
 
         self._controller = GameInputController()
+        self.recover_foreground = bool(recover_foreground)
+        self.debug = bool(debug)
 
-    def activate(self) -> None:
+    def _focus_exact_game(self) -> None:
         from pc_agent.windows import ensure_game_window_foreground, is_game_window_foreground
         from pc_agent.game_window import find_exact_game_window
 
-        self._controller.activate()
         focus = ensure_game_window_foreground(self._controller.title)
         if not focus.ok:
-            self._controller.deactivate()
             raise RuntimeError(focus.error or "FOREGROUND_FAILED")
         hwnd = find_exact_game_window(self._controller.title)
         if hwnd is None or not is_game_window_foreground(hwnd):
-            self._controller.deactivate()
             raise RuntimeError("FOREGROUND_FAILED")
 
+    def activate(self) -> None:
+        self._controller.activate()
+        try:
+            self._focus_exact_game()
+        except Exception:
+            self._controller.deactivate()
+            raise
+
+    def _recover_focus(self) -> None:
+        # The core controller intentionally deactivates after FOREGROUND_LOST.
+        # Start from a fully released state before reacquiring the exact game.
+        self._controller.deactivate()
+        self._focus_exact_game()
+        self._controller.activate()
+        if self.debug:
+            print("V0.2 focus=recovered / foco=recuperado")
+
     def apply_keys(self, keys: tuple[str, ...]) -> None:
-        self._controller.apply_state(keys)
+        from pc_agent.game_control import GameControlError
+        from pc_agent.game_window import find_exact_game_window
+        from pc_agent.windows import is_game_window_foreground
+
+        desired = tuple(str(key).strip().lower() for key in keys if str(key).strip())
+
+        if self.recover_foreground:
+            hwnd = find_exact_game_window(self._controller.title)
+            if hwnd is not None and not is_game_window_foreground(hwnd):
+                self._recover_focus()
+
+        try:
+            self._controller.apply_state(desired)
+        except GameControlError as error:
+            if not self.recover_foreground or str(error) != "FOREGROUND_LOST":
+                raise
+            self._recover_focus()
+            self._controller.apply_state(desired)
 
     def release_all(self) -> None:
         self._controller.release_all()
 
     def tap(self, key: str, duration: float = 0.08) -> None:
-        self._controller.apply_state((str(key).strip().lower(),))
+        normalized = str(key).strip().lower()
+        self.apply_keys((normalized,))
         time.sleep(max(0.01, float(duration)))
-        self._controller.apply_state(())
+        self.apply_keys(())
 
     def click_normalized(self, x: float, y: float) -> None:
         from pc_agent.game_control import _send_left_click

@@ -16,6 +16,7 @@ MODEL_VERSION = 2
 FEATURE_SIZE = (24, 14)
 IDLE_LABEL = "idle"
 NAV_KEYS = frozenset({"up", "down", "left", "right"})
+MAX_EXEMPLARS_PER_LABEL = 64
 
 
 def _key_set(keys: Iterable[str]) -> set[str]:
@@ -47,6 +48,10 @@ def temporal_features(previous_jpeg: bytes, current_jpeg: bytes) -> list[float]:
     return current + delta
 
 
+def _distance(a: list[float], b: list[float]) -> float:
+    return math.sqrt(sum((x - y) ** 2 for x, y in zip(a, b)) / max(1, len(a)))
+
+
 @dataclass(frozen=True, slots=True)
 class PolicyPrediction:
     label: str
@@ -56,7 +61,21 @@ class PolicyPrediction:
 
 
 class PrototypePolicy:
-    def __init__(self, prototypes: dict[str, list[float]], counts: dict[str, int] | None = None) -> None:
+    """Class-balanced nearest-exemplar policy with centroid fallback.
+
+    v0.2 originally compared a frame only with the mean image of each action.
+    That made the very diverse `idle` state produce a broad/generic centroid.
+    We still persist centroids for backwards compatibility, but new models also
+    persist representative real action-run examples and score every class by
+    its nearest example. Counts therefore do not vote for a class.
+    """
+
+    def __init__(
+        self,
+        prototypes: dict[str, list[float]],
+        counts: dict[str, int] | None = None,
+        exemplars: dict[str, list[list[float]]] | None = None,
+    ) -> None:
         if not prototypes:
             raise ValueError("EMPTY_POLICY")
         expected = FEATURE_SIZE[0] * FEATURE_SIZE[1] * 2
@@ -65,11 +84,21 @@ class PrototypePolicy:
                 raise ValueError(f"INVALID_POLICY_PROTOTYPE:{label}")
         self.prototypes = {str(k): [float(v) for v in values] for k, values in prototypes.items()}
         self.counts = {str(k): int(v) for k, v in (counts or {}).items()}
+        self.exemplars: dict[str, list[list[float]]] = {}
+        for label, vectors in (exemplars or {}).items():
+            normalized_vectors: list[list[float]] = []
+            for vector in vectors:
+                if len(vector) != expected:
+                    raise ValueError(f"INVALID_POLICY_EXEMPLAR:{label}")
+                normalized_vectors.append([float(v) for v in vector])
+            if normalized_vectors:
+                self.exemplars[str(label)] = normalized_vectors
 
     @classmethod
     def from_examples(cls, examples: Iterable[tuple[str, list[float]]]) -> "PrototypePolicy":
         sums: dict[str, list[float]] = {}
         counts: dict[str, int] = defaultdict(int)
+        exemplars: dict[str, list[list[float]]] = defaultdict(list)
         accepted = 0
         for label, vector in examples:
             if label not in sums:
@@ -78,18 +107,31 @@ class PrototypePolicy:
                 sums[label][index] += value
             counts[label] += 1
             accepted += 1
+            bucket = exemplars[label]
+            if len(bucket) < MAX_EXEMPLARS_PER_LABEL:
+                bucket.append(list(vector))
+            else:
+                # Deterministic reservoir-like spacing: replace slots as the
+                # class grows so long demonstrations do not preserve only the
+                # earliest examples.
+                slot = counts[label] % MAX_EXEMPLARS_PER_LABEL
+                bucket[slot] = list(vector)
         if accepted == 0:
             raise ValueError("NO_POLICY_SAMPLES")
         prototypes = {
             label: [value / counts[label] for value in vector]
             for label, vector in sums.items()
         }
-        return cls(prototypes, dict(counts))
+        return cls(prototypes, dict(counts), dict(exemplars))
 
     def predict_features(self, vector: list[float]) -> PolicyPrediction:
         ranked: list[tuple[float, str]] = []
         for label, prototype in self.prototypes.items():
-            distance = math.sqrt(sum((a - b) ** 2 for a, b in zip(vector, prototype)) / len(vector))
+            candidates = self.exemplars.get(label)
+            if candidates:
+                distance = min(_distance(vector, exemplar) for exemplar in candidates)
+            else:
+                distance = _distance(vector, prototype)
             ranked.append((distance, label))
         ranked.sort(key=lambda item: (item[0], item[1]))
         best_distance, best_label = ranked[0]
@@ -106,11 +148,15 @@ class PrototypePolicy:
         )
 
     def to_dict(self) -> dict:
-        return {"prototypes": self.prototypes, "counts": self.counts}
+        return {
+            "prototypes": self.prototypes,
+            "counts": self.counts,
+            "exemplars": self.exemplars,
+        }
 
     @classmethod
     def from_dict(cls, payload: dict) -> "PrototypePolicy":
-        return cls(payload["prototypes"], payload.get("counts"))
+        return cls(payload["prototypes"], payload.get("counts"), payload.get("exemplars"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,13 +174,15 @@ class TemporalCombatModel:
         skill: PrototypePolicy,
         *,
         base_keys: Iterable[str] = ("r",),
-        skill_keys: Iterable[str] = ("h", "v"),
+        skill_keys: Iterable[str] = ("h",),
+        post_combat_keys: Iterable[str] = ("v",),
         history_frames: int = 2,
     ) -> None:
         self.navigation = navigation
         self.skill = skill
         self.base_keys = tuple(sorted(_key_set(base_keys)))
         self.skill_keys = tuple(sorted(_key_set(skill_keys)))
+        self.post_combat_keys = tuple(sorted(_key_set(post_combat_keys)))
         self.history_frames = max(1, int(history_frames))
 
     @classmethod
@@ -144,12 +192,14 @@ class TemporalCombatModel:
         *,
         results: Iterable[str] = ("victory",),
         base_keys: Iterable[str] = ("r",),
-        skill_keys: Iterable[str] = ("h", "v"),
+        skill_keys: Iterable[str] = ("h",),
+        post_combat_keys: Iterable[str] = ("v",),
         stride: int = 1,
         history_frames: int = 2,
     ) -> "TemporalCombatModel":
         base = _key_set(base_keys)
         skills = _key_set(skill_keys)
+        post_combat = _key_set(post_combat_keys)
         stride = max(1, int(stride))
         history = max(1, int(history_frames))
         nav_examples: list[tuple[str, list[float]]] = []
@@ -170,6 +220,14 @@ class TemporalCombatModel:
                     if not line:
                         continue
                     raw = json.loads(line)
+                    raw_keys = _key_set(raw.get("keys", ()))
+
+                    # In Shinobi Story Online V is meditation/rest after the
+                    # fight. Once a post-combat key appears in a victorious
+                    # demonstration, the remaining tail is not combat data.
+                    if raw_keys.intersection(post_combat):
+                        break
+
                     take = run_index % stride == 0
                     run_index += 1
                     if not take:
@@ -183,7 +241,7 @@ class TemporalCombatModel:
                     previous_jpeg = (Path(session_path) / previous.frame).read_bytes()
                     features = temporal_features(previous_jpeg, current_jpeg)
 
-                    keys = _key_set(raw.get("keys", ())).difference(base)
+                    keys = raw_keys.difference(base).difference(post_combat)
                     nav_label = _label(keys.intersection(NAV_KEYS))
                     skill_label = _label(keys.intersection(skills))
                     nav_examples.append((nav_label, features))
@@ -196,6 +254,7 @@ class TemporalCombatModel:
             PrototypePolicy.from_examples(skill_examples),
             base_keys=base,
             skill_keys=skills,
+            post_combat_keys=post_combat,
             history_frames=history,
         )
 
@@ -214,6 +273,7 @@ class TemporalCombatModel:
             "feature_size": list(FEATURE_SIZE),
             "base_keys": list(self.base_keys),
             "skill_keys": list(self.skill_keys),
+            "post_combat_keys": list(self.post_combat_keys),
             "history_frames": self.history_frames,
             "navigation": self.navigation.to_dict(),
             "skill": self.skill.to_dict(),
@@ -232,7 +292,8 @@ class TemporalCombatModel:
             PrototypePolicy.from_dict(payload["navigation"]),
             PrototypePolicy.from_dict(payload["skill"]),
             base_keys=payload.get("base_keys", ("r",)),
-            skill_keys=payload.get("skill_keys", ("h", "v")),
+            skill_keys=payload.get("skill_keys", ("h",)),
+            post_combat_keys=payload.get("post_combat_keys", ("v",)),
             history_frames=int(payload.get("history_frames", 2)),
         )
 

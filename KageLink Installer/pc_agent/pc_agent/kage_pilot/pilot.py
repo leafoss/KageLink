@@ -30,6 +30,7 @@ class Pilot:
         *,
         min_confidence: float = 0.08,
         decision_hz: float = 10.0,
+        base_keys: tuple[str, ...] = (),
         sleep_fn=time.sleep,
     ) -> None:
         self.model = model
@@ -37,12 +38,14 @@ class Pilot:
         self.controller = controller
         self.min_confidence = max(0.0, min(1.0, float(min_confidence)))
         self.decision_hz = max(1.0, min(30.0, float(decision_hz)))
+        self.base_keys = tuple(sorted({str(k).strip().lower() for k in base_keys if str(k).strip()}))
         self.sleep_fn = sleep_fn
 
     def step(self) -> PilotStep:
         frame = self.frame_source.capture()
         prediction = self.model.predict(bytes(frame.jpeg))
-        keys = prediction.keys if prediction.confidence >= self.min_confidence else ()
+        predicted = prediction.keys if prediction.confidence >= self.min_confidence else ()
+        keys = tuple(sorted(set(self.base_keys).union(predicted)))
         self.controller.apply_keys(keys)
         return PilotStep(prediction=prediction, applied_keys=keys)
 

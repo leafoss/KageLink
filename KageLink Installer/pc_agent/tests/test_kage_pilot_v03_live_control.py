@@ -34,18 +34,19 @@ def state_with_target(track_id=7, score=80.0):
     return SimpleNamespace(target=SimpleNamespace(track_id=track_id, enemy_score=score))
 
 
-def metrics(*, cell=(10, 8), player=(9, 8), distance=1):
+def metrics(*, cell=(10, 8), player=(9, 8), distance=1, background_strength=0.0):
     return SimpleNamespace(
         cell=cell,
         player_cell=player,
         grid_distance=distance,
         toward_steps=2,
         away_steps=0,
+        background_strength=background_strength,
     )
 
 
 class KagePilotV03LiveControlTests(unittest.TestCase):
-    def test_contact_memory_at_two_cells_becomes_recover_move(self):
+    def test_contact_memory_at_two_cells_holds_instead_of_blind_recover(self):
         engine = ShadowCombatDecisionEngine(combat_active_on_start=True)
         decision = engine.decide(
             state_with_target(),
@@ -53,10 +54,36 @@ class KagePilotV03LiveControlTests(unittest.TestCase):
             FakeTracker(state="LOST", side="RIGHT"),
             now=1.0,
         )
-        self.assertEqual(decision.mode, "RECOVER")
-        self.assertEqual(decision.navigation, "MOVE_RIGHT")
+        self.assertEqual(decision.mode, "MEMORY_HOLD")
+        self.assertEqual(decision.navigation, "HOLD")
         self.assertTrue(decision.base_r)
         self.assertFalse(decision.h_opportunity)
+
+    def test_visible_target_at_two_cells_still_recovers(self):
+        engine = ShadowCombatDecisionEngine(combat_active_on_start=True)
+        decision = engine.decide(
+            state_with_target(),
+            FakeObserver(metrics(cell=(11, 8), player=(9, 8), distance=2), mode="VISIBLE"),
+            FakeTracker(state="VISIBLE", side="RIGHT"),
+            now=1.0,
+        )
+        self.assertEqual(decision.mode, "APPROACH")
+        self.assertEqual(decision.navigation, "MOVE_RIGHT")
+        self.assertTrue(decision.base_r)
+
+    def test_strong_dynamic_background_blocks_visible_pursuit(self):
+        engine = ShadowCombatDecisionEngine(combat_active_on_start=True, pursuit_background_block=0.50)
+        decision = engine.decide(
+            state_with_target(),
+            FakeObserver(
+                metrics(cell=(11, 8), player=(9, 8), distance=2, background_strength=0.92),
+                mode="VISIBLE",
+            ),
+            FakeTracker(state="VISIBLE", side="RIGHT"),
+            now=1.0,
+        )
+        self.assertEqual(decision.mode, "BACKGROUND_HOLD")
+        self.assertEqual(decision.navigation, "HOLD")
 
     def test_move_holds_r_and_direction(self):
         planner = LiveCombatControlPlanner()

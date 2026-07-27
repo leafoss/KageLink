@@ -52,6 +52,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--h-stable-seconds", type=float, default=0.60)
     parser.add_argument("--h-cooldown", type=float, default=2.0)
     parser.add_argument("--h-min-score", type=float, default=55.0)
+    parser.add_argument("--engagement-gap", type=float, default=0.75)
     parser.add_argument("--log", type=Path, default=None)
     parser.add_argument("--no-grid-overlay", action="store_true")
     parser.add_argument("--arena-left", type=float, default=0.04)
@@ -68,7 +69,8 @@ def _decision_text(decision) -> str:
     target = f"#{decision.target_id:03d}" if decision.target_id is not None else "none"
     return (
         f"SHADOW {decision.mode} target={target} "
-        f"nav={decision.navigation} face={decision.face} {r_text} {h_text}"
+        f"nav={decision.navigation} face={decision.face} {r_text} {h_text} "
+        f"engaged={decision.engagement_stable_seconds:.1f}s"
     )
 
 
@@ -111,6 +113,8 @@ def main() -> int:
         h_stable_seconds=args.h_stable_seconds,
         h_cooldown_seconds=args.h_cooldown,
         h_min_score=args.h_min_score,
+        engagement_gap_seconds=args.engagement_gap,
+        combat_active_on_start=True,
     )
     source = WindowsGameFrameSource()
 
@@ -130,7 +134,8 @@ def main() -> int:
     print("READ ONLY / SOMENTE OBSERVACAO - NO KEYS / NENHUMA TECLA")
     print(
         f"GRID={observer.tile_size:.0f}px PLAYER=({config.player_x:.4f},{config.player_y:.4f}) "
-        f"H stable={engine.h_stable_seconds:.2f}s cooldown={engine.h_cooldown_seconds:.1f}s"
+        f"R session=ON H stable={engine.h_stable_seconds:.2f}s "
+        f"cooldown={engine.h_cooldown_seconds:.1f}s gap={engine.engagement_gap_seconds:.2f}s"
     )
     print("Jogue manualmente / Fight manually. Q ou ESC = sair / exit")
 
@@ -161,6 +166,8 @@ def main() -> int:
                     "face": decision.face,
                     "base_r": decision.base_r,
                     "h_opportunity": decision.h_opportunity,
+                    "engagement_active": decision.engagement_active,
+                    "engagement_stable_seconds": round(decision.engagement_stable_seconds, 4),
                     "grid_distance": decision.grid_distance,
                     "target_score": None if target is None else round(float(target.enemy_score), 2),
                     "target_cell": None if metrics is None else list(metrics.cell),
@@ -171,13 +178,13 @@ def main() -> int:
 
             preview = render_overlay_v03(frame, state, config, tracker)
             preview = observer.draw_grid_overlay(preview, state)
-            cv2.rectangle(preview, (8, 28), (min(preview.shape[1] - 8, 720), 58), (0, 0, 0), -1)
+            cv2.rectangle(preview, (8, 28), (min(preview.shape[1] - 8, 760), 58), (0, 0, 0), -1)
             cv2.putText(
                 preview,
                 _decision_text(decision),
                 (14, 49),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.48,
+                0.46,
                 (245, 245, 245),
                 1,
                 cv2.LINE_AA,

@@ -20,8 +20,9 @@ class TemporalCombatPilot:
 
     R (or other configured base keys) remains held as the combat state.
     Navigation is predicted independently from skills. Skills are edge-like
-    actions protected by a cooldown so the model cannot spam one jutsu every
-    decision tick just because several adjacent frames look alike.
+    actions protected by both a cooldown and an idle rearm gate: after a jutsu
+    fires, the skill policy must return to idle before the same jutsu can fire
+    again. This prevents a classifier that gets stuck on H from spamming it.
     """
 
     def __init__(
@@ -52,15 +53,17 @@ class TemporalCombatPilot:
         self.monotonic_fn = monotonic_fn
         self._previous_jpeg: bytes | None = None
         self._last_skill_fire: dict[str, float] = {}
+        self._skill_rearmed = True
         self._last_debug_signature: tuple | None = None
 
     def reset(self) -> None:
         self._previous_jpeg = None
         self._last_skill_fire.clear()
+        self._skill_rearmed = True
         self._last_debug_signature = None
 
     def _skill_allowed(self, label: str, now: float) -> bool:
-        if label == IDLE_LABEL:
+        if label == IDLE_LABEL or not self._skill_rearmed:
             return False
         last = self._last_skill_fire.get(label)
         return last is None or now - last >= self.skill_cooldown_seconds
@@ -79,13 +82,17 @@ class TemporalCombatPilot:
 
         now = self.monotonic_fn()
         skill_fired: tuple[str, ...] = ()
-        if (
+
+        if prediction.skill.label == IDLE_LABEL:
+            self._skill_rearmed = True
+        elif (
             prediction.skill.confidence >= self.skill_confidence
             and self._skill_allowed(prediction.skill.label, now)
         ):
             skill_fired = prediction.skill.keys
             if skill_fired:
                 self._last_skill_fire[prediction.skill.label] = now
+                self._skill_rearmed = False
 
         keys = tuple(sorted(set(self.model.base_keys).union(navigation).union(skill_fired)))
         self.controller.apply_keys(keys)
@@ -99,6 +106,7 @@ class TemporalCombatPilot:
                 round(prediction.skill.confidence, 3),
                 keys,
                 skill_fired,
+                self._skill_rearmed,
             )
             if signature != self._last_debug_signature:
                 print(
@@ -106,6 +114,7 @@ class TemporalCombatPilot:
                     f"nav={prediction.navigation.label}:{prediction.navigation.confidence:.3f} "
                     f"skill={prediction.skill.label}:{prediction.skill.confidence:.3f} "
                     f"fire={'+'.join(skill_fired) or '-'} "
+                    f"armed={'yes' if self._skill_rearmed else 'no'} "
                     f"keys={'+'.join(keys) or '-'}"
                 )
                 self._last_debug_signature = signature

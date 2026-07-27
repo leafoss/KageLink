@@ -29,7 +29,9 @@ class ShadowCombatDecisionEngine:
     - visual ENTITY ids are disposable. H stability belongs to the logical engagement,
       not one OpenCV track id;
     - CONTACT_MEMORY preserves the last visually confirmed facing direction instead of
-      trusting stale geometry while sprites overlap.
+      trusting stale geometry while sprites overlap;
+    - grid distance is authoritative for recovery: d<=1 is melee, d>=2 means the
+      character must move back toward the target even if CONTACT_MEMORY still exists.
     """
 
     def __init__(
@@ -134,13 +136,12 @@ class ShadowCombatDecisionEngine:
         else:
             face = measured_face if measured_face != "-" else self._last_confirmed_face
 
-        contact_like = observer.target_mode in {
-            "OCCLUDED",
-            "CONTACT_MEMORY",
-            "CONTACT_REBIND",
-        } or metrics.grid_distance <= 1
+        # Grid distance is the authoritative combat geometry. CONTACT_MEMORY can preserve
+        # identity/facing, but it must not trick the controller into standing still after
+        # a knockback that moved target/player two or more cells apart.
+        melee_range = metrics.grid_distance <= 1
 
-        if contact_like:
+        if melee_range:
             if self._contact_since is None or now - self._last_contact_at > self.engagement_gap_seconds:
                 self._contact_since = now
             self._last_contact_at = now
@@ -149,7 +150,7 @@ class ShadowCombatDecisionEngine:
 
         stable_for = self._engagement_stable_for(now)
 
-        if contact_like:
+        if melee_range:
             navigation = f"FACE_{face}" if face != "-" else "HOLD_MELEE"
             mode = "MELEE"
             reason = (
@@ -158,14 +159,14 @@ class ShadowCombatDecisionEngine:
             )
         else:
             navigation = f"MOVE_{face}" if face != "-" else "HOLD"
-            mode = "APPROACH"
+            mode = "RECOVER" if observer.target_mode in {"OCCLUDED", "CONTACT_MEMORY", "CONTACT_REBIND"} else "APPROACH"
             reason = (
-                f"target {dx:+d},{dy:+d} cells from player; "
-                f"toward={metrics.toward_steps} away={metrics.away_steps}"
+                f"target {dx:+d},{dy:+d} cells from player; d={metrics.grid_distance}; "
+                f"toward={metrics.toward_steps} away={metrics.away_steps}; mode={observer.target_mode}"
             )
 
         skill_ready = (
-            contact_like
+            melee_range
             and visual_confirmation
             and observer.target_mode != "CONTACT_MEMORY"
             and target.enemy_score >= self.h_min_score

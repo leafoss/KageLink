@@ -26,6 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--seconds", type=float, default=None)
     parser.add_argument("--fps", type=float, default=10.0)
+    parser.add_argument("--telemetry-seconds", type=float, default=2.0)
 
     parser.add_argument("--player-x", type=float, default=0.51)
     parser.add_argument("--player-y", type=float, default=0.48)
@@ -70,6 +71,28 @@ def _calibrate_player_from_click(
     return player_x, player_y
 
 
+def _telemetry_line(state, tracker, *, started: float) -> str:
+    target = state.target
+    if target is None:
+        target_text = "none"
+    else:
+        context = tracker.context_for(target.track_id)
+        target_text = (
+            f"#{target.track_id:03d}/{context.state}/{context.relative_side}/"
+            f"{target.enemy_score:.1f}%"
+        )
+    return (
+        f"OBS t={time.monotonic() - started:6.1f}s "
+        f"entities={len(state.tracks):3d} "
+        f"bg_mature={tracker.background.mature_cells:3d} "
+        f"bg_strong={tracker.background.strong_cells:3d} "
+        f"suppressed={tracker.background.suppressed_last_frame:3d} "
+        f"pruned={getattr(tracker, 'background_pruned_last_frame', 0):3d} "
+        f"dormant={tracker.dormant_count:3d} "
+        f"target={target_text}"
+    )
+
+
 def main() -> int:
     args = build_parser().parse_args()
     config = V03ObserverConfig(
@@ -101,7 +124,9 @@ def main() -> int:
     observer.tracker = tracker
     source = WindowsGameFrameSource()
     interval = 1.0 / max(1.0, min(30.0, float(args.fps)))
+    telemetry_interval = max(0.0, float(args.telemetry_seconds))
     started = time.monotonic()
+    next_telemetry = started + telemetry_interval if telemetry_interval > 0 else float("inf")
     frames = 0
     window_name = str(args.window_name)
 
@@ -153,7 +178,7 @@ def main() -> int:
         f"acquire={config.target_acquire_threshold:.0f}% keep={config.target_keep_threshold:.0f}%"
     )
     print(
-        "BACKGROUND_DYNAMIC v2 occupancy: "
+        "BACKGROUND_DYNAMIC v3 temporal recurrence: "
         f"enabled={'yes' if config.dynamic_background_enabled else 'no'} "
         f"similarity={config.background_similarity:.2f} "
         f"hits={config.background_min_dense_hits:.0f} age={config.background_min_age:.1f}s"
@@ -163,6 +188,7 @@ def main() -> int:
         f"ttl={config.reacquire_ttl:.1f}s distance={config.reacquire_distance:.0f}px "
         f"similarity={config.reacquire_similarity:.2f}"
     )
+    print(f"TELEMETRY: every / a cada {telemetry_interval:.1f}s" if telemetry_interval > 0 else "TELEMETRY: off")
     print("Clique ESQUERDO em Leafos = calibrar PLAYER / LEFT CLICK Leafos = calibrate PLAYER")
     print("Q ou ESC = sair / exit")
 
@@ -177,6 +203,11 @@ def main() -> int:
             state = observer.process(frame)
             mouse_context["arena_rect"] = state.arena_rect
             mouse_context["frame_width"] = int(frame.shape[1])
+
+            now = time.monotonic()
+            if now >= next_telemetry:
+                print(_telemetry_line(state, tracker, started=started))
+                next_telemetry = now + telemetry_interval
 
             preview = render_overlay_v03(frame, state, config, tracker)
             cv2.putText(

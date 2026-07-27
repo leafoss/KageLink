@@ -11,6 +11,7 @@ from pc_agent.kage_pilot.entity_observer import (
     decode_jpeg,
     render_overlay,
 )
+from pc_agent.kage_pilot.entity_tracker_v03 import MeleeAwareEntityTracker
 from pc_agent.kage_pilot.recorder import WindowsGameFrameSource
 
 
@@ -49,6 +50,7 @@ def main() -> int:
     ).normalized()
 
     observer = EntityObserver(config)
+    observer.tracker = MeleeAwareEntityTracker(config)
     source = WindowsGameFrameSource()
     interval = 1.0 / max(1.0, min(30.0, float(args.fps)))
     started = time.monotonic()

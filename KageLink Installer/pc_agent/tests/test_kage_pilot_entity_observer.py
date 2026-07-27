@@ -7,11 +7,11 @@ import numpy as np
 
 from pc_agent.kage_pilot.entity_observer import (
     Candidate,
-    EntityTracker,
     FlowEstimate,
     ObserverConfig,
     estimate_global_flow,
 )
+from pc_agent.kage_pilot.entity_tracker_v03 import MeleeAwareEntityTracker
 
 
 class KagePilotEntityObserverTests(unittest.TestCase):
@@ -35,10 +35,13 @@ class KagePilotEntityObserverTests(unittest.TestCase):
 
     def test_tracker_builds_enemy_score_for_persistent_approach(self):
         config = ObserverConfig(enemy_threshold=40.0, player_exclusion_radius=18.0).normalized()
-        tracker = EntityTracker(config)
+        tracker = MeleeAwareEntityTracker(config)
         player = (100.0, 100.0)
         flow = FlowEstimate()
 
+        # The final sample lands exactly on the player's exclusion boundary.
+        # A known opponent must retain its ID and observation history there;
+        # the exclusion radius is only allowed to suppress brand-new tracks.
         positions = [190.0, 176.0, 160.0, 144.0, 130.0, 118.0]
         now = 0.0
         for x in positions:
@@ -64,7 +67,7 @@ class KagePilotEntityObserverTests(unittest.TestCase):
 
     def test_player_anchor_exclusion_does_not_create_false_enemy(self):
         config = ObserverConfig(player_exclusion_radius=30.0).normalized()
-        tracker = EntityTracker(config)
+        tracker = MeleeAwareEntityTracker(config)
         player = (100.0, 100.0)
         candidate = Candidate(
             bbox=(88, 78, 24, 44),
@@ -79,7 +82,7 @@ class KagePilotEntityObserverTests(unittest.TestCase):
 
     def test_camera_flow_does_not_count_as_real_entity_motion(self):
         config = ObserverConfig(player_exclusion_radius=10.0).normalized()
-        tracker = EntityTracker(config)
+        tracker = MeleeAwareEntityTracker(config)
         player = (100.0, 100.0)
         initial = Candidate(
             bbox=(188, 82, 24, 36),

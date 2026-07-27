@@ -21,7 +21,7 @@ class ShadowCombatDecisionEngine:
     """Read-only combat decision layer for Kage Pilot v0.3.
 
     The engine never sends input. It converts the validated TARGET + 32px grid state
-    into the action that a future controller would take.
+    into the action that a future/live controller would take.
 
     Important BYOND combat semantics learned from real tests:
     - R is a combat-session base state and remains logically ON while TARGET is briefly lost;
@@ -29,7 +29,10 @@ class ShadowCombatDecisionEngine:
     - CONTACT_MEMORY preserves facing only in local melee and never authorizes blind pursuit;
     - d<=1 is melee; d>=2 recovery requires current visual confirmation;
     - strong dynamic-background evidence blocks movement pursuit even if an upstream
-      detector temporarily labels the region as TARGET.
+      detector temporarily labels the region as TARGET;
+    - skill cooldown is only consumed when the caller authorizes skills for that frame.
+      This prevents a motion-burst safety hold from consuming an H opportunity that was
+      never physically executed.
     """
 
     def __init__(
@@ -80,7 +83,15 @@ class ShadowCombatDecisionEngine:
             return 0.0
         return max(0.0, float(now) - self._contact_since)
 
-    def decide(self, state, observer, tracker, *, now: float) -> ShadowDecision:
+    def decide(
+        self,
+        state,
+        observer,
+        tracker,
+        *,
+        now: float,
+        skills_allowed: bool = True,
+    ) -> ShadowDecision:
         now = float(now)
         target = state.target
 
@@ -155,8 +166,6 @@ class ShadowCombatDecisionEngine:
                 f"stable={stable_for:.2f}s"
             )
         elif not visual_confirmation or observer.target_mode == "CONTACT_MEMORY":
-            # Memory is useful to avoid losing the opponent in melee, but movement toward a
-            # remembered distant position is exactly how the first live run chased water.
             navigation = "HOLD"
             mode = "MEMORY_HOLD"
             reason = (
@@ -180,7 +189,8 @@ class ShadowCombatDecisionEngine:
             )
 
         skill_ready = (
-            melee_range
+            bool(skills_allowed)
+            and melee_range
             and visual_confirmation
             and observer.target_mode != "CONTACT_MEMORY"
             and target.enemy_score >= self.h_min_score

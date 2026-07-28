@@ -127,7 +127,7 @@ def main() -> int:
     args = build_parser().parse_args()
     try:
         recovery_hp_percent, recovery_chakra_percent = _validate_recovery_targets(args)
-    except ValueError as exc:
+    except (TypeError, ValueError) as exc:
         print(f"DOJO_CONFIG_ERROR / ERRO_CONFIG_DOJO: {exc}")
         return 2
 

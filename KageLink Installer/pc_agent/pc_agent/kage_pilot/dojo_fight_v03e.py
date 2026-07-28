@@ -51,7 +51,6 @@ def _interruptible_wait(seconds: float, *, interval: float = 0.05) -> None:
 def find_dojo_dialog(game_title: str) -> DojoDialogMatch | None:
     """Find the visible NPC choice dialog by process + #32770 + ListBox identity."""
 
-    import win32con
     import win32gui
     import win32process
 
@@ -88,7 +87,8 @@ def find_dojo_dialog(game_title: str) -> DojoDialogMatch | None:
                         continue
                     item_count = int(win32gui.SendMessage(child, LB_GETCOUNT, 0, 0))
                     selected = int(win32gui.SendMessage(child, LB_GETCURSEL, 0, 0))
-                    if item_count < 1:
+                    # The supplied Taijutsu dialog has Spar, Advanced Match and Cancel.
+                    if item_count < 3:
                         continue
                     score = 10_000
                     if not win32gui.GetWindowText(top_hwnd).strip():
@@ -234,6 +234,25 @@ def locate_adjacent_trainer(*, leader_threshold: float = 0.88) -> TrainerClickTa
         source.close()
 
 
+def _close_owned_controller(controller) -> None:
+    try:
+        controller.release_all()
+    except Exception:
+        pass
+    stop = getattr(controller, "_repeat_stop", None)
+    if stop is not None:
+        stop.set()
+    thread = getattr(controller, "_repeat_thread", None)
+    if thread is not None and thread.is_alive():
+        thread.join(timeout=0.25)
+    core = getattr(controller, "_controller", None)
+    if core is not None and hasattr(core, "deactivate"):
+        try:
+            core.deactivate()
+        except Exception:
+            pass
+
+
 def request_taijutsu_dojo_spar(
     game_title: str,
     *,
@@ -241,6 +260,7 @@ def request_taijutsu_dojo_spar(
     dialog_find_timeout_seconds: float = 4.0,
     spawn_delay_seconds: float = 5.0,
     leader_threshold: float = 0.88,
+    controller=None,
 ) -> TrainerClickTarget:
     """Click trainer once, wait, confirm selected first option with Enter, then wait for spawn."""
 
@@ -248,22 +268,20 @@ def request_taijutsu_dojo_spar(
     from pc_agent.windows import ensure_game_window_foreground
 
     click_target = locate_adjacent_trainer(leader_threshold=leader_threshold)
-    controller = WindowsGameController(recover_foreground=False)
+    owns_controller = controller is None
+    controller = controller or WindowsGameController(recover_foreground=False)
     controller.repeat_keys = set()
     try:
         controller.activate()
         controller.release_all()
+        clicked_at = time.monotonic()
         controller.click_normalized(click_target.normalized_x, click_target.normalized_y)
         controller.release_all()
 
-        # Discover the dialog early, but preserve the user's requested ten-second delay before Enter.
+        # Discover the dialog early while measuring the requested delay from the actual click.
         dialog = wait_for_dojo_dialog(game_title, timeout_seconds=dialog_find_timeout_seconds)
-        elapsed_after_click = 0.0
-        wait_started = time.monotonic()
-        _interruptible_wait(dialog_delay_seconds)
-        elapsed_after_click = time.monotonic() - wait_started
-        if elapsed_after_click + 0.01 < float(dialog_delay_seconds):
-            raise DojoFightRequestError("DOJO_DIALOG_WAIT_INTERRUPTED")
+        elapsed = time.monotonic() - clicked_at
+        _interruptible_wait(max(0.0, float(dialog_delay_seconds) - elapsed))
 
         refreshed = find_dojo_dialog(game_title)
         confirm_first_dojo_option(refreshed or dialog)
@@ -275,6 +293,8 @@ def request_taijutsu_dojo_spar(
         return click_target
     finally:
         controller.release_all()
+        if owns_controller:
+            _close_owned_controller(controller)
 
 
 __all__ = [

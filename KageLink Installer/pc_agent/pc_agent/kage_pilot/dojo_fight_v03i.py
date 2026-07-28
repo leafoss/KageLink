@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time  # Compatibility surface for the validated v0.3i test harness.
+
 from .dojo_fight_v03e import (
     DojoFightRequestError,
     TrainerClickTarget,

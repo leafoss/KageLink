@@ -42,7 +42,7 @@ class KagePilotDojoServiceTests(unittest.TestCase):
         self.assertEqual(DojoTrainingConfig(rounds=0).normalized().rounds, 0)
         self.assertEqual(DojoTrainingConfig(rounds=-5).normalized().rounds, 0)
 
-    def test_config_normalizes_thresholds_and_timeouts(self):
+    def test_config_normalizes_general_thresholds_and_timeouts(self):
         value = DojoTrainingConfig(
             combat_seconds=0,
             post_combat_timeout=0,
@@ -56,18 +56,80 @@ class KagePilotDojoServiceTests(unittest.TestCase):
         self.assertEqual(value.leader_threshold, 0.999)
         self.assertEqual(value.chat_poll_seconds, 0.10)
 
-    def test_public_command_targets_validated_v03i_loop(self):
+    def test_recovery_thresholds_cannot_weaken_validated_safety_floor(self):
+        with self.assertRaisesRegex(ValueError, "RECOVERY_HP_BELOW_SAFE_MINIMUM"):
+            DojoTrainingConfig(recovery_hp_percent=89).normalized()
+        with self.assertRaisesRegex(ValueError, "RECOVERY_CHAKRA_BELOW_SAFE_MINIMUM"):
+            DojoTrainingConfig(recovery_chakra_percent=49).normalized()
+
+    def test_json_contract_loads_human_editable_timing_and_recovery(self):
+        payload = {
+            "schema_version": 1,
+            "rounds": 3,
+            "timing": {
+                "after_trainer_click_seconds": 4,
+                "after_dialog_ok_seconds": 6,
+                "combat_timeout_seconds": 150,
+                "post_combat_timeout_seconds": 300,
+                "trainer_search_timeout_seconds": 80,
+                "dialog_find_timeout_seconds": 7,
+                "round_startup_delay_seconds": 2,
+                "chat_poll_seconds": 0.2,
+            },
+            "recovery": {"hp_percent": 95, "chakra_percent": 60},
+            "combat": {"h_enabled": False},
+            "detection": {"leader_threshold": 0.9},
+            "logging": {"directory": "logs-test"},
+        }
+        value = DojoTrainingConfig.from_dict(payload)
+        self.assertEqual(value.rounds, 3)
+        self.assertEqual(value.dialog_delay, 4)
+        self.assertEqual(value.spawn_delay, 6)
+        self.assertEqual(value.recovery_hp_percent, 95)
+        self.assertEqual(value.recovery_chakra_percent, 60)
+        self.assertTrue(value.disable_h)
+        self.assertEqual(value.log_dir, Path("logs-test"))
+        self.assertEqual(value.to_public_dict()["recovery"]["hp_percent"], 95)
+
+    def test_json_contract_rejects_unknown_keys(self):
+        with self.assertRaisesRegex(ValueError, "DOJO_CONFIG_UNKNOWN_KEYS:timing"):
+            DojoTrainingConfig.from_dict(
+                {
+                    "timing": {"unknown_wait": 5},
+                    "recovery": {"hp_percent": 90, "chakra_percent": 50},
+                }
+            )
+
+    def test_public_command_targets_validated_v03j_loop_and_forwards_recovery(self):
         service = DojoTrainingService(
             project_dir=Path("C:/KageLink/pc_agent"),
             python_executable="python-test",
         )
-        command = service.build_command(DojoTrainingConfig(rounds=0, disable_h=True))
+        command = service.build_command(
+            DojoTrainingConfig(
+                rounds=0,
+                recovery_hp_percent=95,
+                recovery_chakra_percent=60,
+                disable_h=True,
+            )
+        )
         self.assertEqual(command[0], "python-test")
-        self.assertEqual(Path(command[1]).name, "kage_pilot_loop_v03i.py")
+        self.assertEqual(Path(command[1]).name, "kage_pilot_loop_v03j.py")
         self.assertIn("--rounds", command)
         self.assertIn("0", command)
+        self.assertIn("--recovery-hp-percent", command)
+        self.assertIn("95.0", command)
+        self.assertIn("--recovery-chakra-percent", command)
+        self.assertIn("60.0", command)
         self.assertIn("--disable-h", command)
         self.assertNotIn("--interaction-attempts", command)
+
+    def test_load_json_reports_invalid_json_with_location(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "dojo.json"
+            path.write_text('{"timing": ', encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "DOJO_CONFIG_INVALID_JSON"):
+                DojoTrainingConfig.load_json(path)
 
     def test_phase_parser_exposes_app_friendly_lifecycle(self):
         phase = DojoTrainingPhase.STARTING
@@ -102,7 +164,7 @@ class KagePilotDojoServiceTests(unittest.TestCase):
         fake = FakeProcess(lines)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / "kage_pilot_loop_v03i.py").write_text("# test\n", encoding="utf-8")
+            (root / "kage_pilot_loop_v03j.py").write_text("# test\n", encoding="utf-8")
             service = DojoTrainingService(
                 project_dir=root,
                 python_executable="python-test",

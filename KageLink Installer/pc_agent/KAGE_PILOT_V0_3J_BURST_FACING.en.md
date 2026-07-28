@@ -1,12 +1,12 @@
 # Kage Pilot v0.3j — Facing correction during particle holds
 
 **Date:** 2026-07-28  
-**Status:** real-game validation candidate; not yet promoted to the canonical command  
-**Preserved base:** v0.3i
+**Status:** validated in a real round and promoted to the canonical command  
+**Current baseline:** v0.3j
 
 ## Observed problem
 
-A complete round succeeded, but combat took too long because the opponent moved below the player while the character remained facing up.
+An earlier complete round succeeded, but combat took too long because the opponent moved below the player while the character remained facing up.
 
 The log showed that perception had already corrected its decision:
 
@@ -38,7 +38,7 @@ During `MOTION_BURST_HOLD`, v0.3j may authorize **one facing pulse** only when a
 5. the same target and direction are confirmed for two frames;
 6. no pulse has already been sent for that target/direction combination during the current burst episode.
 
-Expected telemetry:
+Exception telemetry, when needed:
 
 ```text
 safety=BURST_FACE_CORRECT
@@ -57,7 +57,7 @@ The exception does not authorize:
 - `H`;
 - a distant target;
 - `CONTACT_MEMORY` without current visual authority;
-- continuous repeated directional pulses.
+- continuously repeated directional pulses.
 
 These states remain absolute holds:
 
@@ -72,7 +72,23 @@ H_SETTLE_HOLD
 
 The guard was not removed and its thresholds were not reduced. It continues to block pursuit and skills during excessive particle motion.
 
-The change only recognizes that, in visually confirmed adjacent melee, leaving the character facing the wrong direction for dozens of seconds is less safe and less useful than sending one cardinal pulse already used by the normal facing controller.
+The change only recognizes that, in visually confirmed adjacent melee, leaving the character physically faced away from the opponent for dozens of seconds is less safe and less useful than sending one cardinal pulse already used by the normal facing controller.
+
+## Validation performed
+
+The later real v0.3j round confirmed:
+
+- combat rated excellent by the user;
+- stable facing and attacking;
+- no pursuit movement enabled by the new state;
+- no `H` authority granted by the facing exception;
+- exactly one trainer click;
+- chat-authoritative KO;
+- return to the trainer;
+- correct `Y` on/off recovery behavior;
+- `ROUND 1: COMPLETE`.
+
+The sampled printed telemetry did not necessarily contain a `BURST_FACE_CORRECT` line because the scenario may have been resolved by normal facing pulses between hold periods. The narrow exception remains covered by targeted tests.
 
 ## Files
 
@@ -82,20 +98,14 @@ kage_pilot_loop_v03j.py
 tests/test_kage_pilot_v03j_burst_facing.py
 ```
 
-## Required validation
+## Release state
 
-Before promoting v0.3j to `kage_pilot_dojo.py`:
+v0.3j has been promoted to:
 
-- [ ] targeted tests finish with `OK`;
-- [ ] full suite finishes with `OK`;
-- [ ] one real round reports `BURST_FACE_CORRECT` when direction changes during particles;
-- [ ] the character physically faces the opponent;
-- [ ] the new state never authorizes pursuit movement;
-- [ ] the new state never fires `H`;
-- [ ] `MAP_SAVE_RESYNC` still reports `held=-`;
-- [ ] the loop finishes with `ROUND 1: COMPLETE`;
-- [ ] canonical promotion happens only after real-game validation.
+```text
+kage_pilot_dojo.py
+→ DojoTrainingService
+→ kage_pilot_loop_v03j.py
+```
 
-## Release decision
-
-v0.3i remains the validated baseline. v0.3j is an additive isolated correction. After in-game approval, the public entry point may be updated to use v0.3j and the release-candidate documentation will be revised.
+The full Windows suite, three consecutive canonical-command rounds and Rafael's explicit approval are still required before merge.

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from enum import Enum
+import json
 import os
 from pathlib import Path
 import re
@@ -9,11 +10,15 @@ import signal
 import subprocess
 import sys
 import threading
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Mapping, Any
 
 
 OutputCallback = Callable[[str], None]
 StatusCallback = Callable[["DojoTrainingSnapshot"], None]
+
+CONFIG_SCHEMA_VERSION = 1
+MIN_SAFE_RECOVERY_HP_PERCENT = 90.0
+MIN_SAFE_RECOVERY_CHAKRA_PERCENT = 50.0
 
 
 class DojoTrainingPhase(str, Enum):
@@ -33,11 +38,11 @@ class DojoTrainingPhase(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class DojoTrainingConfig:
-    """Public configuration contract for the validated v0.3i Dojo loop.
+    """Public configuration contract for the real-Windows-validated v0.3j Dojo loop.
 
-    ``rounds=0`` means continuous training until stop() or F12. The safe default remains one
-    round. Values are normalized before process creation so UI callers cannot accidentally pass
-    negative delays, zero timeouts or unsupported thresholds.
+    ``rounds=0`` means continuous training until stop() or F12. Values are normalized before
+    process creation. Recovery thresholds may be increased, but cannot be configured below the
+    validated safety floor of 90% HP and 50% Chakra.
     """
 
     rounds: int = 1
@@ -47,6 +52,8 @@ class DojoTrainingConfig:
     dialog_timeout: float = 6.0
     spawn_delay: float = 5.0
     trainer_search_timeout: float = 90.0
+    recovery_hp_percent: float = MIN_SAFE_RECOVERY_HP_PERCENT
+    recovery_chakra_percent: float = MIN_SAFE_RECOVERY_CHAKRA_PERCENT
     leader_threshold: float = 0.88
     round_startup_delay: float = 1.0
     chat_poll_seconds: float = 0.15
@@ -54,6 +61,18 @@ class DojoTrainingConfig:
     disable_h: bool = False
 
     def normalized(self) -> "DojoTrainingConfig":
+        hp = float(self.recovery_hp_percent)
+        chakra = float(self.recovery_chakra_percent)
+        if hp < MIN_SAFE_RECOVERY_HP_PERCENT:
+            raise ValueError(
+                f"RECOVERY_HP_BELOW_SAFE_MINIMUM:{hp:g}<"
+                f"{MIN_SAFE_RECOVERY_HP_PERCENT:g}"
+            )
+        if chakra < MIN_SAFE_RECOVERY_CHAKRA_PERCENT:
+            raise ValueError(
+                f"RECOVERY_CHAKRA_BELOW_SAFE_MINIMUM:{chakra:g}<"
+                f"{MIN_SAFE_RECOVERY_CHAKRA_PERCENT:g}"
+            )
         return replace(
             self,
             rounds=max(0, int(self.rounds)),
@@ -63,12 +82,140 @@ class DojoTrainingConfig:
             dialog_timeout=max(0.5, min(30.0, float(self.dialog_timeout))),
             spawn_delay=max(0.0, min(30.0, float(self.spawn_delay))),
             trainer_search_timeout=max(5.0, min(600.0, float(self.trainer_search_timeout))),
+            recovery_hp_percent=min(100.0, hp),
+            recovery_chakra_percent=min(100.0, chakra),
             leader_threshold=max(0.50, min(0.999, float(self.leader_threshold))),
             round_startup_delay=max(0.0, min(30.0, float(self.round_startup_delay))),
             chat_poll_seconds=max(0.10, min(2.0, float(self.chat_poll_seconds))),
             log_dir=Path(self.log_dir),
             disable_h=bool(self.disable_h),
         )
+
+    @staticmethod
+    def _mapping(value: Any, name: str) -> Mapping[str, Any]:
+        if value is None:
+            return {}
+        if not isinstance(value, Mapping):
+            raise ValueError(f"DOJO_CONFIG_SECTION_NOT_OBJECT:{name}")
+        return value
+
+    @staticmethod
+    def _reject_unknown(section: str, value: Mapping[str, Any], allowed: set[str]) -> None:
+        unknown = sorted(str(key) for key in value.keys() if str(key) not in allowed)
+        if unknown:
+            raise ValueError(f"DOJO_CONFIG_UNKNOWN_KEYS:{section}:{','.join(unknown)}")
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "DojoTrainingConfig":
+        if not isinstance(payload, Mapping):
+            raise ValueError("DOJO_CONFIG_ROOT_NOT_OBJECT")
+        cls._reject_unknown(
+            "root",
+            payload,
+            {"schema_version", "rounds", "timing", "recovery", "combat", "detection", "logging"},
+        )
+        schema_version = int(payload.get("schema_version", CONFIG_SCHEMA_VERSION))
+        if schema_version != CONFIG_SCHEMA_VERSION:
+            raise ValueError(f"DOJO_CONFIG_UNSUPPORTED_SCHEMA:{schema_version}")
+
+        timing = cls._mapping(payload.get("timing"), "timing")
+        recovery = cls._mapping(payload.get("recovery"), "recovery")
+        combat = cls._mapping(payload.get("combat"), "combat")
+        detection = cls._mapping(payload.get("detection"), "detection")
+        logging = cls._mapping(payload.get("logging"), "logging")
+
+        cls._reject_unknown(
+            "timing",
+            timing,
+            {
+                "after_trainer_click_seconds",
+                "dialog_find_timeout_seconds",
+                "after_dialog_ok_seconds",
+                "combat_timeout_seconds",
+                "post_combat_timeout_seconds",
+                "trainer_search_timeout_seconds",
+                "round_startup_delay_seconds",
+                "chat_poll_seconds",
+            },
+        )
+        cls._reject_unknown("recovery", recovery, {"hp_percent", "chakra_percent"})
+        cls._reject_unknown("combat", combat, {"h_enabled"})
+        cls._reject_unknown("detection", detection, {"leader_threshold"})
+        cls._reject_unknown("logging", logging, {"directory"})
+
+        defaults = cls()
+        h_enabled = bool(combat.get("h_enabled", not defaults.disable_h))
+        return cls(
+            rounds=payload.get("rounds", defaults.rounds),
+            combat_seconds=timing.get("combat_timeout_seconds", defaults.combat_seconds),
+            post_combat_timeout=timing.get(
+                "post_combat_timeout_seconds", defaults.post_combat_timeout
+            ),
+            dialog_delay=timing.get(
+                "after_trainer_click_seconds", defaults.dialog_delay
+            ),
+            dialog_timeout=timing.get(
+                "dialog_find_timeout_seconds", defaults.dialog_timeout
+            ),
+            spawn_delay=timing.get("after_dialog_ok_seconds", defaults.spawn_delay),
+            trainer_search_timeout=timing.get(
+                "trainer_search_timeout_seconds", defaults.trainer_search_timeout
+            ),
+            recovery_hp_percent=recovery.get(
+                "hp_percent", defaults.recovery_hp_percent
+            ),
+            recovery_chakra_percent=recovery.get(
+                "chakra_percent", defaults.recovery_chakra_percent
+            ),
+            leader_threshold=detection.get(
+                "leader_threshold", defaults.leader_threshold
+            ),
+            round_startup_delay=timing.get(
+                "round_startup_delay_seconds", defaults.round_startup_delay
+            ),
+            chat_poll_seconds=timing.get(
+                "chat_poll_seconds", defaults.chat_poll_seconds
+            ),
+            log_dir=Path(logging.get("directory", defaults.log_dir)),
+            disable_h=not h_enabled,
+        ).normalized()
+
+    @classmethod
+    def load_json(cls, path: str | Path) -> "DojoTrainingConfig":
+        source = Path(path)
+        try:
+            payload = json.loads(source.read_text(encoding="utf-8"))
+        except FileNotFoundError as exc:
+            raise ValueError(f"DOJO_CONFIG_NOT_FOUND:{source}") from exc
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"DOJO_CONFIG_INVALID_JSON:{source}:{exc.lineno}:{exc.colno}"
+            ) from exc
+        return cls.from_dict(payload)
+
+    def to_public_dict(self) -> dict[str, Any]:
+        value = self.normalized()
+        return {
+            "schema_version": CONFIG_SCHEMA_VERSION,
+            "rounds": value.rounds,
+            "timing": {
+                "after_trainer_click_seconds": value.dialog_delay,
+                "dialog_find_timeout_seconds": value.dialog_timeout,
+                "after_dialog_ok_seconds": value.spawn_delay,
+                "combat_timeout_seconds": value.combat_seconds,
+                "post_combat_timeout_seconds": value.post_combat_timeout,
+                "trainer_search_timeout_seconds": value.trainer_search_timeout,
+                "round_startup_delay_seconds": value.round_startup_delay,
+                "chat_poll_seconds": value.chat_poll_seconds,
+            },
+            "recovery": {
+                "hp_percent": value.recovery_hp_percent,
+                "chakra_percent": value.recovery_chakra_percent,
+            },
+            "combat": {"h_enabled": not value.disable_h},
+            "detection": {"leader_threshold": value.leader_threshold},
+            "logging": {"directory": str(value.log_dir)},
+        }
 
     def to_cli_args(self) -> list[str]:
         value = self.normalized()
@@ -80,6 +227,8 @@ class DojoTrainingConfig:
             "--dialog-timeout", str(value.dialog_timeout),
             "--spawn-delay", str(value.spawn_delay),
             "--trainer-search-timeout", str(value.trainer_search_timeout),
+            "--recovery-hp-percent", str(value.recovery_hp_percent),
+            "--recovery-chakra-percent", str(value.recovery_chakra_percent),
             "--leader-threshold", str(value.leader_threshold),
             "--round-startup-delay", str(value.round_startup_delay),
             "--chat-poll-seconds", str(value.chat_poll_seconds),
@@ -102,14 +251,11 @@ class DojoTrainingSnapshot:
 
 
 class DojoTrainingService:
-    """Thread-safe process facade around the real-Windows-validated v0.3i loop.
+    """Thread-safe process facade around the real-Windows-validated v0.3j loop.
 
-    This class intentionally runs the validated loop in a separate process instead of importing
-    its versioned monkey-patch modules into the long-lived PC Agent. That isolates runtime globals,
-    makes start/stop deterministic and gives the future Game-tab toggle a small stable API.
-
-    The service does not modify the app UI. A future toggle should call start() with rounds=0 when
-    enabled and stop() when disabled, while rendering snapshot().phase as status.
+    The validated loop runs in a separate process instead of importing its versioned monkey-patch
+    modules into the long-lived PC Agent. That isolates runtime globals, makes start/stop
+    deterministic and gives the future Game-tab toggle a small stable API.
     """
 
     _ROUND_RE = re.compile(r"\bROUND\s+(\d+):", re.IGNORECASE)
@@ -139,7 +285,7 @@ class DojoTrainingService:
 
     @property
     def script_path(self) -> Path:
-        return self.project_dir / "kage_pilot_loop_v03i.py"
+        return self.project_dir / "kage_pilot_loop_v03j.py"
 
     def build_command(self, config: DojoTrainingConfig) -> list[str]:
         return [self.python_executable, str(self.script_path), *config.normalized().to_cli_args()]
@@ -382,8 +528,11 @@ class DojoTrainingService:
 
 
 __all__ = [
+    "CONFIG_SCHEMA_VERSION",
     "DojoTrainingConfig",
     "DojoTrainingPhase",
     "DojoTrainingService",
     "DojoTrainingSnapshot",
+    "MIN_SAFE_RECOVERY_CHAKRA_PERCENT",
+    "MIN_SAFE_RECOVERY_HP_PERCENT",
 ]

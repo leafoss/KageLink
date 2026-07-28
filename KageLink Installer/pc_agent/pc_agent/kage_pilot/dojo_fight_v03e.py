@@ -166,11 +166,48 @@ def confirm_first_dojo_option(match: DojoDialogMatch, *, close_timeout_seconds: 
     raise DojoFightRequestError("DOJO_DIALOG_DID_NOT_CLOSE")
 
 
-def locate_adjacent_trainer(*, leader_threshold: float = 0.88) -> TrainerClickTarget:
-    """Capture once, require an authoritative visual trainer match and verify adjacency."""
+def _interaction_grid_distance(
+    *,
+    player_center: tuple[float, float],
+    player_box_height: float,
+    trainer_foot: tuple[float, float],
+    grid_origin: tuple[float, float],
+    tile_size: float,
+) -> int:
+    """Measure NPC interaction range from the player's feet, not sprite centre.
+
+    PLAYER is intentionally tracked by a stable centre anchor during combat. NPC interaction,
+    however, belongs to the logical map tile under the character's feet. On the validated 38px
+    player box this is roughly 19px below the centre and can otherwise create a false d=2.
+    """
+
+    from pc_agent.kage_pilot.grid_target_observer_v03 import _grid_distance
+
+    size = max(8.0, float(tile_size))
+    origin_x, origin_y = (float(grid_origin[0]), float(grid_origin[1]))
+    player_foot = (
+        float(player_center[0]),
+        float(player_center[1]) + max(0.0, float(player_box_height)) * 0.50,
+    )
+
+    def cell(point: tuple[float, float]) -> tuple[int, int]:
+        return (
+            math.floor((float(point[0]) - origin_x) / size),
+            math.floor((float(point[1]) - origin_y) / size),
+        )
+
+    return _grid_distance(cell(player_foot), cell(trainer_foot))
+
+
+def locate_adjacent_trainer(
+    *,
+    leader_threshold: float = 0.88,
+    sample_frames: int = 3,
+    required_confirmations: int = 2,
+) -> TrainerClickTarget:
+    """Require repeated visual trainer matches and foot-to-foot adjacency before clicking."""
 
     from pc_agent.kage_pilot.entity_observer import decode_jpeg
-    from pc_agent.kage_pilot.grid_target_observer_v03 import _grid_distance
     from pc_agent.kage_pilot.observer_runtime_v03 import V03ObserverConfig
     from pc_agent.kage_pilot.particle_safe_grid_target_v03 import ParticleSafeGridTargetObserver
     from pc_agent.kage_pilot.post_combat_v03c import PersistentDojoLeaderDetector
@@ -193,42 +230,59 @@ def locate_adjacent_trainer(*, leader_threshold: float = 0.88) -> TrainerClickTa
     )
     detector = PersistentDojoLeaderDetector(threshold=leader_threshold)
     source = WindowsGameFrameSource()
+    samples = max(1, min(8, int(sample_frames)))
+    confirmations_needed = max(1, min(samples, int(required_confirmations)))
+    visual_samples: list[tuple[int, float, tuple[int, int, int, int], int, int]] = []
+
     try:
-        frame = decode_jpeg(bytes(source.capture().jpeg))
-        state = observer.process(frame)
-        match = detector.find(frame, arena_rect=state.arena_rect, now=time.monotonic())
-        if match is None or match.source != "visual":
-            raise DojoFightRequestError("TRAINER_NOT_VISUALLY_CONFIRMED")
+        for index in range(samples):
+            frame = decode_jpeg(bytes(source.capture().jpeg))
+            state = observer.process(frame)
+            match = detector.find(frame, arena_rect=state.arena_rect, now=time.monotonic())
+            if match is not None and match.source == "visual":
+                x0, y0, _, _ = state.arena_rect
+                player_full_center = (
+                    float(x0) + float(state.player_center[0]),
+                    float(y0) + float(state.player_center[1]),
+                )
+                distance = _interaction_grid_distance(
+                    player_center=player_full_center,
+                    player_box_height=config.player_box_height,
+                    trainer_foot=match.foot,
+                    grid_origin=observer.grid_origin,
+                    tile_size=observer.tile_size,
+                )
+                visual_samples.append(
+                    (distance, float(match.score), match.bbox, frame.shape[1], frame.shape[0])
+                )
+            if index + 1 < samples:
+                time.sleep(0.05)
 
-        x0, y0, _, _ = state.arena_rect
-        player_full = (
-            float(x0) + float(state.player_center[0]),
-            float(y0) + float(state.player_center[1]),
-        )
-        size = float(observer.tile_size)
-        origin_x, origin_y = observer.grid_origin
-
-        def cell(point):
-            return (
-                math.floor((float(point[0]) - origin_x) / size),
-                math.floor((float(point[1]) - origin_y) / size),
+        adjacent = [sample for sample in visual_samples if sample[0] <= 1]
+        if len(adjacent) < confirmations_needed:
+            if not visual_samples:
+                raise DojoFightRequestError("TRAINER_NOT_VISUALLY_CONFIRMED")
+            best_distance = min(sample[0] for sample in visual_samples)
+            raise DojoFightRequestError(
+                f"TRAINER_NOT_ADJACENT:d={best_distance};"
+                f"confirmations={len(adjacent)}/{confirmations_needed}"
             )
 
-        distance = _grid_distance(cell(player_full), cell(match.foot))
-        if distance > 1:
-            raise DojoFightRequestError(f"TRAINER_NOT_ADJACENT:d={distance}")
-
-        left, top, width, height = match.bbox
+        distance, score, bbox, frame_width, frame_height = max(
+            adjacent,
+            key=lambda sample: sample[1],
+        )
+        left, top, width, height = bbox
         click_x = float(left) + float(width) * 0.50
         click_y = float(top) + float(height) * 0.48
-        normalized_x = max(0.0, min(1.0, click_x / max(1.0, frame.shape[1] - 1.0)))
-        normalized_y = max(0.0, min(1.0, click_y / max(1.0, frame.shape[0] - 1.0)))
+        normalized_x = max(0.0, min(1.0, click_x / max(1.0, frame_width - 1.0)))
+        normalized_y = max(0.0, min(1.0, click_y / max(1.0, frame_height - 1.0)))
         return TrainerClickTarget(
             normalized_x=normalized_x,
             normalized_y=normalized_y,
-            score=float(match.score),
+            score=score,
             grid_distance=distance,
-            bbox=match.bbox,
+            bbox=bbox,
         )
     finally:
         source.close()

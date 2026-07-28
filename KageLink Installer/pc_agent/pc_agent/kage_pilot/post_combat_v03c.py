@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import time
 
 from .grid_target_observer_v03 import _grid_distance
 from .post_combat_v03 import PostCombatDecision
@@ -44,7 +43,7 @@ class PersistentDojoLeaderDetector(CalibratedDojoLeaderDetector):
         return self._last_visual is not None
 
 
-@dataclass(slots=True)
+@dataclass
 class ExpandingSquareSearch:
     """Bounded dead-man search used only when no trainer anchor exists.
 

@@ -132,6 +132,10 @@ class KagePilotV03ELoopTests(unittest.TestCase):
             ),
             patch("pc_agent.kage_pilot.dojo_fight_v03e.confirm_first_dojo_option") as confirm,
             patch("pc_agent.kage_pilot.dojo_fight_v03e._interruptible_wait"),
+            patch(
+                "pc_agent.kage_pilot.dojo_fight_v03e.time.monotonic",
+                side_effect=[100.0, 110.0],
+            ),
             patch("pc_agent.kage_pilot.pilot.WindowsGameController", FakeController),
             patch("pc_agent.windows.ensure_game_window_foreground", return_value=focus),
         ):

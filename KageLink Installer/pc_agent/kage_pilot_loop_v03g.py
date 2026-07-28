@@ -9,10 +9,12 @@ import time
 from pc_agent.config import load_config
 from pc_agent.kage_pilot.dojo_fight_v03e import DojoFightRequestError, f12_pressed
 from pc_agent.kage_pilot.dojo_fight_v03f import request_taijutsu_dojo_spar
+from pc_agent.kage_pilot.dojo_fight_v03i import DojoRoundWithoutCombatError
 
 
 ROUND_SCRIPT_NAME = "kage_pilot_live_v03g_round.py"
 REQUEST_DOJO_FIGHT = request_taijutsu_dojo_spar
+DIALOG_RETRY_POLICY_ENABLED = False
 MIN_SAFE_RECOVERY_HP_PERCENT = 90.0
 MIN_SAFE_RECOVERY_CHAKRA_PERCENT = 50.0
 
@@ -30,6 +32,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--post-combat-timeout", type=float, default=240.0)
     parser.add_argument("--dialog-delay", type=float, default=5.0)
     parser.add_argument("--dialog-timeout", type=float, default=4.0)
+    parser.add_argument(
+        "--dialog-retries",
+        type=int,
+        default=3,
+        help="additional dialog checks after the initial check / verificacoes adicionais",
+    )
     parser.add_argument("--spawn-delay", type=float, default=5.0)
     parser.add_argument("--trainer-search-timeout", type=float, default=90.0)
     parser.add_argument("--interaction-attempts", type=int, default=6)
@@ -123,6 +131,21 @@ def _run_round(args, *, round_number: int) -> bool:
     return True
 
 
+def _request_kwargs(args, *, round_number: int) -> dict:
+    values = {
+        "dialog_delay_seconds": args.dialog_delay,
+        "dialog_find_timeout_seconds": args.dialog_timeout,
+        "spawn_delay_seconds": args.spawn_delay,
+        "leader_threshold": args.leader_threshold,
+        "trainer_search_timeout_seconds": args.trainer_search_timeout,
+        "interaction_attempts": args.interaction_attempts,
+    }
+    if DIALOG_RETRY_POLICY_ENABLED:
+        values["dialog_retries"] = args.dialog_retries
+        values["round_number"] = round_number
+    return values
+
+
 def main() -> int:
     args = build_parser().parse_args()
     try:
@@ -132,13 +155,15 @@ def main() -> int:
         return 2
 
     rounds = max(0, int(args.rounds))
+    args.dialog_retries = max(0, min(10, int(args.dialog_retries)))
     args.log_dir.mkdir(parents=True, exist_ok=True)
     config = load_config()
 
     print("Kage Pilot v0.3g FULL DOJO LOOP")
     print(
-        f"FIND TRAINER -> CLICK SPRITE -> WAIT {max(0.0, float(args.dialog_delay)):.1f}s "
-        f"-> CLICK DIALOG OK -> WAIT {max(0.0, float(args.spawn_delay)):.1f}s"
+        f"FIND TRAINER -> CLICK SPRITE ONCE -> WAIT {max(0.0, float(args.dialog_delay)):.1f}s "
+        f"-> CHECK DIALOG (1+{args.dialog_retries}) -> CLICK OK -> "
+        f"WAIT {max(0.0, float(args.spawn_delay)):.1f}s"
     )
     print("COMBAT -> NEW CHAT KO -> RELEASE ALL -> RETURN/SEARCH -> RECOVER -> REPEAT")
     print(
@@ -150,10 +175,16 @@ def main() -> int:
     print("START ANYWHERE IN THE DOJO, RECOVERED, NOT MEDITATING")
     print("F12 = EMERGENCY STOP / PARADA IMEDIATA")
 
+    processed = 0
     completed = 0
+    finished_without_combat = 0
+    failed = 0
+    emergency_stopped = 0
     round_number = 1
+
     while rounds == 0 or round_number <= rounds:
         if f12_pressed():
+            emergency_stopped = 1
             print("F12 STOP before request / PARADA F12 antes do pedido")
             break
 
@@ -161,37 +192,56 @@ def main() -> int:
         try:
             click = REQUEST_DOJO_FIGHT(
                 config.game_title,
-                dialog_delay_seconds=args.dialog_delay,
-                dialog_find_timeout_seconds=args.dialog_timeout,
-                spawn_delay_seconds=args.spawn_delay,
-                leader_threshold=args.leader_threshold,
-                trainer_search_timeout_seconds=args.trainer_search_timeout,
-                interaction_attempts=args.interaction_attempts,
+                **_request_kwargs(args, round_number=round_number),
             )
+        except DojoRoundWithoutCombatError as error:
+            processed += 1
+            finished_without_combat += 1
+            print(
+                f"ROUND {round_number}: ABORTED reason={error.reason} "
+                f"trainer_clicks={error.trainer_clicks} "
+                f"dialog_attempts={error.dialog_attempts}"
+            )
+            print(f"ROUND {round_number}: FINISHED_WITHOUT_COMBAT")
+            round_number += 1
+            continue
         except DojoFightRequestError as error:
-            print(f"ROUND {round_number}: DOJO_REQUEST_FAILED: {error}")
+            if str(error).split(":", 1)[0] == "F12_STOP":
+                emergency_stopped = 1
+                print(f"ROUND {round_number}: EMERGENCY_STOP reason=F12_STOP")
+                break
+            failed += 1
+            print(f"ROUND {round_number}: DOJO_REQUEST_FAILED_FATAL: {error}")
             break
         except Exception as error:
+            failed += 1
             print(
-                f"ROUND {round_number}: DOJO_REQUEST_STOPPED: "
+                f"ROUND {round_number}: DOJO_REQUEST_STOPPED_FATAL: "
                 f"{type(error).__name__}: {error}"
             )
             break
 
         print(
-            f"ROUND {round_number}: DOJO_REQUEST_OK score={click.score:.3f} "
+            f"ROUND {round_number}: DOJO_REQUEST_ACCEPTED score={click.score:.3f} "
             f"visual_d={click.grid_distance}"
         )
         if not _run_round(args, round_number=round_number):
+            failed += 1
             break
 
         completed += 1
+        processed += 1
         print(f"ROUND {round_number}: COMPLETE / CONCLUIDA")
         round_number += 1
         time.sleep(0.25)
 
-    print(f"DOJO_LOOP_STOPPED completed={completed} / LOOP_ENCERRADO concluidas={completed}")
-    return 0 if completed > 0 else 1
+    requested = rounds if rounds > 0 else processed
+    print(
+        f"DOJO_LOOP_FINISHED requested={requested} processed={processed} "
+        f"completed={completed} finished_without_combat={finished_without_combat} "
+        f"failed={failed} emergency_stopped={emergency_stopped}"
+    )
+    return 0 if failed == 0 else 1
 
 
 if __name__ == "__main__":

@@ -1,69 +1,109 @@
-# Kage Pilot Dojo — Release Candidate
+# Kage Pilot Dojo — Release Candidate v0.3j
 
 **Data:** 28/07/2026  
-**Status:** candidato a release; ainda sem merge  
-**Baseline funcional validada:** `kage_pilot_loop_v03i.py`
+**Status:** preparado para validação final pré-merge; ainda sem merge  
+**Baseline funcional validada:** `kage_pilot_loop_v03j.py`  
+**Entrada pública:** `kage_pilot_dojo.py`
 
 ## Marco validado no jogo
 
-A primeira rodada completa foi executada em Shinobi Story Online com sucesso:
+A v0.3j completou uma rodada real em Shinobi Story Online:
 
-1. localizar visualmente o Dojo Trainer;
-2. clicar exatamente uma vez no treinador;
-3. aguardar 5 segundos;
-4. selecionar `Taijutsu Dojo Spar` e clicar diretamente no botão `OK`;
-5. aguardar 5 segundos pelo adversário;
-6. detectar, enfrentar e derrotar o inimigo;
-7. reconhecer uma nova linha de chat contendo `has been Knocked-Out`;
-8. liberar todas as teclas imediatamente;
-9. procurar e retornar ao Dojo Trainer;
-10. iniciar meditação com um toque em `V`;
-11. aguardar HP >= 90% e Chakra >= 50%;
-12. desligar modos persistentes e encerrar em `READY`;
-13. registrar `ROUND 1: COMPLETE`.
+1. localizou visualmente o Dojo Trainer;
+2. clicou exatamente uma vez no treinador;
+3. aguardou o tempo configurado;
+4. selecionou `Taijutsu Dojo Spar` e acionou diretamente o botão `OK`;
+5. aguardou o adversário;
+6. detectou, orientou-se, usou ataque base e `H` guardado;
+7. reconheceu `has been Knocked-Out` no chat;
+8. liberou todas as teclas;
+9. retornou ao treinador de `d=10` até `d=1`;
+10. iniciou meditação com um toque em `V`;
+11. ligou `Y` quando HP chegou a 96% e Chakra permanecia em 32%;
+12. desligou `Y` quando Chakra chegou a 52%;
+13. alcançou `READY`;
+14. encerrou com `ROUND 1: COMPLETE` e código de saída `0`.
 
-A mesma execução também atravessou uma ressincronização causada por um salvamento/travamento do mapa, descartou o alvo e o facing antigos e readquiriu o inimigo.
+O usuário avaliou o combate da v0.3j como excelente e aprovou o comportamento para promoção ao ponto de entrada público.
 
 ## Política de segurança preservada
 
-- `R` é a única tecla mantida durante combate normal.
+- `R` é a única tecla normalmente mantida durante combate.
 - Setas e `H` são pulsos curtos.
 - `V` e `Y` são toggles acionados somente por toque.
-- Uma linha nova de KO é a única autoridade para encerrar o combate.
+- Uma nova linha de KO é a única autoridade para encerrar o combate.
 - Vitória libera todas as teclas antes do pós-combate.
-- Memória do treinador pode orientar movimento, mas somente confirmação visual autoriza `V`.
 - O treinador recebe exatamente um clique por solicitação.
-- Falha ao abrir o diálogo encerra a solicitação com segurança; não há segundo clique automático.
-- `F12` continua sendo a parada de emergência local.
+- O botão `OK` é acionado diretamente no diálogo correto.
+- `V` exige confirmação visual do treinador.
+- `V` e `Y` são proibidos durante combate.
+- `MAP_SAVE_RESYNC` continua liberando todas as teclas.
+- `H_SETTLE_HOLD` continua absoluto.
+- F12 continua sendo a parada de emergência local.
 
-## Comportamento conservador conhecido
+## Orientação durante partículas
 
-Em alguns momentos o agente permanece parado aguardando o adversário se aproximar. Isso ocorre quando não existe alvo visual validado ou quando o MotionBurstGuard bloqueia temporariamente movimento e habilidade por excesso de partículas/movimento na tela.
+A v0.3j preserva o `MotionBurstGuard`, mas possui uma exceção estreita para impedir que o personagem permaneça olhando para o lado errado no corpo a corpo:
 
-Esse comportamento é atualmente preferível à perseguição cega. Ele poderá ser refinado depois de uma série maior de rodadas reais, sem enfraquecer a proteção contra água, partículas, salvamento do mapa e identidades antigas.
+- somente alvo visual atual;
+- somente `MELEE` com `d <= 1`;
+- duas confirmações do mesmo alvo/direção;
+- no máximo um pulso por episódio;
+- sem liberar movimento, perseguição ou `H`;
+- nunca por `CONTACT_MEMORY` isolado;
+- nunca durante `MAP_SAVE_RESYNC` ou `H_SETTLE_HOLD`.
 
-## Correção candidata v0.3j — orientação durante partículas
-
-Uma rodada posterior mostrou um caso mais específico: a percepção mudou corretamente de `FACE_UP` para `MOVE_DOWN`/`FACE_DOWN`, mas o `MOTION_BURST_HOLD` bloqueou também o pulso de orientação. O personagem manteve `R` ativo olhando para a direção antiga e prolongou muito o combate.
-
-A correção aditiva v0.3j está documentada em:
+Detalhes:
 
 ```text
 KAGE_PILOT_V0_3J_BURST_FACING.md
 KAGE_PILOT_V0_3J_BURST_FACING.en.md
 ```
 
-Ela permite somente um pulso de orientação após duas confirmações de alvo visual adjacente. Movimento, perseguição e `H` continuam bloqueados; `CONTACT_MEMORY`, `H_SETTLE_HOLD` e `MAP_SAVE_RESYNC` não recebem essa exceção. A v0.3j ainda precisa de validação real antes de substituir a baseline v0.3i no comando público.
+## Configuração pública
 
-## Entrada pública estável
+As configurações básicas ficam em:
 
-Use:
-
-```powershell
-.\.venv-kage-pilot\Scripts\python.exe kage_pilot_dojo.py --rounds 1
+```text
+config/kage_pilot_dojo.json
 ```
 
-O script público chama o motor v0.3i em processo isolado. Os scripts `v03a` até `v03j` devem ser tratados como implementação histórica/interna durante o release candidate. A promoção do comando público para v0.3j ocorrerá somente após o teste real da correção de orientação.
+Documentação:
+
+```text
+KAGE_PILOT_DOJO_CONFIGURATION.md
+KAGE_PILOT_DOJO_CONFIGURATION.en.md
+```
+
+O arquivo controla:
+
+- rodadas;
+- espera após clicar no treinador;
+- timeout do diálogo;
+- espera após o botão `OK`;
+- timeout de combate;
+- timeout de pós-combate;
+- timeout de busca do treinador;
+- HP e Chakra desejados;
+- uso de `H`;
+- threshold visual;
+- pasta de logs.
+
+Os percentuais podem ser aumentados, mas não reduzidos abaixo de `90% HP / 50% Chakra`.
+
+Mostrar a configuração efetiva:
+
+```powershell
+.\.venv-kage-pilot\Scripts\python.exe kage_pilot_dojo.py --show-config
+```
+
+Executar com a configuração padrão:
+
+```powershell
+.\.venv-kage-pilot\Scripts\python.exe kage_pilot_dojo.py
+```
+
+Argumentos do PowerShell sobrescrevem temporariamente o JSON.
 
 ## API para integração futura
 
@@ -71,57 +111,88 @@ O script público chama o motor v0.3i em processo isolado. Os scripts `v03a` at�
 from pc_agent.kage_pilot import DojoTrainingConfig, DojoTrainingService
 
 service = DojoTrainingService()
-service.start(DojoTrainingConfig(rounds=0))  # contínuo até desligar o toggle
+service.start(DojoTrainingConfig(rounds=0))
 status = service.snapshot()
 service.stop()
 ```
 
-Contrato público:
+A futura aba Game usará somente essa API. Ela não deverá importar módulos versionados nem duplicar lógica de combate. Textos visíveis deverão usar o sistema de internacionalização PT-BR/EN-US.
 
-- `DojoTrainingConfig`: parâmetros normalizados do treinamento;
-- `DojoTrainingService.start()`: inicia somente uma instância;
-- `DojoTrainingService.stop()`: solicita encerramento do grupo de processos;
-- `DojoTrainingService.snapshot()`: estado imutável para UI;
-- `DojoTrainingPhase`: `idle`, `starting`, `requesting`, `combat`, `victory`, `recovery`, `ready`, `stopping`, `stopped`, `error`.
+## Testes realizados nesta revisão
 
-## Futuro toggle na aba Game
+Em ambiente isolado e independente de Win32/BYOND:
 
-A integração visual não faz parte deste release candidate. Quando for implementada:
+```text
+14 testes executados
+14 aprovados
+```
 
-- toggle `Dojo` ligado: `start(DojoTrainingConfig(rounds=0))`;
-- toggle desligado: `stop()`;
-- status e mensagens devem usar o sistema de internacionalização PT-BR/EN-US;
-- a UI não deve importar módulos versionados nem reproduzir lógica de combate;
-- somente `DojoTrainingService` deve atravessar a fronteira entre app e Kage Pilot.
+Cobertura adicionada:
+
+- leitura do JSON canônico;
+- precedência de argumentos sobre JSON;
+- rejeição de chaves desconhecidas;
+- rejeição de JSON inválido;
+- rejeição de booleanos escritos como texto;
+- piso seguro de HP e Chakra;
+- limite máximo de 100%;
+- conversão de percentuais para frações do runtime;
+- encaminhamento para `kage_pilot_loop_v03j.py`;
+- ciclo de estados destinado ao app;
+- falhas não reportadas como sucesso.
+
+O ambiente conectado não possui Windows/BYOND e não consegue executar a suíte real completa. A suíte completa no computador do usuário continua sendo o gate autoritativo.
+
+## Conformidade com a Bíblia
+
+- GitHub permanece como fonte técnica canônica.
+- Toda mudança termina em commit identificável.
+- Documentação relevante existe em PT-BR e EN-US.
+- A configuração pertence ao domínio/serviço, não à futura UI.
+- O app terá uma fronteira pública pequena e estável.
+- Mudanças comportamentais foram aditivas e validadas no jogo.
+- Nenhum merge ocorre sem aprovação explícita de Rafael.
 
 ## Próximo marco: treinamento adaptativo
 
-A arquitetura proposta para aprender a completar rodadas com maior velocidade e estabilidade está documentada separadamente em:
+Permanece documentado separadamente em:
 
 ```text
 KAGE_PILOT_DOJO_ADAPTIVE_TRAINING.md
 KAGE_PILOT_DOJO_ADAPTIVE_TRAINING.en.md
 ```
 
-A métrica principal proposta é o tempo total da rodada e `completed_rounds_per_hour`, não apenas o tempo de combate. A primeira implementação deverá ser somente telemetria passiva; aprendizado online ficará para branch/PR separado depois do merge desta baseline.
+A primeira etapa futura será telemetria passiva. Aprendizado online não faz parte deste release candidate.
 
-## Checklist antes do merge
+## Checklist final antes do merge
 
-- [ ] testes direcionados v0.3j finalizam em `OK`;
-- [ ] suíte completa `test_kage_pilot*.py` finaliza em `OK`;
-- [ ] testes do serviço público finalizam em `OK`;
-- [ ] uma rodada real v0.3j confirma `BURST_FACE_CORRECT` sem liberar movimento/H;
-- [ ] promover o comando canônico para v0.3j somente após validação real;
-- [ ] comando canônico `kage_pilot_dojo.py --rounds 1` completa uma rodada real após a promoção;
-- [ ] executar pelo menos 3 rodadas consecutivas sem teclas vazando para o PowerShell;
-- [ ] confirmar clique único no treinador em todas as rodadas;
-- [ ] confirmar KO -> liberação imediata -> pós-combate em todas as rodadas;
-- [ ] confirmar que `Y`, quando usado, liga e desliga exatamente uma vez;
-- [ ] revisar arquivos não rastreados e manter modelos/templates locais fora do Git;
-- [ ] revisar o diff e a documentação PT-BR/EN-US;
-- [ ] retirar o PR de draft somente após revisão;
+- [x] primeiro loop completo validado no jogo;
+- [x] v0.3j aprovada em rodada real;
+- [x] clique único no treinador confirmado;
+- [x] KO -> liberação -> pós-combate confirmado;
+- [x] `Y` ligado e desligado exatamente uma vez quando necessário;
+- [x] entrada pública promovida para v0.3j;
+- [x] configuração JSON canônica adicionada;
+- [x] documentação PT-BR/EN-US revisada;
+- [x] testes isolados da configuração/serviço em `OK`;
+- [ ] testes direcionados no Windows em `OK`;
+- [ ] suíte completa `test_kage_pilot*.py` no Windows em `OK`;
+- [ ] `kage_pilot_dojo.py --show-config` validado no Windows;
+- [ ] executar 3 rodadas consecutivas pelo comando canônico;
+- [ ] confirmar ausência de teclas vazando ao PowerShell;
+- [ ] revisar `git status` e arquivos não rastreados;
+- [ ] retirar PR de draft após os gates acima;
 - [ ] merge somente após aprovação explícita de Rafael.
 
 ## Decisão arquitetural
 
-Durante o polimento, a implementação v0.3i validada permanece intacta. Correções comportamentais são adicionadas em camadas pequenas e testáveis, como a v0.3j. A consolidação física dos módulos versionados será considerada somente depois da validação do ponto de entrada público. Isso evita introduzir uma regressão em um loop que já funcionou no jogo.
+Os scripts `v03a` até `v03j` permanecem como histórico interno durante este release candidate. O contrato estável é:
+
+```text
+kage_pilot_dojo.py
+→ DojoTrainingConfig
+→ DojoTrainingService
+→ kage_pilot_loop_v03j.py
+```
+
+A consolidação física dos módulos históricos poderá ocorrer depois do merge, em PR separado, para não arriscar regressão na baseline que já funciona no jogo.

@@ -81,6 +81,17 @@ A integração visual não faz parte deste release candidate. Quando for impleme
 - a UI não deve importar módulos versionados nem reproduzir lógica de combate;
 - somente `DojoTrainingService` deve atravessar a fronteira entre app e Kage Pilot.
 
+## Próximo marco: treinamento adaptativo
+
+A arquitetura proposta para aprender a completar rodadas com maior velocidade e estabilidade está documentada separadamente em:
+
+```text
+KAGE_PILOT_DOJO_ADAPTIVE_TRAINING.md
+KAGE_PILOT_DOJO_ADAPTIVE_TRAINING.en.md
+```
+
+A métrica principal proposta é o tempo total da rodada e `completed_rounds_per_hour`, não apenas o tempo de combate. A primeira implementação deverá ser somente telemetria passiva; aprendizado online ficará para branch/PR separado depois do merge desta baseline.
+
 ## Checklist antes do merge
 
 - [ ] suíte completa `test_kage_pilot*.py` finaliza em `OK`;

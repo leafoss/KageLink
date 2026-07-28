@@ -57,10 +57,12 @@ class KagePilotDojoServiceTests(unittest.TestCase):
         self.assertEqual(value.chat_poll_seconds, 0.10)
 
     def test_recovery_thresholds_cannot_weaken_validated_safety_floor(self):
-        with self.assertRaisesRegex(ValueError, "RECOVERY_HP_BELOW_SAFE_MINIMUM"):
+        with self.assertRaisesRegex(ValueError, "RECOVERY_HP_PERCENT_OUT_OF_RANGE"):
             DojoTrainingConfig(recovery_hp_percent=89).normalized()
-        with self.assertRaisesRegex(ValueError, "RECOVERY_CHAKRA_BELOW_SAFE_MINIMUM"):
+        with self.assertRaisesRegex(ValueError, "RECOVERY_CHAKRA_PERCENT_OUT_OF_RANGE"):
             DojoTrainingConfig(recovery_chakra_percent=49).normalized()
+        with self.assertRaisesRegex(ValueError, "RECOVERY_HP_PERCENT_OUT_OF_RANGE"):
+            DojoTrainingConfig(recovery_hp_percent=101).normalized()
 
     def test_json_contract_loads_human_editable_timing_and_recovery(self):
         payload = {
@@ -90,6 +92,15 @@ class KagePilotDojoServiceTests(unittest.TestCase):
         self.assertTrue(value.disable_h)
         self.assertEqual(value.log_dir, Path("logs-test"))
         self.assertEqual(value.to_public_dict()["recovery"]["hp_percent"], 95)
+
+    def test_json_contract_requires_real_boolean_for_h_enabled(self):
+        with self.assertRaisesRegex(ValueError, "DOJO_CONFIG_EXPECTED_BOOLEAN"):
+            DojoTrainingConfig.from_dict(
+                {
+                    "recovery": {"hp_percent": 90, "chakra_percent": 50},
+                    "combat": {"h_enabled": "false"},
+                }
+            )
 
     def test_json_contract_rejects_unknown_keys(self):
         with self.assertRaisesRegex(ValueError, "DOJO_CONFIG_UNKNOWN_KEYS:timing"):

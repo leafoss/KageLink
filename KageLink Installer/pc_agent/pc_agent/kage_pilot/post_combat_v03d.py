@@ -130,11 +130,14 @@ class PostCombatRecoveryEngineV4(PostCombatRecoveryEngineV3):
     ) -> None:
         super().__init__(
             leader_detector=leader_detector,
-            search_timeout_seconds=search_timeout_seconds,
+            search_timeout_seconds=min(120.0, float(search_timeout_seconds)),
             search_pulses_per_tile=search_pulses_per_cell,
             search_max_radius_tiles=max(2, min(16, max(arena_width_cells, arena_height_cells))),
             **kwargs,
         )
+        # v0.3c capped fallback search at 120 seconds. The known 30x24 arena may require a
+        # longer deterministic route, so v0.3d intentionally widens only this post-combat cap.
+        self.search_timeout_seconds = max(5.0, min(600.0, float(search_timeout_seconds)))
         self.search = ConcentricCellRingSearch(
             pulses_per_cell=search_pulses_per_cell,
             arena_width_cells=arena_width_cells,

@@ -12,6 +12,7 @@ _DIRECTIONS = {"up", "right", "down", "left"}
 _OriginalObserver = live_v03.ParticleSafeGridTargetObserver
 _OriginalVictoryWatcher = live_v03.ChatVictoryWatcher
 _OriginalController = live_v03.WindowsGameController
+_OriginalPostLine = live_v03._post_line
 _ACTIVE_RECOVERY_ENGINE: ObstacleAwarePostCombatRecoveryEngine | None = None
 
 
@@ -60,6 +61,20 @@ class VictoryTransitionWatcher(_OriginalVictoryWatcher):
         return signal
 
 
+def _post_line_with_motion(decision) -> str:
+    text = _OriginalPostLine(decision)
+    engine = _ACTIVE_RECOVERY_ENGINE
+    if engine is None or engine.last_movement_detected is None:
+        return text + " motion=-"
+    moved = "yes" if engine.last_movement_detected else "no"
+    return (
+        text
+        + f" motion={moved}:{engine.last_movement_direction}"
+        + f" flow={engine.last_flow_magnitude:.1f}"
+        + f" diff={engine.last_frame_difference:.1f}"
+    )
+
+
 # Combat inference/control is unchanged. Only read-only trainer anchoring, post-combat obstacle
 # feedback and route choice are replaced.
 live_v03.ParticleSafeGridTargetObserver = MovementAndAnchorObserver
@@ -67,6 +82,7 @@ live_v03.ChatVictoryWatcher = VictoryTransitionWatcher
 live_v03.WindowsGameController = MovementProbeController
 live_v03.DojoLeaderDetector = PersistentDojoLeaderDetector
 live_v03.PostCombatRecoveryEngine = ActiveObstacleRecoveryEngine
+live_v03._post_line = _post_line_with_motion
 
 
 def main() -> int:

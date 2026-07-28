@@ -81,6 +81,17 @@ The UI integration is not part of this release candidate. When implemented:
 - the UI must not import versioned modules or duplicate combat logic;
 - only `DojoTrainingService` should cross the app/Kage Pilot boundary.
 
+## Next milestone: adaptive training
+
+The proposed architecture for learning to complete rounds faster and more reliably is documented separately in:
+
+```text
+KAGE_PILOT_DOJO_ADAPTIVE_TRAINING.md
+KAGE_PILOT_DOJO_ADAPTIVE_TRAINING.en.md
+```
+
+The proposed primary metric is total round time and `completed_rounds_per_hour`, not combat time alone. The first implementation should be passive telemetry only; online learning belongs in a separate branch/PR after this baseline is merged.
+
 ## Pre-merge checklist
 
 - [ ] full `test_kage_pilot*.py` suite finishes with `OK`;

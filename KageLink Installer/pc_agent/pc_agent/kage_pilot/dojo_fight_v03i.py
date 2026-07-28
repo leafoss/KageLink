@@ -48,14 +48,15 @@ def _current_validated_dialog(game_title: str):
     match prevents reuse of stale HWNDs or old coordinates.
     """
 
+    match = find_dojo_dialog_with_ok(game_title)
+    if match is not None:
+        return match
+
     from pc_agent.game_window import find_exact_game_window
 
     if find_exact_game_window(game_title) is None:
         raise DojoFightRequestError("GAME_WINDOW_NOT_AVAILABLE")
-    match = find_dojo_dialog_with_ok(game_title)
-    if match is None:
-        raise DojoFightRequestError("DOJO_DIALOG_INVALID:REVALIDATION_FAILED")
-    return match
+    raise DojoFightRequestError("DOJO_DIALOG_INVALID:REVALIDATION_FAILED")
 
 
 def request_taijutsu_dojo_spar_single_click(
@@ -130,7 +131,7 @@ def request_taijutsu_dojo_spar_single_click(
             checks_performed = attempt
 
             try:
-                dialog = wait_for_dojo_dialog_with_ok(
+                wait_for_dojo_dialog_with_ok(
                     game_title,
                     timeout_seconds=find_timeout,
                 )

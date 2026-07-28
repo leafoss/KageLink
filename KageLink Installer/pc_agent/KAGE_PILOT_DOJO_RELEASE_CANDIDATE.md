@@ -1,30 +1,84 @@
 # Kage Pilot Dojo — Release Candidate v0.3j
 
 **Data:** 28/07/2026  
-**Status:** preparado para validação final pré-merge; ainda sem merge  
-**Baseline funcional validada:** `kage_pilot_loop_v03j.py`  
+**Status:** preparado para nova validação física pré-merge; ainda sem merge  
+**Baseline funcional:** `kage_pilot_loop_v03j.py`  
 **Entrada pública:** `kage_pilot_dojo.py`
 
 ## Marco validado no jogo
 
-A v0.3j completou uma rodada real em Shinobi Story Online:
+A v0.3j completou rodadas reais em Shinobi Story Online com:
 
-1. localizou visualmente o Dojo Trainer;
-2. clicou exatamente uma vez no treinador;
-3. aguardou o tempo configurado;
-4. selecionou `Taijutsu Dojo Spar` e acionou diretamente o botão `OK`;
-5. aguardou o adversário;
-6. detectou, orientou-se, usou ataque base e `H` guardado;
-7. reconheceu `has been Knocked-Out` no chat;
-8. liberou todas as teclas;
-9. retornou ao treinador de `d=10` até `d=1`;
-10. iniciou meditação com um toque em `V`;
-11. ligou `Y` quando HP chegou a 96% e Chakra permanecia em 32%;
-12. desligou `Y` quando Chakra chegou a 52%;
-13. alcançou `READY`;
-14. encerrou com `ROUND 1: COMPLETE` e código de saída `0`.
+1. localização visual do Dojo Trainer;
+2. exatamente um clique no treinador;
+3. seleção de `Taijutsu Dojo Spar` pelo botão `OK` real;
+4. detecção, orientação, ataque base e `H` guardado;
+5. reconhecimento de `has been Knocked-Out` no chat;
+6. liberação imediata de todas as teclas;
+7. retorno ao treinador;
+8. meditação por toggle de `V`;
+9. recuperação até HP >= 90% e Chakra >= 50%;
+10. `Y` ligado e desligado exatamente uma vez quando necessário;
+11. conclusão em `READY` e `ROUND COMPLETE`.
 
-O usuário avaliou o combate da v0.3j como excelente e aprovou o comportamento para promoção ao ponto de entrada público.
+O combate da v0.3j foi avaliado pelo usuário como excelente.
+
+## Falha encontrada na validação longa
+
+Em uma execução solicitada com dez rodadas, as rodadas 1 e 2 foram concluídas. Na rodada 3, o treinador foi localizado e clicado uma única vez, mas o diálogo não apareceu dentro da primeira janela de observação:
+
+```text
+ROUND 3: TRAINER_CLICK_ONCE
+ROUND 3: DOJO_REQUEST_FAILED: DOJO_DIALOG_NOT_FOUND
+DOJO_LOOP_STOPPED completed=2
+```
+
+O problema era o tratamento fatal de uma falha temporária do diálogo. A política foi corrigida sem alterar visão, combate, facing, KO, retorno ou recuperação.
+
+Documentação detalhada:
+
+```text
+KAGE_PILOT_V0_3J_DIALOG_RETRY.md
+KAGE_PILOT_V0_3J_DIALOG_RETRY.en.md
+```
+
+## Gate robusto treinador → diálogo
+
+A política atual é:
+
+```text
+1 clique no treinador
+→ espera inicial
+→ verificação 1/4
+→ espera adicional → verificação 2/4
+→ espera adicional → verificação 3/4
+→ espera adicional → verificação 4/4
+```
+
+Com os padrões:
+
+```text
+--dialog-delay 5
+--dialog-retries 3
+```
+
+A conta é:
+
+```text
+1 verificação inicial + 3 retries = 4 verificações totais
+```
+
+Regras:
+
+- depois de `TRAINER_CLICK_ONCE`, nunca pesquisar, mover-se até ou clicar novamente no treinador;
+- todos os retries atuam apenas sobre o diálogo já solicitado;
+- o diálogo e o controle `OK` são reenumerados e revalidados antes do clique;
+- não reutilizar HWND ou coordenada de tentativa anterior;
+- manter todos os inputs liberados durante as esperas;
+- F12 interrompe as esperas;
+- combate começa somente após `DOJO_DIALOG_CONFIRMED` e `DOJO_DIALOG_OK_CLICKED`;
+- quatro falhas encerram apenas a rodada atual em `FINISHED_WITHOUT_COMBAT`;
+- a próxima rodada usa o número seguinte, sem criar rodada compensatória.
 
 ## Política de segurança preservada
 
@@ -33,8 +87,8 @@ O usuário avaliou o combate da v0.3j como excelente e aprovou o comportamento p
 - `V` e `Y` são toggles acionados somente por toque.
 - Uma nova linha de KO é a única autoridade para encerrar o combate.
 - Vitória libera todas as teclas antes do pós-combate.
-- O treinador recebe exatamente um clique por solicitação.
-- O botão `OK` é acionado diretamente no diálogo correto.
+- O treinador recebe no máximo um clique por rodada.
+- O botão `OK` é acionado diretamente no diálogo atual validado.
 - `V` exige confirmação visual do treinador.
 - `V` e `Y` são proibidos durante combate.
 - `MAP_SAVE_RESYNC` continua liberando todas as teclas.
@@ -75,21 +129,7 @@ KAGE_PILOT_DOJO_CONFIGURATION.md
 KAGE_PILOT_DOJO_CONFIGURATION.en.md
 ```
 
-O arquivo controla:
-
-- rodadas;
-- espera após clicar no treinador;
-- timeout do diálogo;
-- espera após o botão `OK`;
-- timeout de combate;
-- timeout de pós-combate;
-- timeout de busca do treinador;
-- HP e Chakra desejados;
-- uso de `H`;
-- threshold visual;
-- pasta de logs.
-
-Os percentuais podem ser aumentados, mas não reduzidos abaixo de `90% HP / 50% Chakra`.
+O arquivo controla rodadas, esperas, timeouts, recuperação, uso de `H`, threshold visual e logs. Os percentuais podem ser aumentados, mas não reduzidos abaixo de `90% HP / 50% Chakra`.
 
 Mostrar a configuração efetiva:
 
@@ -102,8 +142,6 @@ Executar com a configuração padrão:
 ```powershell
 .\.venv-kage-pilot\Scripts\python.exe kage_pilot_dojo.py
 ```
-
-Argumentos do PowerShell sobrescrevem temporariamente o JSON.
 
 ## API para integração futura
 
@@ -118,36 +156,36 @@ service.stop()
 
 A futura aba Game usará somente essa API. Ela não deverá importar módulos versionados nem duplicar lógica de combate. Textos visíveis deverão usar o sistema de internacionalização PT-BR/EN-US.
 
-## Testes realizados nesta revisão
+## Testes realizados
 
-Foi adicionado o workflow dedicado:
+Workflow dedicado:
 
 ```text
 .github/workflows/kage-pilot-v03.yml
 ```
 
-No runner oficial Windows Server 2025 com Python 3.11, foram aprovados:
+No runner oficial Windows Server 2025 com Python 3.11, após a correção do diálogo:
 
-- instalação das dependências;
-- compilação de todos os módulos do Kage Pilot;
-- testes direcionados do release candidate;
-- suíte completa `test_kage_pilot*.py`;
-- validação de `kage_pilot_dojo.py --show-config`;
-- suíte completa do PC Agent: **283 testes, todos em `OK`**.
+```text
+41 testes direcionados: OK
+164 testes Kage Pilot: OK
+292 testes completos PC Agent: OK
+compilação: OK
+configuração canônica: OK
+```
 
-A primeira execução da suíte completa revelou um teste antigo do LeafOS preso à data literal `2026-07-26`. O comportamento estava correto, mas o teste falhava quando executado em `2026-07-28`. A asserção foi corrigida para validar o contrato estável `YYYY-MM-DD_001`, e a suíte seguinte terminou integralmente em `OK`.
+Os nove testes novos cobrem sucesso nas verificações 1, 2, 3 e 4, diálogo ausente, clique único, F12, HWND desaparecido e falha da rodada 3 sem interromper uma execução de dez rodadas.
 
-O CI valida código, configuração e empacotamento, mas não substitui a execução física em Windows/BYOND com a janela real do jogo.
+O CI valida código e configuração, mas não substitui a execução física em Windows/BYOND com a janela real do jogo.
 
 ## Conformidade com a Bíblia
 
 - GitHub permanece como fonte técnica canônica.
 - Toda mudança termina em commit identificável.
 - Documentação relevante existe em PT-BR e EN-US.
-- A configuração pertence ao domínio/serviço, não à futura UI.
-- O app terá uma fronteira pública pequena e estável.
-- Mudanças comportamentais foram aditivas e validadas no jogo.
-- Um gate Windows automatizado passa a proteger o merge.
+- A política foi centralizada no caminho canônico do release candidate.
+- Nenhuma lógica de combate foi duplicada na futura fronteira do app.
+- Um gate Windows automatizado protege o merge.
 - Nenhum merge ocorre sem aprovação explícita de Rafael.
 
 ## Próximo marco: treinamento adaptativo
@@ -166,25 +204,26 @@ A primeira etapa futura será telemetria passiva. Aprendizado online não faz pa
 - [x] primeiro loop completo validado no jogo;
 - [x] v0.3j aprovada em rodada real;
 - [x] clique único no treinador confirmado;
-- [x] KO -> liberação -> pós-combate confirmado;
+- [x] KO → liberação → pós-combate confirmado;
 - [x] `Y` ligado e desligado exatamente uma vez quando necessário;
-- [x] entrada pública promovida para v0.3j;
-- [x] configuração JSON canônica adicionada;
-- [x] documentação PT-BR/EN-US revisada;
-- [x] testes direcionados no Windows em `OK`;
-- [x] suíte completa `test_kage_pilot*.py` no Windows em `OK`;
-- [x] suíte completa do PC Agent: 283 testes em `OK`;
-- [x] `kage_pilot_dojo.py --show-config` validado no Windows CI;
-- [x] compilação e empacotamento do PC Agent em `OK`;
-- [ ] executar 3 rodadas consecutivas pelo comando canônico no jogo real;
-- [ ] confirmar ausência de teclas vazando ao PowerShell nessas três rodadas;
-- [ ] revisar `git status` e arquivos não rastreados no computador do usuário;
-- [ ] retirar PR de draft após os gates reais acima;
+- [x] falha de diálogo da rodada 3 diagnosticada;
+- [x] uma espera inicial + três retries implementados;
+- [x] rodada sem diálogo continua para a próxima;
+- [x] nove testes de regressão do diálogo adicionados;
+- [x] 41 testes direcionados em `OK`;
+- [x] 164 testes Kage Pilot em `OK`;
+- [x] 292 testes completos do PC Agent em `OK`;
+- [ ] validar fisicamente o retry do diálogo no jogo;
+- [ ] executar novamente várias rodadas consecutivas pelo comando canônico;
+- [ ] confirmar ausência de segundo clique no treinador;
+- [ ] confirmar ausência de teclas vazando ao PowerShell;
+- [ ] revisar `git status` e arquivos não rastreados;
+- [ ] retirar PR de draft após os gates reais;
 - [ ] merge somente após aprovação explícita de Rafael.
 
 ## Decisão arquitetural
 
-Os scripts `v03a` até `v03j` permanecem como histórico interno durante este release candidate. O contrato estável é:
+Os scripts `v03a` até `v03j` permanecem como histórico interno durante este release candidate. O contrato estável continua:
 
 ```text
 kage_pilot_dojo.py

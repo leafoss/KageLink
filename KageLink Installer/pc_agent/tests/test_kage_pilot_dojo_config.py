@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 import tempfile
@@ -25,6 +26,15 @@ class FakeRoundProcess:
 
 
 class KagePilotDojoConfigTests(unittest.TestCase):
+    def test_repository_default_config_is_loadable_and_matches_safe_baseline(self):
+        value = DojoTrainingConfig.load_json(kage_pilot_dojo.DEFAULT_CONFIG_PATH)
+        self.assertEqual(value.rounds, 1)
+        self.assertEqual(value.dialog_delay, 5.0)
+        self.assertEqual(value.spawn_delay, 5.0)
+        self.assertEqual(value.recovery_hp_percent, 90.0)
+        self.assertEqual(value.recovery_chakra_percent, 50.0)
+        self.assertFalse(value.disable_h)
+
     def test_cli_overrides_json_without_mutating_other_values(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "dojo.json"
@@ -35,8 +45,6 @@ class KagePilotDojoConfigTests(unittest.TestCase):
                 recovery_hp_percent=90,
                 recovery_chakra_percent=50,
             )
-            import json
-
             path.write_text(
                 json.dumps(base.to_public_dict(), ensure_ascii=False),
                 encoding="utf-8",

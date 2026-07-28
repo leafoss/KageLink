@@ -40,6 +40,7 @@ class ObstacleAwarePostCombatRecoveryEngine(PostCombatRecoveryEngineV4):
         movement_probe_delay_seconds: float = 0.07,
         search_hint_threshold: float = 0.80,
         search_hint_hold_seconds: float = 0.45,
+        search_hint_cooldown_seconds: float = 0.90,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -54,12 +55,17 @@ class ObstacleAwarePostCombatRecoveryEngine(PostCombatRecoveryEngineV4):
         )
         self.search_hint_threshold = max(0.45, min(0.98, float(search_hint_threshold)))
         self.search_hint_hold_seconds = max(0.10, min(2.0, float(search_hint_hold_seconds)))
+        self.search_hint_cooldown_seconds = max(
+            0.20, min(5.0, float(search_hint_cooldown_seconds))
+        )
 
         self._last_arena_gray: np.ndarray | None = None
         self._pending_probe: PendingMovementProbe | None = None
         self._movement_failures = {direction: 0 for direction in _DIRECTIONS}
         self._blocked_until = {direction: -1e9 for direction in _DIRECTIONS}
+        self._search_hint_active = False
         self._search_hint_until = -1e9
+        self._search_hint_cooldown_until = -1e9
         self._last_hint_location: tuple[int, int] | None = None
         self.last_movement_direction: str | None = None
         self.last_movement_detected: bool | None = None
@@ -177,44 +183,52 @@ class ObstacleAwarePostCombatRecoveryEngine(PostCombatRecoveryEngineV4):
                 return candidate
         return None
 
+    def _hint_hold_decision(self, raw_score: float) -> PostCombatDecision:
+        return PostCombatDecision(
+            state="SEARCH_CONFIRM_HINT",
+            reason=(
+                f"holding for possible trainer visual raw={raw_score:.3f} / "
+                f"aguardando possivel treinador raw={raw_score:.3f}"
+            ),
+        )
+
     def _search_decision(self, *, now: float):
+        now = float(now)
         detector = self.leader_detector
         raw_score = float(getattr(detector, "last_raw_score", -1.0) or -1.0)
         raw_location = getattr(detector, "last_raw_location", None)
 
-        # A partial/brief trainer glimpse below the authoritative threshold pauses the route.
-        # The detector still needs a normal >= threshold visual match before navigation or V.
-        if raw_score >= self.search_hint_threshold:
-            if raw_location is not None and self._last_hint_location is not None:
-                dx = raw_location[0] - self._last_hint_location[0]
-                dy = raw_location[1] - self._last_hint_location[1]
-                if math.hypot(dx, dy) <= 48.0:
-                    self._search_hint_until = float(now) + self.search_hint_hold_seconds
-            else:
-                self._search_hint_until = float(now) + self.search_hint_hold_seconds
-            self._last_hint_location = raw_location
+        # A hint produces one bounded hold. It cannot renew itself forever from the same partial
+        # or false candidate; after the hold, search resumes through a cooldown interval.
+        if self._search_hint_active:
+            if now < self._search_hint_until:
+                return self._hint_hold_decision(raw_score)
+            self._search_hint_active = False
+            self._search_hint_cooldown_until = now + self.search_hint_cooldown_seconds
+            self._last_hint_location = None
 
-        if float(now) < self._search_hint_until:
-            return PostCombatDecision(
-                state="SEARCH_CONFIRM_HINT",
-                reason=(
-                    f"holding for possible trainer visual raw={raw_score:.3f} / "
-                    f"aguardando possivel treinador raw={raw_score:.3f}"
-                ),
-            )
+        if (
+            now >= self._search_hint_cooldown_until
+            and raw_score >= self.search_hint_threshold
+            and raw_location is not None
+        ):
+            self._search_hint_active = True
+            self._search_hint_until = now + self.search_hint_hold_seconds
+            self._last_hint_location = raw_location
+            return self._hint_hold_decision(raw_score)
 
         # Never spend the rest of a ring segment pressing into a recently confirmed wall.
         for _ in range(4):
             phase = getattr(self.search, "phase", None)
-            if phase not in _DIRECTIONS or not self._is_blocked(phase, now=float(now)):
+            if phase not in _DIRECTIONS or not self._is_blocked(phase, now=now):
                 break
             self._skip_current_search_segment_if_matching(phase)
 
-        decision = super()._search_decision(now=float(now))
-        if decision.move_pulse is None or not self._is_blocked(decision.move_pulse, now=float(now)):
+        decision = super()._search_decision(now=now)
+        if decision.move_pulse is None or not self._is_blocked(decision.move_pulse, now=now):
             return decision
 
-        alternative = self._alternate_direction(decision.move_pulse, now=float(now))
+        alternative = self._alternate_direction(decision.move_pulse, now=now)
         if alternative is None:
             return PostCombatDecision(
                 state="OBSTACLE_HOLD",

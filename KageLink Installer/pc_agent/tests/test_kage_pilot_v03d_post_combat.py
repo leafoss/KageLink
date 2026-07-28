@@ -58,6 +58,17 @@ class KagePilotV03DPostCombatTests(unittest.TestCase):
         self.assertEqual(engine.search_timeout_seconds, 240.0)
         self.assertIsInstance(engine.search, ConcentricCellRingSearch)
 
+    def test_v4_accepts_legacy_v03c_live_harness_arguments(self):
+        engine = PostCombatRecoveryEngineV4(
+            search_timeout_seconds=45.0,
+            search_pulses_per_tile=3,
+            search_max_radius_tiles=8,
+        )
+        self.assertEqual(engine.search_timeout_seconds, 45.0)
+        self.assertEqual(engine.search.pulses_per_cell, 3)
+        # The obsolete v0.3c radius must not shrink the configured 30x24 arena coverage.
+        self.assertEqual(engine.search.max_radius, 29)
+
 
 if __name__ == "__main__":
     unittest.main()

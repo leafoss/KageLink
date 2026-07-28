@@ -137,6 +137,13 @@ class PostCombatRecoveryEngineV4(PostCombatRecoveryEngineV3):
         search_timeout_seconds: float = 240.0,
         **kwargs,
     ) -> None:
+        # v0.3d reuses validated v0.3c harnesses. Those harnesses still pass the old option
+        # names below. Consume them here so they cannot be forwarded twice to V3.
+        legacy_pulses = kwargs.pop("search_pulses_per_tile", None)
+        kwargs.pop("search_max_radius_tiles", None)
+        if legacy_pulses is not None:
+            search_pulses_per_cell = int(legacy_pulses)
+
         super().__init__(
             leader_detector=leader_detector,
             search_timeout_seconds=min(120.0, float(search_timeout_seconds)),

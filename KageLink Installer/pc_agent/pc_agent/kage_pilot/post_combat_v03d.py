@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .post_combat_v03c import (
     PersistentDojoLeaderDetector,
@@ -26,6 +26,15 @@ class ConcentricCellRingSearch:
     arena_height_cells: int = 24
     max_radius: int | None = None
 
+    radius: int = field(init=False, default=1)
+    completed_rings: int = field(init=False, default=0)
+    visited_logical_cells: int = field(init=False, default=0)
+    exhausted: bool = field(init=False, default=False)
+    _segments: list[tuple[str, int]] = field(init=False, default_factory=list, repr=False)
+    _segment_index: int = field(init=False, default=0, repr=False)
+    _cells_remaining: int = field(init=False, default=0, repr=False)
+    _pulses_remaining: int = field(init=False, default=0, repr=False)
+
     def __post_init__(self) -> None:
         self.pulses_per_cell = max(1, min(10, int(self.pulses_per_cell)))
         self.arena_width_cells = max(2, min(200, int(self.arena_width_cells)))
@@ -39,7 +48,7 @@ class ConcentricCellRingSearch:
         self.completed_rings = 0
         self.visited_logical_cells = 0
         self.exhausted = False
-        self._segments: list[tuple[str, int]] = []
+        self._segments = []
         self._segment_index = 0
         self._cells_remaining = 0
         self._pulses_remaining = 0

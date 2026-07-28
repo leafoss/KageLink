@@ -42,6 +42,19 @@ The agent may occasionally stand still and wait for the opponent to approach. Th
 
 This is currently safer than blind pursuit. It may be refined after a larger real-round sample without weakening protection against water, particles, map saving and stale identities.
 
+## v0.3j candidate — facing during particle holds
+
+A later round exposed a more specific case: perception correctly changed from `FACE_UP` to `MOVE_DOWN`/`FACE_DOWN`, but `MOTION_BURST_HOLD` also blocked every facing pulse. The character kept `R` active while physically facing the stale direction and combat took much longer.
+
+The additive v0.3j correction is documented in:
+
+```text
+KAGE_PILOT_V0_3J_BURST_FACING.md
+KAGE_PILOT_V0_3J_BURST_FACING.en.md
+```
+
+It allows only one facing pulse after two confirmations of a current visual adjacent target. Movement, pursuit and `H` remain blocked; `CONTACT_MEMORY`, `H_SETTLE_HOLD` and `MAP_SAVE_RESYNC` never receive the exception. v0.3j still requires real-game validation before replacing the v0.3i baseline in the public command.
+
 ## Stable public entry point
 
 Use:
@@ -50,7 +63,7 @@ Use:
 .\.venv-kage-pilot\Scripts\python.exe kage_pilot_dojo.py --rounds 1
 ```
 
-The public script runs the validated v0.3i engine in an isolated process. Scripts from `v03a` through `v03i` should be treated as historical/internal implementation during the release-candidate stage.
+The public script runs the validated v0.3i engine in an isolated process. Scripts from `v03a` through `v03j` should be treated as historical/internal implementation during the release-candidate stage. The public command will be promoted to v0.3j only after the real facing-correction test succeeds.
 
 ## Future integration API
 
@@ -94,9 +107,12 @@ The proposed primary metric is total round time and `completed_rounds_per_hour`,
 
 ## Pre-merge checklist
 
+- [ ] targeted v0.3j tests finish with `OK`;
 - [ ] full `test_kage_pilot*.py` suite finishes with `OK`;
 - [ ] public service tests finish with `OK`;
-- [ ] canonical `kage_pilot_dojo.py --rounds 1` completes a real round;
+- [ ] one real v0.3j round confirms `BURST_FACE_CORRECT` without enabling movement/H;
+- [ ] promote the canonical command to v0.3j only after real validation;
+- [ ] canonical `kage_pilot_dojo.py --rounds 1` completes a real round after promotion;
 - [ ] run at least 3 consecutive rounds without key leakage into PowerShell;
 - [ ] confirm exactly one trainer click in every round;
 - [ ] confirm KO -> immediate release -> post-combat in every round;
@@ -108,4 +124,4 @@ The proposed primary metric is total round time and `completed_rounds_per_hour`,
 
 ## Architectural decision
 
-During polishing, the validated v0.3i implementation remains untouched. Physical consolidation of the versioned modules will be considered only after the public entry point is validated. This avoids introducing regressions into an in-game loop that already works.
+During polishing, the validated v0.3i implementation remains untouched. Behavioral corrections are added as small testable layers such as v0.3j. Physical consolidation of the versioned modules will be considered only after the public entry point is validated. This avoids introducing regressions into an in-game loop that already works.

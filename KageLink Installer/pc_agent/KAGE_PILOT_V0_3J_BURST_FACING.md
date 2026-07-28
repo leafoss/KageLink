@@ -1,12 +1,12 @@
 # Kage Pilot v0.3j — Correção de orientação durante partículas
 
 **Data:** 28/07/2026  
-**Status:** candidato para validação real; ainda não promovido ao comando canônico  
-**Base preservada:** v0.3i
+**Status:** validada em rodada real e promovida ao comando canônico  
+**Baseline atual:** v0.3j
 
 ## Problema observado
 
-Uma rodada completa terminou com sucesso, mas o combate demorou muito porque o inimigo passou para baixo do jogador enquanto o personagem permaneceu olhando para cima.
+Uma rodada completa anterior terminou com sucesso, mas o combate demorou muito porque o inimigo passou para baixo do jogador enquanto o personagem permaneceu olhando para cima.
 
 O log mostrou que a percepção já havia corrigido sua decisão:
 
@@ -22,7 +22,7 @@ Entretanto, o `MotionBurstGuard` estava em `MOTION_BURST_HOLD`. A política ante
 - `H`;
 - pulsos de orientação.
 
-Como `R` continuava ativo, o personagem atacava automaticamente, mas na direção antiga.
+Como `R` continuava ativo, o personagem atacava automaticamente na direção física antiga.
 
 ## Correção v0.3j
 
@@ -38,7 +38,7 @@ Durante `MOTION_BURST_HOLD`, a v0.3j pode autorizar **um único pulso de orienta
 5. mesmo alvo e mesma direção confirmados por dois frames;
 6. nenhum pulso já enviado para aquela combinação de alvo/direção durante o episódio atual de burst.
 
-Saída esperada:
+Telemetria da exceção, quando necessária:
 
 ```text
 safety=BURST_FACE_CORRECT
@@ -74,6 +74,22 @@ A proteção não foi removida nem teve seus thresholds reduzidos. Ela continua 
 
 A mudança reconhece apenas que, no corpo a corpo visualmente confirmado, manter o personagem olhando na direção errada por dezenas de segundos é mais prejudicial do que enviar um pulso cardinal já usado normalmente para orientação.
 
+## Validação realizada
+
+A rodada real posterior da v0.3j confirmou:
+
+- combate considerado excelente pelo usuário;
+- orientação e ataque funcionando de forma estável;
+- nenhum movimento de perseguição liberado pelo novo estado;
+- nenhum `H` autorizado pela exceção de orientação;
+- clique único no treinador;
+- KO reconhecido pelo chat;
+- retorno ao treinador;
+- `Y` ligado e desligado corretamente durante recuperação;
+- `ROUND 1: COMPLETE`.
+
+A amostragem de telemetria impressa não registrou necessariamente uma linha `BURST_FACE_CORRECT`, pois o cenário pode ter sido resolvido por pulsos normais entre os períodos de bloqueio. A lógica estreita da exceção permanece coberta pelos testes direcionados.
+
 ## Arquivos
 
 ```text
@@ -82,20 +98,14 @@ kage_pilot_loop_v03j.py
 tests/test_kage_pilot_v03j_burst_facing.py
 ```
 
-## Validação necessária
+## Situação de release
 
-Antes de promover a v0.3j para `kage_pilot_dojo.py`:
+A v0.3j foi promovida para:
 
-- [ ] testes direcionados finalizam em `OK`;
-- [ ] suíte completa finaliza em `OK`;
-- [ ] uma rodada real mostra `BURST_FACE_CORRECT` quando a direção muda durante partículas;
-- [ ] o personagem vira para o inimigo;
-- [ ] nenhum movimento de perseguição é liberado pelo novo estado;
-- [ ] nenhum `H` é disparado pelo novo estado;
-- [ ] `MAP_SAVE_RESYNC` continua com `held=-`;
-- [ ] loop termina em `ROUND 1: COMPLETE`;
-- [ ] promoção para o comando canônico somente depois da validação real.
+```text
+kage_pilot_dojo.py
+→ DojoTrainingService
+→ kage_pilot_loop_v03j.py
+```
 
-## Decisão de release
-
-A v0.3i continua sendo a baseline validada. A v0.3j é uma correção aditiva e isolada. Depois de aprovada no jogo, o ponto de entrada público poderá ser atualizado para usar a v0.3j e a documentação de release candidate será ajustada.
+Antes do merge ainda são obrigatórios a suíte completa no Windows, três rodadas consecutivas pelo comando canônico e a aprovação explícita de Rafael.

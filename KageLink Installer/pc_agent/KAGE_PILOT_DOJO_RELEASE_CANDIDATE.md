@@ -42,6 +42,19 @@ Em alguns momentos o agente permanece parado aguardando o adversário se aproxim
 
 Esse comportamento é atualmente preferível à perseguição cega. Ele poderá ser refinado depois de uma série maior de rodadas reais, sem enfraquecer a proteção contra água, partículas, salvamento do mapa e identidades antigas.
 
+## Correção candidata v0.3j — orientação durante partículas
+
+Uma rodada posterior mostrou um caso mais específico: a percepção mudou corretamente de `FACE_UP` para `MOVE_DOWN`/`FACE_DOWN`, mas o `MOTION_BURST_HOLD` bloqueou também o pulso de orientação. O personagem manteve `R` ativo olhando para a direção antiga e prolongou muito o combate.
+
+A correção aditiva v0.3j está documentada em:
+
+```text
+KAGE_PILOT_V0_3J_BURST_FACING.md
+KAGE_PILOT_V0_3J_BURST_FACING.en.md
+```
+
+Ela permite somente um pulso de orientação após duas confirmações de alvo visual adjacente. Movimento, perseguição e `H` continuam bloqueados; `CONTACT_MEMORY`, `H_SETTLE_HOLD` e `MAP_SAVE_RESYNC` não recebem essa exceção. A v0.3j ainda precisa de validação real antes de substituir a baseline v0.3i no comando público.
+
 ## Entrada pública estável
 
 Use:
@@ -50,7 +63,7 @@ Use:
 .\.venv-kage-pilot\Scripts\python.exe kage_pilot_dojo.py --rounds 1
 ```
 
-O script público chama o motor v0.3i em processo isolado. Os scripts `v03a` até `v03i` devem ser tratados como implementação histórica/interna durante o release candidate.
+O script público chama o motor v0.3i em processo isolado. Os scripts `v03a` até `v03j` devem ser tratados como implementação histórica/interna durante o release candidate. A promoção do comando público para v0.3j ocorrerá somente após o teste real da correção de orientação.
 
 ## API para integração futura
 
@@ -94,9 +107,12 @@ A métrica principal proposta é o tempo total da rodada e `completed_rounds_per
 
 ## Checklist antes do merge
 
+- [ ] testes direcionados v0.3j finalizam em `OK`;
 - [ ] suíte completa `test_kage_pilot*.py` finaliza em `OK`;
 - [ ] testes do serviço público finalizam em `OK`;
-- [ ] comando canônico `kage_pilot_dojo.py --rounds 1` completa uma rodada real;
+- [ ] uma rodada real v0.3j confirma `BURST_FACE_CORRECT` sem liberar movimento/H;
+- [ ] promover o comando canônico para v0.3j somente após validação real;
+- [ ] comando canônico `kage_pilot_dojo.py --rounds 1` completa uma rodada real após a promoção;
 - [ ] executar pelo menos 3 rodadas consecutivas sem teclas vazando para o PowerShell;
 - [ ] confirmar clique único no treinador em todas as rodadas;
 - [ ] confirmar KO -> liberação imediata -> pós-combate em todas as rodadas;
@@ -108,4 +124,4 @@ A métrica principal proposta é o tempo total da rodada e `completed_rounds_per
 
 ## Decisão arquitetural
 
-Durante o polimento, a implementação v0.3i validada permanece intacta. A consolidação física dos módulos versionados será considerada somente depois da validação do ponto de entrada público. Isso evita introduzir uma regressão em um loop que já funcionou no jogo.
+Durante o polimento, a implementação v0.3i validada permanece intacta. Correções comportamentais são adicionadas em camadas pequenas e testáveis, como a v0.3j. A consolidação física dos módulos versionados será considerada somente depois da validação do ponto de entrada público. Isso evita introduzir uma regressão em um loop que já funcionou no jogo.

@@ -63,15 +63,15 @@ class DojoTrainingConfig:
     def normalized(self) -> "DojoTrainingConfig":
         hp = float(self.recovery_hp_percent)
         chakra = float(self.recovery_chakra_percent)
-        if hp < MIN_SAFE_RECOVERY_HP_PERCENT:
+        if not MIN_SAFE_RECOVERY_HP_PERCENT <= hp <= 100.0:
             raise ValueError(
-                f"RECOVERY_HP_BELOW_SAFE_MINIMUM:{hp:g}<"
-                f"{MIN_SAFE_RECOVERY_HP_PERCENT:g}"
+                f"RECOVERY_HP_PERCENT_OUT_OF_RANGE:{hp:g}; "
+                f"allowed={MIN_SAFE_RECOVERY_HP_PERCENT:g}..100"
             )
-        if chakra < MIN_SAFE_RECOVERY_CHAKRA_PERCENT:
+        if not MIN_SAFE_RECOVERY_CHAKRA_PERCENT <= chakra <= 100.0:
             raise ValueError(
-                f"RECOVERY_CHAKRA_BELOW_SAFE_MINIMUM:{chakra:g}<"
-                f"{MIN_SAFE_RECOVERY_CHAKRA_PERCENT:g}"
+                f"RECOVERY_CHAKRA_PERCENT_OUT_OF_RANGE:{chakra:g}; "
+                f"allowed={MIN_SAFE_RECOVERY_CHAKRA_PERCENT:g}..100"
             )
         return replace(
             self,
@@ -82,8 +82,8 @@ class DojoTrainingConfig:
             dialog_timeout=max(0.5, min(30.0, float(self.dialog_timeout))),
             spawn_delay=max(0.0, min(30.0, float(self.spawn_delay))),
             trainer_search_timeout=max(5.0, min(600.0, float(self.trainer_search_timeout))),
-            recovery_hp_percent=min(100.0, hp),
-            recovery_chakra_percent=min(100.0, chakra),
+            recovery_hp_percent=hp,
+            recovery_chakra_percent=chakra,
             leader_threshold=max(0.50, min(0.999, float(self.leader_threshold))),
             round_startup_delay=max(0.0, min(30.0, float(self.round_startup_delay))),
             chat_poll_seconds=max(0.10, min(2.0, float(self.chat_poll_seconds))),
@@ -97,6 +97,12 @@ class DojoTrainingConfig:
             return {}
         if not isinstance(value, Mapping):
             raise ValueError(f"DOJO_CONFIG_SECTION_NOT_OBJECT:{name}")
+        return value
+
+    @staticmethod
+    def _boolean(value: Any, name: str) -> bool:
+        if not isinstance(value, bool):
+            raise ValueError(f"DOJO_CONFIG_EXPECTED_BOOLEAN:{name}")
         return value
 
     @staticmethod
@@ -144,7 +150,10 @@ class DojoTrainingConfig:
         cls._reject_unknown("logging", logging, {"directory"})
 
         defaults = cls()
-        h_enabled = bool(combat.get("h_enabled", not defaults.disable_h))
+        h_enabled = cls._boolean(
+            combat.get("h_enabled", not defaults.disable_h),
+            "combat.h_enabled",
+        )
         return cls(
             rounds=payload.get("rounds", defaults.rounds),
             combat_seconds=timing.get("combat_timeout_seconds", defaults.combat_seconds),

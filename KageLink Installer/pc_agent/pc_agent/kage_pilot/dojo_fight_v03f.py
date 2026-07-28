@@ -238,6 +238,7 @@ def search_trainer_until_visible(
     next_telemetry = 0.0
     visual_hits = 0
     previous_center: tuple[float, float] | None = None
+    required_hits = max(1, int(confirm_frames))
 
     try:
         while time.monotonic() < deadline:
@@ -267,13 +268,26 @@ def search_trainer_until_visible(
                     visual_hits = 1
                 previous_center = center
                 controller.apply_keys(())
-                if visual_hits >= max(1, int(confirm_frames)):
+                if visual_hits >= required_hits:
                     target = _click_target_from_match(match, frame, state, observer)
                     print(
                         f"TRAINER_VISUAL_CONFIRMED score={target.score:.3f} "
                         f"d={target.grid_distance} bbox={target.bbox}"
                     )
                     return target
+
+                # Once a valid visual appears, freeze the route until the next frame confirms or
+                # rejects it. Never walk past a trainer that was just seen.
+                if now >= next_telemetry:
+                    print(
+                        f"TRAINER_VISUAL_CONFIRM hits={visual_hits}/{required_hits} "
+                        f"score={match.score:.3f}"
+                    )
+                    next_telemetry = now + max(0.10, float(telemetry_seconds))
+                elapsed = time.monotonic() - loop_started
+                if elapsed < interval:
+                    time.sleep(interval - elapsed)
+                continue
             else:
                 visual_hits = 0
                 previous_center = None
@@ -299,7 +313,10 @@ def search_trainer_until_visible(
             if elapsed < interval:
                 time.sleep(interval - elapsed)
     finally:
-        controller.apply_keys(())
+        try:
+            controller.apply_keys(())
+        except Exception:
+            pass
         source.close()
 
     raise DojoFightRequestError("TRAINER_SEARCH_TIMEOUT")

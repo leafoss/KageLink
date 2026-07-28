@@ -14,7 +14,7 @@ jobs:
   windows-tests:
     name: Windows Python 3.11
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     defaults:
       run:
@@ -63,3 +63,17 @@ jobs:
       - name: Validate canonical configuration
         run: |
           python kage_pilot_dojo.py --show-config
+
+      - name: Full PC Agent Python suite
+        run: |
+          python -m unittest discover -s tests -v 2>&1 | Tee-Object -FilePath full-python-suite.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload full-suite log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kage-pilot-full-python-suite
+          path: KageLink Installer/pc_agent/full-python-suite.txt
+          if-no-files-found: error
+          retention-days: 7

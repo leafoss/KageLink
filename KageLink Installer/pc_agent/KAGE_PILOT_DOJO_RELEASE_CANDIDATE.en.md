@@ -120,28 +120,24 @@ The future Game tab will use only this API. It must not import versioned modules
 
 ## Tests executed in this review
 
-In an isolated environment independent of Win32/BYOND:
+A dedicated workflow was added:
 
 ```text
-14 tests executed
-14 passed
+.github/workflows/kage-pilot-v03.yml
 ```
 
-Added coverage:
+On the official Windows Server 2025 runner with Python 3.11, the following passed:
 
-- canonical JSON loading;
-- CLI-over-JSON precedence;
-- unknown-key rejection;
-- invalid-JSON rejection;
-- rejection of quoted booleans;
-- HP/Chakra safety floors;
-- 100% upper bounds;
-- percentage-to-runtime-fraction conversion;
-- routing to `kage_pilot_loop_v03j.py`;
-- app-facing lifecycle states;
-- failures never reported as success.
+- dependency installation;
+- compilation of all Kage Pilot modules;
+- targeted release-candidate tests;
+- the full `test_kage_pilot*.py` suite;
+- `kage_pilot_dojo.py --show-config` validation;
+- the full PC Agent suite: **283 tests, all `OK`**.
 
-The connected environment does not provide Windows/BYOND and cannot execute the complete real runtime suite. The user's Windows full suite remains the authoritative gate.
+The first complete-suite run exposed an old LeafOS test pinned to the literal date `2026-07-26`. The behavior was correct, but the test failed when run on `2026-07-28`. Its assertion was changed to validate the stable `YYYY-MM-DD_001` contract, and the next complete suite passed.
+
+CI validates code, configuration and packaging, but does not replace physical Windows/BYOND execution against the real game window.
 
 ## Bible compliance
 
@@ -151,6 +147,7 @@ The connected environment does not provide Windows/BYOND and cannot execute the 
 - Configuration belongs to the service/domain layer, not the future UI.
 - The app receives a small stable public boundary.
 - Behavioral changes were additive and validated in-game.
+- An automated Windows gate now protects merge readiness.
 - No merge occurs without Rafael's explicit approval.
 
 ## Next milestone: adaptive training
@@ -174,14 +171,15 @@ The first future stage is passive telemetry. Online learning is not part of this
 - [x] public entry point promoted to v0.3j;
 - [x] canonical JSON configuration added;
 - [x] PT-BR/EN-US documentation reviewed;
-- [x] isolated configuration/service tests in `OK`;
-- [ ] targeted Windows tests in `OK`;
-- [ ] full `test_kage_pilot*.py` Windows suite in `OK`;
-- [ ] `kage_pilot_dojo.py --show-config` validated on Windows;
-- [ ] run 3 consecutive rounds through the public command;
-- [ ] confirm no key leakage into PowerShell;
-- [ ] review `git status` and untracked files;
-- [ ] remove PR draft state after the gates above;
+- [x] targeted Windows tests in `OK`;
+- [x] full `test_kage_pilot*.py` Windows suite in `OK`;
+- [x] full PC Agent suite: 283 tests in `OK`;
+- [x] `kage_pilot_dojo.py --show-config` validated in Windows CI;
+- [x] PC Agent compilation and packaging in `OK`;
+- [ ] run 3 consecutive rounds through the canonical command in the real game;
+- [ ] confirm no key leakage into PowerShell during those three rounds;
+- [ ] review `git status` and untracked files on the user's computer;
+- [ ] remove PR draft state after the real-game gates above;
 - [ ] merge only after Rafael's explicit approval.
 
 ## Architectural decision

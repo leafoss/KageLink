@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
+import json
 from pathlib import Path
 import time
 
@@ -11,48 +13,93 @@ from pc_agent.kage_pilot.dojo_training import (
 )
 
 
+DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "config" / "kage_pilot_dojo.json"
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Kage Pilot Dojo training: stable public entry point over the validated v0.3i loop / "
-            "treinamento no Dojo: entrada publica estavel sobre o loop v0.3i validado"
+            "Kage Pilot Dojo training: stable public entry point over the validated v0.3j loop / "
+            "treinamento no Dojo: entrada publica estavel sobre o loop v0.3j validado"
         )
     )
-    parser.add_argument("--rounds", type=int, default=1, help="0 = continuous until stop/F12")
-    parser.add_argument("--combat-seconds", type=float, default=120.0)
-    parser.add_argument("--post-combat-timeout", type=float, default=240.0)
-    parser.add_argument("--dialog-delay", type=float, default=5.0)
-    parser.add_argument("--dialog-timeout", type=float, default=6.0)
-    parser.add_argument("--spawn-delay", type=float, default=5.0)
-    parser.add_argument("--trainer-search-timeout", type=float, default=90.0)
-    parser.add_argument("--leader-threshold", type=float, default=0.88)
-    parser.add_argument("--round-startup-delay", type=float, default=1.0)
-    parser.add_argument("--chat-poll-seconds", type=float, default=0.15)
-    parser.add_argument("--log-dir", type=Path, default=Path("kage_pilot_loop_logs"))
-    parser.add_argument("--disable-h", action="store_true")
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=DEFAULT_CONFIG_PATH,
+        help="JSON configuration file / arquivo JSON de configuracao",
+    )
+    parser.add_argument(
+        "--show-config",
+        action="store_true",
+        help="print effective configuration and exit / mostrar configuracao efetiva e sair",
+    )
+    parser.add_argument("--rounds", type=int, default=None, help="0 = continuous until stop/F12")
+    parser.add_argument("--combat-seconds", type=float, default=None)
+    parser.add_argument("--post-combat-timeout", type=float, default=None)
+    parser.add_argument("--dialog-delay", type=float, default=None)
+    parser.add_argument("--dialog-timeout", type=float, default=None)
+    parser.add_argument("--spawn-delay", type=float, default=None)
+    parser.add_argument("--trainer-search-timeout", type=float, default=None)
+    parser.add_argument("--recovery-hp-percent", type=float, default=None)
+    parser.add_argument("--recovery-chakra-percent", type=float, default=None)
+    parser.add_argument("--leader-threshold", type=float, default=None)
+    parser.add_argument("--round-startup-delay", type=float, default=None)
+    parser.add_argument("--chat-poll-seconds", type=float, default=None)
+    parser.add_argument("--log-dir", type=Path, default=None)
+    h_group = parser.add_mutually_exclusive_group()
+    h_group.add_argument("--enable-h", dest="h_enabled", action="store_true")
+    h_group.add_argument("--disable-h", dest="h_enabled", action="store_false")
+    parser.set_defaults(h_enabled=None)
     return parser
+
+
+def resolve_config(args: argparse.Namespace) -> DojoTrainingConfig:
+    value = DojoTrainingConfig.load_json(args.config)
+    overrides = {}
+    for argument, field in (
+        ("rounds", "rounds"),
+        ("combat_seconds", "combat_seconds"),
+        ("post_combat_timeout", "post_combat_timeout"),
+        ("dialog_delay", "dialog_delay"),
+        ("dialog_timeout", "dialog_timeout"),
+        ("spawn_delay", "spawn_delay"),
+        ("trainer_search_timeout", "trainer_search_timeout"),
+        ("recovery_hp_percent", "recovery_hp_percent"),
+        ("recovery_chakra_percent", "recovery_chakra_percent"),
+        ("leader_threshold", "leader_threshold"),
+        ("round_startup_delay", "round_startup_delay"),
+        ("chat_poll_seconds", "chat_poll_seconds"),
+        ("log_dir", "log_dir"),
+    ):
+        raw = getattr(args, argument, None)
+        if raw is not None:
+            overrides[field] = raw
+    if getattr(args, "h_enabled", None) is not None:
+        overrides["disable_h"] = not bool(args.h_enabled)
+    return replace(value, **overrides).normalized()
 
 
 def main() -> int:
     args = build_parser().parse_args()
-    config = DojoTrainingConfig(
-        rounds=args.rounds,
-        combat_seconds=args.combat_seconds,
-        post_combat_timeout=args.post_combat_timeout,
-        dialog_delay=args.dialog_delay,
-        dialog_timeout=args.dialog_timeout,
-        spawn_delay=args.spawn_delay,
-        trainer_search_timeout=args.trainer_search_timeout,
-        leader_threshold=args.leader_threshold,
-        round_startup_delay=args.round_startup_delay,
-        chat_poll_seconds=args.chat_poll_seconds,
-        log_dir=args.log_dir,
-        disable_h=args.disable_h,
-    )
-    service = DojoTrainingService()
+    try:
+        config = resolve_config(args)
+    except ValueError as exc:
+        print(f"DOJO_CONFIG_ERROR / ERRO_CONFIG_DOJO: {exc}")
+        return 2
 
+    if args.show_config:
+        print(json.dumps(config.to_public_dict(), ensure_ascii=False, indent=2))
+        return 0
+
+    service = DojoTrainingService()
     print("Kage Pilot Dojo - STABLE ENTRY POINT / ENTRADA ESTAVEL")
-    print("Validated engine: v0.3i / motor validado: v0.3i")
+    print("Validated engine: v0.3j / motor validado: v0.3j")
+    print(f"Config / Configuracao: {Path(args.config).resolve()}")
+    print(
+        f"Recovery / Recuperacao: HP>={config.recovery_hp_percent:.0f}% "
+        f"Chakra>={config.recovery_chakra_percent:.0f}%"
+    )
     print("F12 or Ctrl+C = stop / parar")
 
     started = service.start(config, on_output=print)

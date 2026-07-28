@@ -120,28 +120,24 @@ A futura aba Game usará somente essa API. Ela não deverá importar módulos ve
 
 ## Testes realizados nesta revisão
 
-Em ambiente isolado e independente de Win32/BYOND:
+Foi adicionado o workflow dedicado:
 
 ```text
-14 testes executados
-14 aprovados
+.github/workflows/kage-pilot-v03.yml
 ```
 
-Cobertura adicionada:
+No runner oficial Windows Server 2025 com Python 3.11, foram aprovados:
 
-- leitura do JSON canônico;
-- precedência de argumentos sobre JSON;
-- rejeição de chaves desconhecidas;
-- rejeição de JSON inválido;
-- rejeição de booleanos escritos como texto;
-- piso seguro de HP e Chakra;
-- limite máximo de 100%;
-- conversão de percentuais para frações do runtime;
-- encaminhamento para `kage_pilot_loop_v03j.py`;
-- ciclo de estados destinado ao app;
-- falhas não reportadas como sucesso.
+- instalação das dependências;
+- compilação de todos os módulos do Kage Pilot;
+- testes direcionados do release candidate;
+- suíte completa `test_kage_pilot*.py`;
+- validação de `kage_pilot_dojo.py --show-config`;
+- suíte completa do PC Agent: **283 testes, todos em `OK`**.
 
-O ambiente conectado não possui Windows/BYOND e não consegue executar a suíte real completa. A suíte completa no computador do usuário continua sendo o gate autoritativo.
+A primeira execução da suíte completa revelou um teste antigo do LeafOS preso à data literal `2026-07-26`. O comportamento estava correto, mas o teste falhava quando executado em `2026-07-28`. A asserção foi corrigida para validar o contrato estável `YYYY-MM-DD_001`, e a suíte seguinte terminou integralmente em `OK`.
+
+O CI valida código, configuração e empacotamento, mas não substitui a execução física em Windows/BYOND com a janela real do jogo.
 
 ## Conformidade com a Bíblia
 
@@ -151,6 +147,7 @@ O ambiente conectado não possui Windows/BYOND e não consegue executar a suíte
 - A configuração pertence ao domínio/serviço, não à futura UI.
 - O app terá uma fronteira pública pequena e estável.
 - Mudanças comportamentais foram aditivas e validadas no jogo.
+- Um gate Windows automatizado passa a proteger o merge.
 - Nenhum merge ocorre sem aprovação explícita de Rafael.
 
 ## Próximo marco: treinamento adaptativo
@@ -174,14 +171,15 @@ A primeira etapa futura será telemetria passiva. Aprendizado online não faz pa
 - [x] entrada pública promovida para v0.3j;
 - [x] configuração JSON canônica adicionada;
 - [x] documentação PT-BR/EN-US revisada;
-- [x] testes isolados da configuração/serviço em `OK`;
-- [ ] testes direcionados no Windows em `OK`;
-- [ ] suíte completa `test_kage_pilot*.py` no Windows em `OK`;
-- [ ] `kage_pilot_dojo.py --show-config` validado no Windows;
-- [ ] executar 3 rodadas consecutivas pelo comando canônico;
-- [ ] confirmar ausência de teclas vazando ao PowerShell;
-- [ ] revisar `git status` e arquivos não rastreados;
-- [ ] retirar PR de draft após os gates acima;
+- [x] testes direcionados no Windows em `OK`;
+- [x] suíte completa `test_kage_pilot*.py` no Windows em `OK`;
+- [x] suíte completa do PC Agent: 283 testes em `OK`;
+- [x] `kage_pilot_dojo.py --show-config` validado no Windows CI;
+- [x] compilação e empacotamento do PC Agent em `OK`;
+- [ ] executar 3 rodadas consecutivas pelo comando canônico no jogo real;
+- [ ] confirmar ausência de teclas vazando ao PowerShell nessas três rodadas;
+- [ ] revisar `git status` e arquivos não rastreados no computador do usuário;
+- [ ] retirar PR de draft após os gates reais acima;
 - [ ] merge somente após aprovação explícita de Rafael.
 
 ## Decisão arquitetural

@@ -84,7 +84,7 @@ def main() -> int:
     args = build_parser().parse_args()
     try:
         config = resolve_config(args)
-    except ValueError as exc:
+    except (TypeError, ValueError) as exc:
         print(f"DOJO_CONFIG_ERROR / ERRO_CONFIG_DOJO: {exc}")
         return 2
 

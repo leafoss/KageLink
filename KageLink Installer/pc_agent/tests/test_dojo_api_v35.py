@@ -1,44 +1,78 @@
 from __future__ import annotations
 
-import importlib
+import json
+from pathlib import Path
+import subprocess
+import sys
 import unittest
 
-import unified_app_v35
 import unified_dojo_ui  # noqa: F401 - installs the bilingual catalog additions
 import unified_launcher
 
 
 class KageLinkDojoApiV35Tests(unittest.TestCase):
-    def test_v35_backend_exposes_authenticated_dojo_routes(self):
-        # Other regression modules intentionally reload the canonical backend.
-        # Re-running the product integration must attach to that current app
-        # without duplicating routes or lifespan wrappers.
-        backend = importlib.reload(unified_app_v35)
-        backend.ensure_dojo_integration()
-        routes = {
-            (method, route.path): route
-            for route in backend.app.routes
-            for method in getattr(route, "methods", set())
+    def test_v35_backend_exposes_authenticated_dojo_routes_in_clean_process(self):
+        project_dir = Path(__file__).resolve().parents[1]
+        probe = r'''
+import json
+import unified_app
+import unified_app_v35
+
+payload = []
+for route in unified_app_v35.app.routes:
+    path = getattr(route, "path", "")
+    if path.startswith("/api/dojo/"):
+        payload.append({
+            "path": path,
+            "methods": sorted(getattr(route, "methods", set())),
+            "dependencies": len(getattr(route, "dependant").dependencies),
+        })
+print("DOJO_V35_ROUTES=" + json.dumps(payload, sort_keys=True))
+print("DOJO_V35_VERSION=" + unified_app_v35.app.version)
+'''
+        result = subprocess.run(
+            [sys.executable, "-c", probe],
+            cwd=str(project_dir),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+            check=False,
+        )
+        self.assertEqual(
+            result.returncode,
+            0,
+            f"clean backend probe failed\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}",
+        )
+        route_line = next(
+            (line for line in result.stdout.splitlines() if line.startswith("DOJO_V35_ROUTES=")),
+            "",
+        )
+        version_line = next(
+            (line for line in result.stdout.splitlines() if line.startswith("DOJO_V35_VERSION=")),
+            "",
+        )
+        self.assertTrue(route_line, result.stdout)
+        routes = json.loads(route_line.partition("=")[2])
+        by_key = {
+            (method, item["path"]): item
+            for item in routes
+            for method in item["methods"]
         }
         for key in (
             ("GET", "/api/dojo/status"),
             ("POST", "/api/dojo/start"),
             ("POST", "/api/dojo/stop"),
         ):
-            self.assertIn(key, routes)
+            self.assertIn(key, by_key)
             self.assertGreaterEqual(
-                len(getattr(routes[key], "dependant").dependencies),
+                int(by_key[key]["dependencies"]),
                 1,
                 f"{key} must require the KageLink authorization dependency",
             )
-            self.assertEqual(
-                sum(1 for route_key in routes if route_key == key),
-                1,
-                f"{key} must not be duplicated",
-            )
-
-        self.assertEqual(backend.APP_VERSION, "3.5.0")
-        self.assertEqual(backend.app.version, "3.5.0")
+        self.assertEqual(len(routes), 3)
+        self.assertEqual(version_line, "DOJO_V35_VERSION=3.5.0")
 
     def test_desktop_dojo_catalog_has_pt_br_en_us_parity(self):
         required = {

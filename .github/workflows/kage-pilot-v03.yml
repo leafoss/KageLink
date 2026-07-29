@@ -53,6 +53,7 @@ jobs:
             tests.test_kage_pilot_dojo_config `
             tests.test_kage_pilot_dojo_dialog_retry `
             tests.test_kage_pilot_post_combat_visual_reacquire `
+            tests.test_kage_pilot_v03j_self_occlusion `
             tests.test_kage_pilot_v03j_burst_facing `
             tests.test_kage_pilot_v03i_runtime `
             tests.test_kage_pilot_v03g_victory `

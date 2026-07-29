@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import base64
 import binascii
-import math
 from typing import Iterable
+import zlib
 
 import cv2
 import numpy as np
@@ -12,88 +12,85 @@ from .post_combat_v03b import LeaderMatchV2
 from .post_combat_v03c import PersistentDojoLeaderDetector as _PersistentDojoLeaderDetector
 
 
-# Clear 68x77 source supplied from a real Dojo Trainer frame. It is kept as
-# base64 text because data/kage_pilot is intentionally reserved for local,
-# ignored calibration files.
-_BUNDLED_CLEAR_TEMPLATE_PNG_B64 = """
-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
+# The clearer 68x77 Trainer frame supplied from the real Dojo was cropped and
+# normalized offline to the validated 32x45 runtime footprint. Raw BGR pixels
+# are zlib-compressed instead of storing the source PNG, avoiding differences
+# between libpng builds on Windows and Linux.
+_BUNDLED_CLEAR_TEMPLATE_ZLIB_B64 = """
+eNqdl2tz2kYUhn+AG9uYxMTcMbqAroAkbuJiJIIBO7GTSes0aRs3k04mJJ86yQf71/eVjrSsAHfS7ryzs7taPXv2nN3VSvfm+uSc
+ZPhznauStLOZ4S9Yudpshz2DltOGDaGRva5NUA6qxnQZNAa02Ro1mUGGNzfCUdiLDA7t7e2Zzy7o0V6YWDdzdhmQeYOnF1o09MLY
+spzpIHWkDL2f9vePjo72konGxYgQWbj5OrDeuZZsNLx1+TCdJtQ2nB8lGiv0AI3FuWVtP08myZ3h/uEh8TOZzEmcUEbjIT06zkht
+d20/54pwxDBeEX/BwytGq6gYj/YPAEmlUsfHx0/jBP7+/v7BQfDo5FQgJ+/2DwUlDKs5XcYTCRYDDGNOSO1K9EgZ+UF8ObckounF
+xk+XQR+QuZVzeJTe+4G0c2GwoO+YF8cnO/P5vKZpb25u5vM5cpQLhcL2EEF8Z883/L/TbzRHrEysT8ZfLBa3t++Rb/CVwYQZzJwT
+YMnzcXy5RTtn3Q5C+9PpdDablWXZsi3kKKfjpZuvKQE24F/SziWDgy05Cba/8ewiscXg/9E0lM9CcJhKYwpBoB9naDosNHJ3SGaH
+G+2S5+s4c+jc8M5p8UBqy1Y0nQSrnmSeAlK3Rnd3d8H54L9Bfn9/rziTh+LLTpg4uFE+vX51dfNmW4epVL3/Any4HXzk4KvDV0Te
+cDsfXCIHXoLx/gL8mw8fP33//vX+Dvp99fXtp8/Xv74tKbYyuAYZNpNQBj8nNcktSeZ6FoHb/bkxXdDK3+B/+vbt3ecV+Erfq5hD
+dfRSH12T1NGrijGUu2cGtxK212E0BIxH3L1zP8mHfvv8BfzmdFk2OjUbi/BnWI4c5bLeoeNxp/HbvkI4/Kst/irkh2e7WCnW3Rfg
+IxcrBZ7Jz4L/mlAIQi8FJ5vhlE3z0bZE8VQIkx0nIU7MZjYQhYM/HGjxG5M5+N1+djAu85LkqmVZ9gMJQ+x0DvuqsvOT7P8f/Gg3
+JSeScJEXH9Eh3x3L/bFCGowrcsg3DGODTC3Ep8N/eyDGN8P1b4b87tjujF2SOxZkWQBfFMVty5l/6MzcXj/cEJF/7L4OrN5o1DXD
+HvTkmtxqtcB5iM+HgN0i6KNPVw664bD1A/uNpoKTx3a7qtkQRPHH+Q/Zz8rE7w8rRkMBvzeU4Pwf5NMndX0rmy43wsHsd7pi02m0
+hz27o0iS8B/tn8W3vjm3xcKbiRfxzWbd6nWcYU8zTWCbltOynZ38luVYTifge5tHBH3Ek9e5hdmuEB/BJUmSVOstqi1flKQNPkas
+Nr3grBBFCmu0Z89m7D7J9lf0cdlanxCWEAg7t5gYJr4z09B7B63Ph/CI2Ln+G40DnD+Mv3EKdUb9f+Gr/VH8lQ8+62a0f2v9sUrC
+/m0013xFUUy7hXzN52dqaaS1/f1R4kbklNvdTM/Nt92S45ZJZH8jTAREzldJTdfJW9WCWYZQJr6ejDI7nyu43ainJN08YOcz4/NV
+EnrmruqlszyEcsQnbLR+ltOXr3/58FF3nZJboJ7Q8vXLP/58v1qtvqxWtx9uZUNB/iWu0gWA4MSnAlq67nW8BYJ7Gq4x3uWV1m3l
+nsnoUPSLxH/78a96pYjT0jRNIfcUfORmmFDY4DN4xD+L9letNyrU1OHsHHy4Mbeo5S+k/IUIWbYpqo7UGBDQv7ggPlqqaruhKeAf
+lwp5R2AqajJaKrVG6J/gn0uwOplSZeBPO95YsrTCWM75kaqlk2q9VVVstVYDuT8+Q67WZLRANIXH2VxWLBc1IZSYkwS0lFSTjMfm
+KqoGWlx/is696VnFlFl8q4UTQJhwHeWrjP84my/pdahsKGE1x1YOPI8/zeypQO2CXGP3w7KuHOcL1E4Q5E/CnBf9q7Kq0Oqgyv1k
+DagDVG06EAoV02KNVKUWvEsF6sm6wcPUyF7B/ykbQuq4PC0hIhA/yOOW+KnQakOnDWfjRX0yZxd+fgq8AntMOyZHWvPDMn7qocQr
+Ef+cXfDAp/kGarVZmWZNTljz+akl3UgOZPy/wyXE/Vzs+Iun4fgQMP8Tivd50j/n/wD11Glt
 """.strip()
 
-# The validated Micro-PC capture sees the same sprite at approximately 32x45.
-# Crop coordinates remove the extra side background before downscaling.
-_CLEAR_CROP = (2, 4, 67, 77)
-_COMPACT_SIZE = (32, 45)
+_CLEAR_SOURCE_CROP = (2, 4, 67, 77)
+_COMPACT_WIDTH = 32
+_COMPACT_HEIGHT = 45
+_COMPACT_CHANNELS = 3
+_COMPACT_BYTE_COUNT = _COMPACT_WIDTH * _COMPACT_HEIGHT * _COMPACT_CHANNELS
 
 
 def decode_bundled_clear_template() -> np.ndarray:
-    """Decode the bundled clear Dojo Trainer frame as BGR pixels."""
+    """Decode the bundled normalized Dojo Trainer pixels as a BGR image."""
 
     try:
-        payload = base64.b64decode("".join(_BUNDLED_CLEAR_TEMPLATE_PNG_B64.split()), validate=True)
-    except (ValueError, binascii.Error) as error:
-        raise RuntimeError("DOJO_CLEAR_TEMPLATE_BASE64_INVALID") from error
-    encoded = np.frombuffer(payload, dtype=np.uint8)
-    image = cv2.imdecode(encoded, cv2.IMREAD_COLOR)
-    if image is None or image.size == 0:
-        raise RuntimeError("DOJO_CLEAR_TEMPLATE_PNG_INVALID")
-    return image
+        compressed = base64.b64decode(
+            "".join(_BUNDLED_CLEAR_TEMPLATE_ZLIB_B64.split()),
+            validate=True,
+        )
+        raw = zlib.decompress(compressed)
+    except (ValueError, binascii.Error, zlib.error) as error:
+        raise RuntimeError("DOJO_CLEAR_TEMPLATE_DATA_INVALID") from error
+    if len(raw) != _COMPACT_BYTE_COUNT:
+        raise RuntimeError(
+            f"DOJO_CLEAR_TEMPLATE_SIZE_INVALID:{len(raw)}/{_COMPACT_BYTE_COUNT}"
+        )
+    return np.frombuffer(raw, dtype=np.uint8).reshape(
+        (_COMPACT_HEIGHT, _COMPACT_WIDTH, _COMPACT_CHANNELS)
+    ).copy()
 
 
 def compact_bundled_clear_template(image: np.ndarray | None = None) -> np.ndarray:
-    """Build the 32x45 runtime template from the clearer supplied source."""
+    """Return a 32x45 template, optionally normalizing the original clear frame."""
 
-    source = decode_bundled_clear_template() if image is None else image
-    if source is None or source.size == 0:
+    if image is None:
+        return decode_bundled_clear_template()
+    if image.size == 0:
         raise RuntimeError("DOJO_CLEAR_TEMPLATE_EMPTY")
-    left, top, right, bottom = _CLEAR_CROP
-    height, width = source.shape[:2]
+    if image.shape[:2] == (_COMPACT_HEIGHT, _COMPACT_WIDTH):
+        return image.copy()
+
+    left, top, right, bottom = _CLEAR_SOURCE_CROP
+    height, width = image.shape[:2]
     left = max(0, min(width - 1, int(left)))
     top = max(0, min(height - 1, int(top)))
     right = max(left + 1, min(width, int(right)))
     bottom = max(top + 1, min(height, int(bottom)))
-    crop = source[top:bottom, left:right]
+    crop = image[top:bottom, left:right]
     if crop.size == 0:
         raise RuntimeError("DOJO_CLEAR_TEMPLATE_CROP_EMPTY")
-    return cv2.resize(crop, _COMPACT_SIZE, interpolation=cv2.INTER_LINEAR)
+    return cv2.resize(
+        crop,
+        (_COMPACT_WIDTH, _COMPACT_HEIGHT),
+        interpolation=cv2.INTER_LINEAR,
+    )
 
 
 class ClearDojoLeaderDetector(_PersistentDojoLeaderDetector):

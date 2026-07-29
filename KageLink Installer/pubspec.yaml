@@ -1,7 +1,7 @@
 name: kagelink
-version: 3.4.2+22
+version: 3.5.0+23
 publish_to: "none"
-description: Bilingual Android client for KageLink chat, Game controls, and remote Stats.
+description: Bilingual Android client for KageLink chat, Game controls, remote Stats, and Dojo Trainer.
 
 environment:
   sdk: ">=3.6.0 <4.0.0"

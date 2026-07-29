@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import unittest
 
 import unified_app_v35
@@ -9,9 +10,14 @@ import unified_launcher
 
 class KageLinkDojoApiV35Tests(unittest.TestCase):
     def test_v35_backend_exposes_authenticated_dojo_routes(self):
+        # Other regression modules intentionally reload the canonical backend.
+        # Re-running the product integration must attach to that current app
+        # without duplicating routes or lifespan wrappers.
+        backend = importlib.reload(unified_app_v35)
+        backend.ensure_dojo_integration()
         routes = {
             (method, route.path): route
-            for route in unified_app_v35.app.routes
+            for route in backend.app.routes
             for method in getattr(route, "methods", set())
         }
         for key in (
@@ -25,9 +31,14 @@ class KageLinkDojoApiV35Tests(unittest.TestCase):
                 1,
                 f"{key} must require the KageLink authorization dependency",
             )
+            self.assertEqual(
+                sum(1 for route_key in routes if route_key == key),
+                1,
+                f"{key} must not be duplicated",
+            )
 
-        self.assertEqual(unified_app_v35.APP_VERSION, "3.5.0")
-        self.assertEqual(unified_app_v35.app.version, "3.5.0")
+        self.assertEqual(backend.APP_VERSION, "3.5.0")
+        self.assertEqual(backend.app.version, "3.5.0")
 
     def test_desktop_dojo_catalog_has_pt_br_en_us_parity(self):
         required = {
@@ -41,7 +52,7 @@ class KageLinkDojoApiV35Tests(unittest.TestCase):
             "dojo_progress",
             "dojo_runtime",
             "dojo_last_event",
-            "dojo_manual_controls_blocked" if False else "dojo_f12",
+            "dojo_f12",
         }
         pt = unified_launcher.TEXT["pt-BR"]
         en = unified_launcher.TEXT["en-US"]

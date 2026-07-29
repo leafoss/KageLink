@@ -13,39 +13,53 @@ from pc_agent.kage_pilot.ko_identity_v03k import extract_ko_identity
 _LAST_ACCEPTED_KO_NAME = ""
 
 
+def _round_command(args, *, round_number: int) -> tuple[list[str], Path]:
+    """Resolve the isolated round runtime for source and installed builds."""
+
+    log_path = args.log_dir / f"round_{round_number:03d}.jsonl"
+    if bool(getattr(sys, "frozen", False)):
+        executable = Path(sys.executable).resolve().with_name("KagePilotRound.exe")
+        command = [str(executable)]
+        cwd = executable.parent
+    else:
+        script = Path(__file__).with_name("kage_pilot_live_v03k_round.py")
+        command = [sys.executable, str(script)]
+        cwd = Path(__file__).resolve().parent
+
+    recovery_hp_percent, recovery_chakra_percent = loop_v03g._validate_recovery_targets(args)
+    command.extend(
+        [
+            "--seconds",
+            str(max(1.0, float(args.combat_seconds))),
+            "--post-combat-timeout",
+            str(max(5.0, float(args.post_combat_timeout))),
+            "--startup-delay",
+            str(max(0.0, float(args.round_startup_delay))),
+            "--chat-poll-seconds",
+            str(max(0.10, min(2.0, float(args.chat_poll_seconds)))),
+            "--recovery-hp",
+            str(recovery_hp_percent / 100.0),
+            "--recovery-chakra",
+            str(recovery_chakra_percent / 100.0),
+            "--leader-threshold",
+            str(float(args.leader_threshold)),
+            "--log",
+            str(log_path),
+        ]
+    )
+    if _LAST_ACCEPTED_KO_NAME:
+        command.extend(["--previous-ko-name", _LAST_ACCEPTED_KO_NAME])
+    if args.disable_h:
+        command.append("--disable-h")
+    return command, cwd
+
+
 def _run_round_with_ko_buffer(args, *, round_number: int) -> bool:
     """Run one validated round while carrying the last accepted opponent name forward."""
 
     global _LAST_ACCEPTED_KO_NAME
 
-    recovery_hp_percent, recovery_chakra_percent = loop_v03g._validate_recovery_targets(args)
-    script = Path(__file__).with_name("kage_pilot_live_v03k_round.py")
-    log_path = args.log_dir / f"round_{round_number:03d}.jsonl"
-    command = [
-        sys.executable,
-        str(script),
-        "--seconds",
-        str(max(1.0, float(args.combat_seconds))),
-        "--post-combat-timeout",
-        str(max(5.0, float(args.post_combat_timeout))),
-        "--startup-delay",
-        str(max(0.0, float(args.round_startup_delay))),
-        "--chat-poll-seconds",
-        str(max(0.10, min(2.0, float(args.chat_poll_seconds)))),
-        "--recovery-hp",
-        str(recovery_hp_percent / 100.0),
-        "--recovery-chakra",
-        str(recovery_chakra_percent / 100.0),
-        "--leader-threshold",
-        str(float(args.leader_threshold)),
-        "--log",
-        str(log_path),
-    ]
-    if _LAST_ACCEPTED_KO_NAME:
-        command.extend(["--previous-ko-name", _LAST_ACCEPTED_KO_NAME])
-    if args.disable_h:
-        command.append("--disable-h")
-
+    command, cwd = _round_command(args, round_number=round_number)
     print(f"ROUND {round_number}: START COMBAT RUNTIME / INICIAR COMBATE")
     print(
         f"ROUND {round_number}: KO_BUFFER previous="
@@ -54,7 +68,7 @@ def _run_round_with_ko_buffer(args, *, round_number: int) -> bool:
     print("COMMAND:", subprocess.list2cmdline(command))
     process = subprocess.Popen(
         command,
-        cwd=str(Path(__file__).resolve().parent),
+        cwd=str(cwd),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,

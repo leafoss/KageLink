@@ -106,7 +106,7 @@ def main() -> int:
 
     install_clear_dojo_leader_detector()
     print("Kage Pilot v0.3j: OPPONENT-AWARE KO BUFFER HOTFIX")
-    print("TRAINER: local calibration + clearer bundled 32x45 template")
+    print("TRAINER: local calibration + native 68x77 and compact 32x45 templates")
     print("TRAINER: exactly one click; dialog retries never re-click or re-search the trainer")
     print("DIALOG: one initial check + configured retries; failed dialog round does not stop loop")
     print("BURST: only one confirmed adjacent facing pulse; movement and H remain blocked")

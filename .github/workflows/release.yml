@@ -35,8 +35,10 @@ jobs:
 
           grep -Fq "#define MyAppVersion \"$version\"" "KageLink Installer/installer/KageLink_PC_Agent.iss"
           grep -Eq "^version: ${version//./\\.}\+[0-9]+$" "KageLink Installer/pubspec.yaml"
+          grep -Fq "KagePilotDojo.exe" "KageLink Installer/installer/KageLink_PC_Agent.iss"
+          grep -Fq "KagePilotRound.exe" "KageLink Installer/installer/KageLink_PC_Agent.iss"
 
-          echo "Release contract OK for KageLink $version"
+          echo "Release contract OK for KageLink $version with installed Dojo helpers"
 
   windows-release:
     if: github.event_name != 'pull_request'
@@ -58,7 +60,25 @@ jobs:
         working-directory: "KageLink Installer/pc_agent"
         run: python -m unittest discover -s tests -v
       - name: Build unified KageLink.exe
-        run: pyinstaller --noconfirm --clean installer/KageLink.spec
+        run: pyinstaller --noconfirm --clean --workpath build/KageLink installer/KageLink.spec
+      - name: Build isolated Dojo loop helper
+        run: pyinstaller --noconfirm --clean --workpath build/KagePilotDojo installer/KagePilotDojo.spec
+      - name: Build isolated Dojo round helper
+        run: pyinstaller --noconfirm --clean --workpath build/KagePilotRound installer/KagePilotRound.spec
+      - name: Verify packaged executables
+        shell: pwsh
+        run: |
+          foreach ($path in @("dist\KageLink.exe", "dist\KagePilotDojo.exe", "dist\KagePilotRound.exe")) {
+            if (-not (Test-Path -LiteralPath $path)) { throw "$path was not created" }
+            if ((Get-Item -LiteralPath $path).Length -lt 1MB) { throw "$path is unexpectedly small" }
+          }
+      - name: Smoke-test packaged Dojo helpers
+        shell: pwsh
+        run: |
+          & ".\dist\KagePilotDojo.exe" --help | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "KagePilotDojo.exe --help failed" }
+          & ".\dist\KagePilotRound.exe" --help | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "KagePilotRound.exe --help failed" }
       - name: Smoke-launch unified desktop
         shell: pwsh
         run: |
@@ -75,6 +95,8 @@ jobs:
         run: |
           New-Item -ItemType Directory -Path "installer\build_output" -Force | Out-Null
           Copy-Item -LiteralPath "dist\KageLink.exe" -Destination "installer\build_output\KageLink.exe" -Force
+          Copy-Item -LiteralPath "dist\KagePilotDojo.exe" -Destination "installer\build_output\KagePilotDojo.exe" -Force
+          Copy-Item -LiteralPath "dist\KagePilotRound.exe" -Destination "installer\build_output\KagePilotRound.exe" -Force
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "installer\tools\prepare_cloudflared.ps1"
           if ($LASTEXITCODE -ne 0) { throw "prepare_cloudflared.ps1 failed" }
       - name: Install Inno Setup
@@ -128,6 +150,7 @@ jobs:
       - name: Flutter regression
         run: |
           flutter pub get
+          flutter gen-l10n
           flutter analyze
           flutter test
       - name: Create Android build workspace

@@ -1,3 +1,4 @@
+# Final one-shot synchronization. Remove this workflow after it commits the READMEs.
 name: Temporary KageLink 3.5 README updater
 
 on:

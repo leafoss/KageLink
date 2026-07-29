@@ -1,264 +1,137 @@
-# KageLink 3.4.1
+# KageLink 3.4.2
 
-[English](README.md) · [Bíblia de desenvolvimento](AGENTS.md) · [Development Bible](AGENTS.en.md)
+[English](README.md) · [Bíblia de desenvolvimento](AGENTS.md) · [Kage Pilot](KAGE_PILOT.md) · [Downloads](DOWNLOAD.md)
 
 <!-- kagelink-downloads-start -->
 
 ## ⬇️ Download
 
-**Versão estável atual: KageLink 3.4.1**
+**Versão estável atual: KageLink 3.4.2**
 
 | Windows | Android |
 | --- | --- |
 | **[Baixar KageLink para Windows](https://github.com/leafoss/KageLink/releases/latest/download/KageLink-Windows-Setup.exe)** | **[Baixar KageLink para Android](https://github.com/leafoss/KageLink/releases/latest/download/KageLink-Android.apk)** |
 
-No Windows, baixe o Setup e execute o instalador. O aplicativo Android é opcional e funciona como interface remota.
-
-[Todos os downloads e SHA-256](https://github.com/leafoss/KageLink/releases/latest) · [Guia rápido de instalação](DOWNLOAD.md)
+[Release mais recente e SHA-256](https://github.com/leafoss/KageLink/releases/latest)
 
 <!-- kagelink-downloads-end -->
 
+O **KageLink** conecta o **Shinobi Story Online** executado no Windows a um aplicativo Android para chat OOC/IC, controle remoto do jogo, visualização de `Status | Inventory` e integração opcional com LeafOS/Obsidian.
 
-O **KageLink** é um aplicativo complementar para **Shinobi Story Online**. Ele conecta o jogo executado em um computador Windows a um aplicativo Android para leitura e envio de chat, controle remoto do jogo, visualização da janela `Status | Inventory` e integração opcional com o **LeafOS/Obsidian**.
-
-A versão oficial descrita neste documento é **KageLink 3.4.1**. O aplicativo Flutter está versionado como `3.4.1+21`.
-
-> O KageLink depende do Shinobi Story Online aberto no computador onde o PC Agent está instalado. O aplicativo Android é uma interface remota; ele não executa o jogo sozinho.
-
----
-
-## 1. Componentes
-
-### KageLink PC Agent — Windows
-
-O PC Agent é instalado no mesmo computador que executa o Shinobi Story Online. Ele:
-
-- localiza a janela `Shinobi Story Online`;
-- lê o chat do cliente BYOND;
-- classifica mensagens em OOC e IC/RP;
-- mantém histórico persistente em SQLite;
-- localiza separadamente os campos de entrada OOC e IC;
-- envia texto para o campo correto do jogo;
-- expõe API HTTP e WebSockets autenticados;
-- cria e preserva uma chave de acesso;
-- oferece endereço de rede local;
-- inicia, por padrão, um túnel HTTPS externo da Cloudflare;
-- transmite a janela do jogo para a aba GAME;
-- recebe controles GAME permitidos;
-- localiza e transmite `Status | Inventory` para a aba STATS;
-- permite clique esquerdo e clique direito na janela STATS;
-- exporta RAW para LeafOS/Obsidian quando a integração está habilitada;
-- executa o processador LeafOS em segundo plano quando configurado;
-- mantém GAME, STATS, chat e LeafOS isolados para que uma falha local não derrube todo o Agent.
-
-### KageLink Android App
-
-O aplicativo Android oferece:
-
-- perfis de conexão salvos;
-- token armazenado em armazenamento seguro do Android;
-- conexão por rede interna, túnel externo ou endereço personalizado;
-- aba **OOC**;
-- aba **IC / RP**;
-- aba **GAME**;
-- aba **STATS**;
-- histórico sincronizado;
-- atualizações em tempo real por WebSocket;
-- reconexão automática;
-- calibração independente dos campos OOC e IC;
-- controles GAME configuráveis;
-- dois bancos de botões: `ABCD` e `ZXVU`;
-- Português do Brasil e English;
-- tema Chakra Night.
-
----
-
-## 2. Instalação para o usuário final
-
-A instalação possui duas partes: **PC Agent no Windows** e **APK no Android**.
-
-### 2.1 Instalar o PC Agent
-
-Use o instalador da mesma versão do aplicativo:
+Versões:
 
 ```text
-KageLink-Windows-Setup.exe
+KageLink: 3.4.2
+Flutter: 3.4.2+22
 ```
 
-1. Feche uma instalação antiga do KageLink, caso esteja aberta.
-2. Execute o Setup.
-3. Escolha Português do Brasil ou English no instalador.
-4. Mantenha o diretório padrão salvo em `%LocalAppData%\KageLink PC Agent`, salvo se houver uma necessidade específica de alteração.
-5. O atalho na área de trabalho é opcional.
-6. Conclua a instalação e marque a opção para abrir o KageLink.
+> O Android é uma interface remota. O jogo precisa permanecer aberto no computador que executa o PC Agent.
 
-Uma atualização normal foi projetada para preservar configuração, chave, histórico e dados do usuário. Na desinstalação, o instalador pergunta se esses dados também devem ser removidos.
+## Componentes
 
-### 2.2 Primeira execução do Agent
+### PC Agent — Windows
 
-Na primeira execução é apresentado um assistente.
+Responsável por:
 
-#### Idioma
+- localizar `Shinobi Story Online`;
+- ler o chat BYOND;
+- classificar OOC e IC/RP;
+- persistir histórico SQLite e estado do parser;
+- localizar separadamente os campos OOC e IC;
+- enviar mensagens ao campo correto;
+- expor API HTTP e WebSockets autenticados;
+- iniciar rede local e Cloudflare Quick Tunnel;
+- transmitir GAME e controlar teclas permitidas;
+- transmitir e controlar `Status | Inventory` em STATS;
+- exportar RAW e executar o pipeline LeafOS quando habilitado;
+- oferecer o Kage Pilot local e experimental.
 
-Escolha:
+### Aplicativo Android
 
-- `Português do Brasil`; ou
-- `English`.
+Oferece:
 
-O idioma pode ser alterado posteriormente em **Configurações**.
+- perfis de conexão;
+- token em armazenamento seguro;
+- rotas interna, externa e personalizada;
+- abas OOC, IC/RP, GAME e STATS;
+- histórico sincronizado e reconexão;
+- calibração independente OOC/IC;
+- joystick e bancos `ABCD`/`ZXVU`;
+- PT-BR e EN-US.
 
-#### Porta
+## Instalação
 
-A porta padrão é:
+### Windows
 
-```text
-8765
-```
+1. Baixe `KageLink-Windows-Setup.exe`.
+2. Feche uma instância antiga.
+3. Execute o instalador.
+4. Abra o KageLink.
+5. Na primeira execução, escolha PT-BR ou EN-US e mantenha a porta `8765`, salvo necessidade específica.
 
-Para a maioria dos usuários não é necessário alterar.
+Atualizações normais preservam configuração, chave, histórico e calibrações. Não apague `config.json` ou `chat_history.db` como procedimento normal de atualização.
 
-Se a porta configurada estiver ocupada, o Agent procura outra porta disponível e atualiza a configuração. Portanto, ao conectar o celular, sempre use o endereço atualmente mostrado pelo Agent.
+### Android
 
-#### Chave de acesso
+1. Baixe `KageLink-Android.apk`.
+2. Abra o APK e autorize somente a origem usada para instalação.
+3. Instale o aplicativo.
+4. No PC Agent, copie o endereço e a chave.
+5. Crie um perfil no Android.
 
-O KageLink cria automaticamente uma chave aleatória e segura. Essa chave autentica o aplicativo Android.
+O APK e o PC Agent devem preferencialmente pertencer à mesma release.
 
-Não publique essa chave e não a coloque no GitHub.
+## Primeira execução do PC Agent
 
-Regenerar a chave nas configurações desconecta os perfis que ainda possuem a chave antiga.
+O assistente solicita:
 
-#### Conexão externa
+- idioma;
+- porta;
+- ativação opcional do LeafOS;
+- caminho da Vault, quando aplicável;
+- personagem principal, quando o LeafOS estiver ativo.
 
-Por padrão, o Agent inicia um **Cloudflare Quick Tunnel** HTTPS. Isso permite utilizar o KageLink fora da rede Wi-Fi local sem abrir manualmente uma porta pública no roteador.
+O Agent cria automaticamente uma chave aleatória e segura. Trate-a como senha.
 
-O endereço `trycloudflare.com` é temporário e pode mudar quando o túnel é reiniciado. Se mudar, atualize o perfil externo no aplicativo.
+A tela principal apresenta:
 
-### 2.3 Entendendo a janela do PC Agent
+- estado do Agent, jogo, chat, entradas e conexão externa;
+- endereço externo recomendado;
+- endereço local;
+- chave de acesso;
+- personagem e sessão LeafOS;
+- controles do Ollama/Interpreter/Reviewer quando configurados.
 
-A janela principal mostra estados para:
-
-- **AGENTE** — backend interno;
-- **JOGO** — localização do Shinobi Story Online;
-- **CHAT** — leitura do chat;
-- **ENTRADA** — disponibilidade do campo de envio;
-- **CONEXÃO EXTERNA** — estado do túnel.
-
-Também mostra:
-
-- **Endereço externo recomendado**;
-- **Endereço local**;
-- **Chave de acesso**.
-
-Botões úteis:
-
-- **Copiar endereço**;
-- **Copiar chave**;
-- **Copiar ambos**;
-- **Abrir informações**;
-- **Reiniciar conexão**;
-- **Tentar novamente**;
-- **Abrir logs**;
-- **Configurações**;
-- **Abrir pasta**;
-- **Encerrar KageLink**.
-
-As informações de conexão também são gravadas em:
+As informações de conexão também ficam em:
 
 ```text
 %LocalAppData%\KageLink PC Agent\KAGELINK_CONNECTION.txt
 ```
 
-### 2.4 Instalar o APK no Android
+## Criar uma conexão Android
 
-Use:
+Informe:
 
-```text
-KageLink-Android.apk
-```
+- nome da rota;
+- endereço local, URL HTTPS ou endereço personalizado;
+- chave de acesso mostrada no PC Agent.
 
-1. Transfira o APK para o Android.
-2. Abra o arquivo.
-3. Caso o Android solicite autorização para instalar aplicativos dessa origem, autorize apenas a origem usada para abrir o APK.
-4. Instale o KageLink.
-5. Abra o aplicativo.
-
-O APK e o PC Agent devem preferencialmente pertencer à mesma versão do KageLink.
-
----
-
-## 3. Criar uma conexão no Android
-
-Na tela inicial, crie uma rota/perfil.
-
-### Nome
-
-É apenas um nome para identificar a conexão, por exemplo:
-
-```text
-PC de casa
-Rede local
-KageLink externo
-```
-
-### Tipo de conexão
-
-O aplicativo oferece:
-
-- **Rede interna**;
-- **Rota externa**;
-- **Personalizada**.
-
-O tipo organiza o perfil; a conexão real é determinada pelo endereço informado.
-
-### Endereço interno
-
-Use o endereço local exibido pelo PC Agent, por exemplo:
+Exemplos:
 
 ```text
 192.168.0.25:8765
-```
-
-O celular e o computador precisam conseguir se alcançar na mesma rede.
-
-### Endereço externo
-
-Use o endereço HTTPS mostrado pelo Agent, por exemplo:
-
-```text
 https://exemplo.trycloudflare.com
 ```
 
-Essa é a opção indicada quando o celular está fora da rede local.
+A URL `trycloudflare.com` pode mudar quando o túnel reinicia.
 
-### Chave de acesso
+## Chat OOC e IC/RP
 
-Cole exatamente a chave exibida no PC Agent.
+OOC e IC são canais independentes na leitura e no envio.
 
-O token é salvo no Android usando armazenamento seguro. Os demais dados do perfil são persistidos nas preferências do aplicativo.
+### Regra IC de roleplay
 
-### Perfis e favoritos
-
-Após uma conexão bem-sucedida, o perfil pode ser reutilizado. Perfis favoritos permanecem priorizados na lista.
-
----
-
-## 4. Chat OOC e IC/RP
-
-O KageLink trata OOC e IC como canais independentes tanto na leitura quanto no envio.
-
-### 4.1 OOC
-
-A aba OOC recebe mensagens classificadas como OOC pelo Agent.
-
-Ao enviar por OOC, o aplicativo utiliza o endpoint específico de OOC e o Agent procura exclusivamente o campo de entrada configurado para OOC. Se não localizar esse campo, o envio é recusado em vez de usar silenciosamente o campo IC.
-
-### 4.2 IC / RP
-
-A aba IC recebe duas formas de conteúdo.
-
-#### Blocos de roleplay
-
-Qualquer bloco iniciado por:
+Todo bloco iniciado por:
 
 ```text
 (*
@@ -270,21 +143,11 @@ e encerrado pelo próximo:
 *)
 ```
 
-é IC.
+é IC/RP. Blocos fragmentados ficam pendentes até o fechamento.
 
-Exemplo:
+### Regra literal `Says:`
 
-```text
-(*Uchiha, Leafos lowers his head.*)
-```
-
-Se o bloco chegar fragmentado em leituras diferentes do chat, o parser mantém o texto pendente até receber o fechamento.
-
-#### Falas com `Says:`
-
-A regra oficial é **literal e case-sensitive**.
-
-O marcador válido é exatamente:
+O marcador oficial é exatamente:
 
 ```text
 Says:
@@ -293,13 +156,12 @@ Says:
 Exemplos IC:
 
 ```text
-**Anbu** Says: ???
 **Anbu** Says: test
 Uchiha, Leafos Says: Hello
 Hozuki, Shin'ya Says: Hello
 ```
 
-Estes exemplos **não ativam** a regra de fala IC:
+Não ativam essa regra:
 
 ```text
 **Anbu** says: test
@@ -307,90 +169,70 @@ Estes exemplos **não ativam** a regra de fala IC:
 Uchiha, Leafos sAyS: Hello
 ```
 
-Eles seguem o fluxo OOC, salvo se fizerem parte de um bloco `(* ... *)`.
+A regra é deliberadamente case-sensitive.
 
-> Esta regra é deliberadamente rígida. Não alterar para case-insensitive sem uma nova decisão explícita do projeto.
+### Envio
 
-### 4.3 Envio de mensagens
-
-A versão 3.4.1 aumenta o limite configurado do Agent para até `32000` caracteres. Antes do envio, quebras de linha são normalizadas para espaços porque o destino final é um campo de entrada do jogo.
-
-O Agent possui endpoints distintos para envio:
+Endpoints dedicados:
 
 ```text
 /api/send/ooc
 /api/send/ic
 ```
 
-O endpoint legado `/api/send` é mantido por compatibilidade.
+O Agent nunca deve usar silenciosamente o campo do outro canal.
 
-### 4.4 Histórico
+Limite configurado:
 
-O histórico é persistido em:
+```text
+32000 caracteres
+```
+
+Quebras de linha são normalizadas antes do envio ao campo do jogo.
+
+### Histórico
 
 ```text
 %LocalAppData%\KageLink PC Agent\data\chat_history.db
 ```
 
-O aplicativo carrega o histórico ao conectar e recebe novas mensagens por WebSocket.
+## Calibração OOC / IC
 
----
+O BYOND pode recriar HWNDs. A calibração salva geometria e identidade suficiente para relocalizar os campos.
 
-## 5. Calibração OOC / IC
+1. Abra o jogo.
+2. No Android, abra a calibração.
+3. Selecione um candidato para OOC.
+4. Selecione outro candidato para IC.
+5. Confirme os dois estados.
 
-O Shinobi Story Online pode expor múltiplos controles `Edit`. O KageLink não deve presumir que um único controle representa ambos os canais.
+Um mesmo HWND nunca representa OOC e IC ao mesmo tempo.
 
-No aplicativo:
+## GAME
 
-1. conecte ao Agent;
-2. abra o menu;
-3. escolha **Calibrar entrada / Abrir varredura de entrada**;
-4. mantenha o Shinobi Story Online aberto no PC;
-5. escolha separadamente um candidato para **OOC** e outro para **IC**;
-6. confirme o estado dos dois canais.
-
-O candidato `002` é a referência inicial conhecida para IC, mas a geometria completa é salva após a calibração. O HWND pode mudar quando o BYOND recria controles; por isso a identificação não depende somente do número de janela.
-
-O mesmo HWND nunca deve ser usado simultaneamente como OOC e IC.
-
----
-
-## 6. Aba GAME
-
-A aba GAME transmite a janela do Shinobi Story Online.
-
-Características atuais:
-
-- captura específica da janela do jogo;
-- saída JPEG;
-- resolução `960 × 540`;
-- qualidade JPEG padrão 70;
-- alvo de aproximadamente 10 FPS;
-- sem áudio;
-- modo **Full**;
-- modo **Zoom**;
-- indicador de FPS;
-- indicador aproximado de latência;
-- joystick digital com oito direções;
-- diagonais;
-- toque, hold e multitouch;
-- opção para mostrar/ocultar os controles;
-- liberação automática de teclas ao sair da aba, desconectar ou perder condições seguras de controle.
-
-Ao entrar em GAME, o app solicita foco na janela do jogo e o Agent utiliza um clique de foco quando necessário.
-
-### 6.1 Bancos de botões
-
-A versão 3.4.1 possui dois bancos:
+Contrato atual:
 
 ```text
-ABCD
-ZXVU
+janela: Shinobi Story Online
+JPEG: 960 × 540
+qualidade: 70
+alvo: ~10 FPS
+áudio: não
+modos: Full | Zoom
 ```
+
+Controles:
+
+- joystick de oito direções;
+- diagonais;
+- toque, hold e multitouch;
+- bancos `ABCD` e `ZXVU`;
+- mapeamentos persistidos no Android;
+- liberação automática de teclas ao sair, desconectar ou perder condições seguras.
 
 Padrões:
 
-| Botão | Tecla padrão |
+| Botão | Tecla |
 | --- | --- |
 | A | E |
 | B | Space |
@@ -401,402 +243,195 @@ Padrões:
 | V | V |
 | U | U |
 
-O banco inicial é `ABCD`. O banco ativo e os mapeamentos são persistidos no Android.
+O Agent aceita apenas a whitelist documentada na Bíblia. GAME não executa comandos genéricos do sistema.
 
-### 6.2 Configurar os botões
+## STATS
 
-No aplicativo:
-
-```text
-Configurações → Controles GAME
-```
-
-É possível alterar o mapeamento e restaurar um banco ou todos os padrões.
-
-Teclas atualmente aceitas pelo protocolo:
+Alvo exclusivo:
 
 ```text
-A-Z
-0-9
-UP / DOWN / LEFT / RIGHT
-SPACE
-ENTER
-ESC
-TAB
-SHIFT
-CTRL
-ALT
-BACKSPACE
-INSERT
-DELETE
-HOME
-END
-PAGE UP / PAGE DOWN
-F1-F12
+Título: Status | Inventory
+Classe: #32770
+Processo: o mesmo do Shinobi Story Online
 ```
 
-O Agent rejeita identificadores de tecla fora dessa whitelist. Como modificadores e teclas de função estão presentes na lista, mapeamentos devem ser configurados conscientemente.
+Recursos:
 
----
-
-## 7. Aba STATS
-
-STATS é independente de GAME e foi criada para a janela do Shinobi Story Online:
-
-```text
-Status | Inventory
-```
-
-Classe Windows esperada:
-
-```text
-#32770
-```
-
-O Agent confirma que essa janela pertence ao mesmo processo do jogo antes de aceitá-la.
-
-Características:
-
-- stream JPEG independente;
-- alvo de `5 FPS`;
-- indicador de FPS e latência;
-- botão/tentativa para abrir a janela quando ela não está disponível;
-- toque simples no Android → clique esquerdo;
+- stream JPEG independente a 5 FPS;
+- tentativa de abertura da janela;
+- toque simples → clique esquerdo;
 - toque longo → clique direito;
-- coordenadas normalizadas para a área realmente exibida;
-- validação do identificador da janela antes do clique.
+- coordenadas normalizadas;
+- validação de PID, HWND e último frame.
 
-STATS não é um controle genérico do desktop; o alvo é especificamente `Status | Inventory` pertencente ao processo do Shinobi Story Online.
+STATS não é controle genérico do desktop.
 
----
+## LeafOS / Obsidian
 
-## 8. LeafOS / Obsidian
+A integração é opcional e desativada por padrão.
 
-A integração LeafOS existe oficialmente na 3.4.1, mas vem **desativada por padrão**.
-
-### 8.1 Ativar
-
-No PC Agent:
-
-1. abra **Configurações**;
-2. marque **Ativar integração LeafOS / Enable LeafOS integration**;
-3. selecione o caminho da Vault;
-4. selecione ou informe o diretório RAW;
-5. escolha se deseja **Exportar IC**;
-6. escolha se deseja **Exportar OOC**;
-7. salve; o Agent reinicia para aplicar a configuração.
-
-Padrão da configuração:
+Fluxo:
 
 ```text
-LeafOS: desativado
-Exportar IC: ativado
-Exportar OOC: desativado
+histórico classificado
+→ RAW append-only
+→ Processor
+→ sessão fechada
+→ Interpreter
+→ pending_review
+→ Memory Reviewer
+→ aprovação humana
+→ Canonical Memory
 ```
 
-Se uma Vault for informada e o caminho RAW ficar vazio, a configuração pode derivar:
+Regras:
 
-```text
-<Vault>\90 - KageAgent\Raw
+- RAW não reclassifica OOC/IC;
+- IDs são a identidade dos registros;
+- o Processor não reprocessa IDs;
+- o Interpreter cria candidatos, não verdade canônica;
+- o Reviewer é gate humano obrigatório;
+- `memory.json` é a fonte canônica;
+- `MEMORY.md` é projeção regenerável;
+- falhas LeafOS permanecem isoladas do restante do Agent.
+
+Nunca publique RAW, Vault, banco, token, URL privada ou logs sensíveis.
+
+## Kage Pilot
+
+O Kage Pilot possui uma única entrada pública:
+
+```powershell
+python kage_pilot.py dojo
 ```
 
-O caminho continua configurável e não é hardcoded para uma Vault pessoal específica.
+Exemplo de dez rodadas:
 
-### 8.2 Estrutura RAW
-
-O exporter cria:
-
-```text
-RAW/
-├── IC/
-│   └── YYYY-MM-DD.md
-└── OOC/
-    └── YYYY-MM-DD.md
+```powershell
+python kage_pilot.py dojo `
+  --rounds 10 `
+  --combat-seconds 120 `
+  --post-combat-timeout 240 `
+  --dialog-delay 5 `
+  --spawn-delay 5 `
+  --trainer-search-timeout 90
 ```
 
-Cada registro é append-only e contém envelope técnico:
+Também preserva os comandos de gravação e treinamento por `kage_pilot.py`.
 
-```html
-<!-- kagelink-raw-begin {"id":7538,"timestamp":"...","channel":"ic","speaker":"**Anbu**"} -->
-**Anbu** Says: test
-<!-- kagelink-raw-end -->
-```
+A baseline mergeada foi validada com 10/10 rodadas e mantém:
 
-O `channel` vem da mesma classificação utilizada pelo histórico e pelo aplicativo. O RAW **não reclassifica IC/OOC**.
+- um clique no treinador por rodada;
+- retry de diálogo sem novo clique;
+- F12 como emergência;
+- proteção contra KO repetido;
+- retorno e recuperação obrigatórios;
+- pisos HP ≥ 90% e Chakra ≥ 50%;
+- liberação de inputs em falha/transição.
 
-O campo `speaker` utiliza a mesma regra literal `Says:`. Blocos `(* ... *)` podem naturalmente ter `speaker: null`.
+Leia [KAGE_PILOT.md](KAGE_PILOT.md) antes de alterar esse subsistema.
 
-O Obsidian não precisa estar aberto para o Agent gravar os arquivos.
-
-### 8.3 Processador LeafOS
-
-Quando LeafOS está habilitado, exportação IC está ativa e Vault/RAW estão configurados, o Agent pode iniciar o processador LeafOS.
-
-Padrões atuais:
-
-```text
-intervalo do processador: 30 segundos
-inatividade para encerrar sessão: 900 segundos / 15 minutos
-```
-
-O processador mantém estado para evitar reprocessar os mesmos IDs e cria estruturas de sessões/participantes dentro da Vault.
-
-Uma falha do processador é isolada e não deve interromper chat, GAME, STATS ou túnel.
-
-### 8.4 Privacidade
-
-Nunca envie para o GitHub:
-
-- RAW pessoal;
-- `config.json` pessoal;
-- banco de histórico;
-- tokens;
-- URLs temporárias privadas;
-- logs contendo informações sensíveis;
-- conteúdo da Vault que não seja deliberadamente público.
-
----
-
-## 9. Configurações do PC Agent
-
-A tela **Configurações** permite, conforme a versão atual:
-
-- alterar idioma;
-- alterar porta;
-- gerar nova chave;
-- habilitar/desabilitar LeafOS;
-- configurar Vault;
-- configurar RAW;
-- habilitar exportação IC;
-- habilitar exportação OOC.
-
-Alterações relevantes reiniciam o KageLink para garantir que backend, túnel e módulos opcionais usem a mesma configuração.
-
----
-
-## 10. Configurações do Android
-
-No aplicativo é possível:
-
-- trocar idioma;
-- consultar a conexão atual;
-- consultar o estado do Agent;
-- abrir calibração OOC/IC;
-- configurar controles GAME;
-- trocar de perfil/rota;
-- consultar a versão.
-
-Os mapeamentos GAME são preferências do aplicativo Android. A calibração de campos OOC/IC é salva pelo PC Agent.
-
----
-
-## 11. Rede e segurança
+## Rede e segurança
 
 ### Rede interna
 
-Use preferencialmente o endereço local quando PC e Android estiverem na mesma rede.
+Use o endereço local quando PC e celular estiverem na mesma rede alcançável.
 
 ### Rede externa
 
-O Quick Tunnel fornece HTTPS e evita a necessidade de exposição manual da porta do KageLink no roteador.
+O Quick Tunnel fornece HTTPS sem exigir exposição manual normal da porta no roteador.
 
-### Token
+### Chave
 
-Toda API sensível e os WebSockets do aplicativo utilizam a chave do KageLink.
+Rotas sensíveis usam a chave KageLink. Nunca a publique.
 
-Trate a chave como uma senha.
+### Limites de controle
 
-### Controle remoto
+- GAME usa apenas teclas permitidas;
+- STATS usa apenas cliques normalizados no alvo validado;
+- Kage Pilot atua somente no jogo validado;
+- captura fallback exige a janela exata em foreground.
 
-GAME aceita somente identificadores presentes na whitelist de teclas da versão atual. STATS aceita somente clique esquerdo/direito normalizado na janela validada `Status | Inventory`.
+## Diagnóstico
 
----
-
-## 12. Diagnóstico
-
-### Agent não localiza o jogo
+### O Agent não encontra o jogo
 
 - abra o Shinobi Story Online;
-- confirme que a janela não está minimizada;
-- use **Tentar novamente**;
-- abra `logs\kagelink.log`.
+- restaure a janela;
+- use a nova tentativa;
+- consulte `logs\kagelink.log`.
 
-### App não conecta
+### O Android não conecta
 
-Confirme:
-
-1. PC Agent aberto;
-2. endereço correto;
-3. porta correta;
-4. token correto;
-5. celular alcança o computador ou o túnel;
-6. URL externa atual ainda é a mesma.
+Verifique Agent, endereço, porta, chave, alcance da rede e URL externa atual.
 
 ### OOC ou IC não envia
 
-Abra a calibração e confirme separadamente os dois campos.
+Refaça a calibração e confirme os dois campos separadamente.
 
 ### `**Anbu** Says: test` aparece em OOC
 
-Isso indica regressão ou build antigo. Na regra oficial atual, essa mensagem é IC. Confirme que o PC Agent executado foi compilado a partir de uma revisão que contém o fix literal `Says:`.
+Isso indica build antigo ou regressão. A regra oficial classifica como IC.
 
-### RAW não é criado
+### RAW não aparece
 
-Confirme:
-
-- LeafOS habilitado;
-- caminho RAW configurado;
-- exportação do canal ativada;
-- permissão de escrita no diretório;
-- logs do Agent.
+Verifique integração ativa, caminhos, canal habilitado, permissões e logs.
 
 ### STATS não aparece
 
-- mantenha o jogo aberto;
-- tente abrir a aba STATS novamente;
-- use o botão de nova tentativa/abertura;
-- verifique se `Status | Inventory` pode ser aberto no jogo;
-- não mantenha a janela minimizada.
+Abra/restaure `Status | Inventory` e tente novamente.
 
-### Diagnóstico de inicialização
-
-O repositório inclui:
+### Diagnóstico de startup
 
 ```text
 KageLink Installer\DIAGNOSTICAR_KAGELINK.bat
 ```
 
-O script procura a instalação em `%LocalAppData%\KageLink PC Agent`, verifica `KageLink.exe` e abre `startup_error.log` quando disponível.
+## Build para desenvolvedores
 
----
-
-## 13. Atualizar uma instalação
-
-Para atualizar:
-
-1. gere ou obtenha o Setup da nova versão;
-2. feche o KageLink antigo;
-3. execute o novo Setup sobre a instalação existente;
-4. abra o Agent;
-5. confirme endereço/token/configuração;
-6. atualize o APK quando a release também alterar o aplicativo Android.
-
-Não apague `config.json` ou `chat_history.db` como procedimento normal de atualização.
-
----
-
-## 14. Compilar o APK — desenvolvedores
-
-Requisitos:
-
-- Windows;
-- Flutter no `PATH`;
-- Android SDK configurado.
-
-Na pasta:
+### Android
 
 ```text
-KageLink Installer
+KageLink Installer\COMPILAR_APK.bat
 ```
 
-execute:
-
-```bat
-COMPILAR_APK.bat
-```
-
-O script:
-
-1. valida arquivos de localização;
-2. cria um workspace Android temporário;
-3. copia fonte/assets/configurações;
-4. executa `flutter pub get`;
-5. executa `flutter gen-l10n`;
-6. executa `flutter analyze`;
-7. gera APK release;
-8. copia o resultado.
-
-Saída:
+Saída de release publicada:
 
 ```text
-KageLink Installer\KageLink-Android.apk
+KageLink-Android.apk
 ```
 
-**O instalador Windows não gera o APK.**
+### Windows
 
----
-
-## 15. Criar o instalador Windows — desenvolvedores
-
-Execute:
-
-```bat
+```text
 KageLink Installer\installer\CRIAR_INSTALADOR.bat
 ```
 
-O builder:
-
-1. localiza Python 3.11 ou tenta instalá-lo via `winget`;
-2. cria ambiente virtual isolado de build;
-3. instala dependências e PyInstaller;
-4. prepara/verifica `cloudflared`;
-5. gera `KageLink.exe` com Python incorporado;
-6. localiza/instala Inno Setup quando necessário;
-7. compila o Setup.
-
-Saída:
+Saída de release publicada:
 
 ```text
-KageLink Installer\installer\output\KageLink-Windows-Setup.exe
+KageLink-Windows-Setup.exe
 ```
 
-O **usuário final** não precisa instalar Python para executar o KageLink já empacotado. Python é requisito do processo de build, não do uso normal do Setup final.
+O usuário final não precisa instalar Python para executar o Setup.
 
----
+## Desenvolvimento
 
-## 16. Estrutura principal do repositório
+Leia [AGENTS.md](AGENTS.md) antes de alterar o projeto.
 
-```text
-KageLink/
-├── AGENTS.md
-├── AGENTS.en.md
-├── README.md
-├── README.pt-BR.md
-├── LICENSE
-└── KageLink Installer/
-    ├── COMPILAR_APK.bat
-    ├── DIAGNOSTICAR_KAGELINK.bat
-    ├── android_overlay/
-    ├── assets/
-    ├── installer/
-    ├── lib/
-    ├── pc_agent/
-    ├── test/
-    ├── analysis_options.yaml
-    ├── l10n.yaml
-    └── pubspec.yaml
-```
-
----
-
-## 17. Regras de desenvolvimento
-
-Antes de alterar o KageLink, leia [AGENTS.md](AGENTS.md).
-
-Princípios centrais:
+Princípios:
 
 - GitHub é a fonte oficial;
-- não trabalhar a partir de ZIP como fonte principal;
-- usar branches;
-- alterações mínimas e rastreáveis;
-- preservar funcionalidades não relacionadas;
-- atualizar testes e documentação quando o contrato mudar;
-- não afirmar que um teste passou se ele não foi realmente executado.
+- branch e PR para mudanças significativas;
+- uma fonte canônica por responsabilidade;
+- versões históricas ficam no Git;
+- testes e documentação acompanham contratos;
+- PT-BR e EN-US são obrigatórios;
+- validação real é registrada quando Windows/BYOND exigir;
+- nunca afirmar que um teste passou sem execução.
 
----
+## Licença
 
-## 18. Licença
+Copyright © 2026 Rafael Demari Dib.
 
-Código-fonte do KageLink copyright © 2026 Rafael Demari Dib.
-
-É permitido usar, modificar e compilar o código-fonte para uso pessoal do proprietário. Redistribuição ou publicação comercial exige autorização do proprietário. Dependências de terceiros continuam sujeitas às respectivas licenças.
+Uso, modificação e compilação para uso pessoal do proprietário são permitidos. Redistribuição ou publicação comercial requer autorização. Dependências de terceiros mantêm suas licenças próprias.

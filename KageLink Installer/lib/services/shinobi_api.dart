@@ -5,6 +5,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../models/chat_channel.dart';
 import '../models/chat_message.dart';
+import '../models/dojo_status.dart';
 import '../models/runtime_status.dart';
 
 class ShinobiApiException implements Exception {
@@ -193,6 +194,38 @@ class ShinobiApi {
         )
         .timeout(const Duration(seconds: 10));
     _ensureSuccess(response, fallback: 'Falha ao selecionar o campo de entrada.');
+  }
+
+  Future<DojoStatus> fetchDojoStatus() async {
+    final response = await http
+        .get(endpoint('/api/dojo/status'), headers: _headers)
+        .timeout(const Duration(seconds: 8));
+    final json = _decodeObject(response, fallback: 'Falha ao consultar o Dojo Trainer.');
+    return DojoStatus.fromJson(json);
+  }
+
+  Future<DojoStatus> startDojo({required int rounds}) async {
+    final response = await http
+        .post(
+          endpoint('/api/dojo/start'),
+          headers: _headers,
+          body: jsonEncode({'rounds': rounds}),
+        )
+        .timeout(const Duration(seconds: 15));
+    final json = _decodeObject(response, fallback: 'Falha ao iniciar o Dojo Trainer.');
+    return DojoStatus.fromJson(json);
+  }
+
+  Future<DojoStatus> stopDojo() async {
+    final response = await http
+        .post(
+          endpoint('/api/dojo/stop'),
+          headers: _headers,
+          body: '{}',
+        )
+        .timeout(const Duration(seconds: 15));
+    final json = _decodeObject(response, fallback: 'Falha ao parar o Dojo Trainer.');
+    return DojoStatus.fromJson(json);
   }
 
   WebSocketChannel connectWebSocket() {

@@ -21,3 +21,9 @@ Desktop.ini
 
 # Local Kage Pilot calibration / calibracao local
 KageLink Installer/pc_agent/data/kage_pilot/
+
+# Local Kage Pilot environment and runtime output / ambiente e saidas locais
+KageLink Installer/pc_agent/.venv-kage-pilot/
+KageLink Installer/pc_agent/config.json
+KageLink Installer/pc_agent/kage_pilot_*.jsonl
+KageLink Installer/pc_agent/kage_pilot_loop_logs/

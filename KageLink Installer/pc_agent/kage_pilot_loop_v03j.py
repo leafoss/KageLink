@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 import subprocess
 import sys
 
@@ -54,6 +55,12 @@ def _round_command(args, *, round_number: int) -> tuple[list[str], Path]:
     return command, cwd
 
 
+def _round_creationflags() -> int:
+    if os.name == "nt" and bool(getattr(sys, "frozen", False)):
+        return int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    return 0
+
+
 def _run_round_with_ko_buffer(args, *, round_number: int) -> bool:
     """Run one validated round while carrying the last accepted opponent name forward."""
 
@@ -75,6 +82,7 @@ def _run_round_with_ko_buffer(args, *, round_number: int) -> bool:
         encoding="utf-8",
         errors="replace",
         bufsize=1,
+        creationflags=_round_creationflags(),
     )
 
     ready = False

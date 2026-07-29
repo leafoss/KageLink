@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from pc_agent.kage_pilot.dojo_training import (
+from pc_agent.kage_pilot import (
     DojoTrainingConfig,
     DojoTrainingPhase,
     DojoTrainingService,
@@ -111,7 +111,7 @@ class KagePilotDojoServiceTests(unittest.TestCase):
                 }
             )
 
-    def test_public_command_targets_validated_v03j_loop_and_forwards_recovery(self):
+    def test_public_command_targets_canonical_loop_and_forwards_recovery(self):
         service = DojoTrainingService(
             project_dir=Path("C:/KageLink/pc_agent"),
             python_executable="python-test",
@@ -125,7 +125,7 @@ class KagePilotDojoServiceTests(unittest.TestCase):
             )
         )
         self.assertEqual(command[0], "python-test")
-        self.assertEqual(Path(command[1]).name, "kage_pilot_loop_v03j.py")
+        self.assertEqual(Path(command[1]).name, "kage_pilot_loop.py")
         self.assertIn("--rounds", command)
         self.assertIn("0", command)
         self.assertIn("--recovery-hp-percent", command)
@@ -175,7 +175,7 @@ class KagePilotDojoServiceTests(unittest.TestCase):
         fake = FakeProcess(lines)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / "kage_pilot_loop_v03j.py").write_text("# test\n", encoding="utf-8")
+            (root / "kage_pilot_loop.py").write_text("# test\n", encoding="utf-8")
             service = DojoTrainingService(
                 project_dir=root,
                 python_executable="python-test",

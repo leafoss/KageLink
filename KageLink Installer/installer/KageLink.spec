@@ -9,7 +9,25 @@ datas = [
     (os.path.join(agent, 'pc_agent', 'assets'), os.path.join('pc_agent', 'assets')),
 ]
 binaries = []
-hiddenimports = ['app', 'unified_app', 'unified_launcher'] + collect_submodules('pc_agent') + ['win32timezone', 'win32ui', 'win32gui', 'win32api', 'win32con', 'win32process', 'uvicorn.logging', 'uvicorn.loops.auto', 'uvicorn.protocols.http.auto', 'uvicorn.protocols.websockets.auto', 'uvicorn.lifespan.on']
+hiddenimports = [
+    'app',
+    'unified_app',
+    'unified_app_v35',
+    'unified_dojo_ui',
+    'unified_launcher',
+] + collect_submodules('pc_agent') + [
+    'win32timezone',
+    'win32ui',
+    'win32gui',
+    'win32api',
+    'win32con',
+    'win32process',
+    'uvicorn.logging',
+    'uvicorn.loops.auto',
+    'uvicorn.protocols.http.auto',
+    'uvicorn.protocols.websockets.auto',
+    'uvicorn.lifespan.on',
+]
 for package in ['uvicorn', 'fastapi', 'starlette', 'pydantic', 'pydantic_core', 'websockets', 'anyio', 'mss', 'PIL']:
     d, b, h = collect_all(package)
     datas += d

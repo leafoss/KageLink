@@ -11,9 +11,9 @@ from .dojo_fight_v03e import (
 from .dojo_fight_v03f import (
     click_first_option_ok,
     find_dojo_dialog_with_ok,
-    search_trainer_until_visible,
     wait_for_dojo_dialog_with_ok,
 )
+from .trainer_search_v03k import search_trainer_until_visible_safe as search_trainer_until_visible
 
 
 class DojoRoundWithoutCombatError(DojoFightRequestError):

@@ -13,9 +13,30 @@ from pydantic import BaseModel, Field
 
 import app as legacy
 from pc_agent.chat_channels import ChatChannelParser, drop_replayed_prefix, find_new_text, unfinished_ic_suffix
+from pc_agent.dojo_api import create_dojo_router
+from pc_agent.kage_pilot import DojoTrainingService
 from pc_agent.leafos_lifecycle import LifecycleLeafOSProcessor
 from pc_agent.primary_character import get_primary_character, resolve_primary_character
 from pc_agent.primary_character_api import set_character_change_hook
+
+
+APP_VERSION = "3.5.0"
+legacy.APP_VERSION = APP_VERSION
+legacy.app.version = APP_VERSION
+
+dojo_service = getattr(legacy.app.state, "dojo_v35_service", None)
+if not isinstance(dojo_service, DojoTrainingService):
+    dojo_service = DojoTrainingService()
+    legacy.app.state.dojo_v35_service = dojo_service
+
+if not any(getattr(route, "path", "") == "/api/dojo/status" for route in legacy.app.routes):
+    legacy.app.include_router(
+        create_dojo_router(
+            dojo_service,
+            legacy.security,
+            legacy.game_runtime,
+        )
+    )
 
 
 class FinalizeSessionRequest(BaseModel):
@@ -353,6 +374,9 @@ async def unified_lifespan(fastapi_app):
             watcher.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await watcher
+            if dojo_service.is_running:
+                await asyncio.to_thread(dojo_service.stop, timeout=8.0)
+            await asyncio.to_thread(legacy.game_runtime.release_all)
 
 
 legacy.app.router.lifespan_context = unified_lifespan

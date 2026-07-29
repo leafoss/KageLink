@@ -44,7 +44,8 @@ jobs:
             kage_pilot_dojo.py `
             kage_pilot_loop_v03g.py `
             kage_pilot_loop_v03j.py `
-            kage_pilot_live_v03j_round.py
+            kage_pilot_live_v03j_round.py `
+            kage_pilot_live_v03k_round.py
 
       - name: Targeted release-candidate tests
         run: |
@@ -55,6 +56,7 @@ jobs:
             tests.test_kage_pilot_post_combat_visual_reacquire `
             tests.test_kage_pilot_v03j_self_occlusion `
             tests.test_kage_pilot_v03j_burst_facing `
+            tests.test_kage_pilot_v03k_ko_identity `
             tests.test_kage_pilot_v03i_runtime `
             tests.test_kage_pilot_v03g_victory `
             -v

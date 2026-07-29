@@ -55,7 +55,7 @@ class OllamaManager:
     def _models_from_server(self) -> list[str]:
         request = urllib.request.Request(
             f"{self.base_url}/api/tags",
-            headers={"User-Agent": "KageLink/3.4.2"},
+            headers={"User-Agent": "KageLink/3.5.0"},
         )
         with urllib.request.urlopen(request, timeout=2.0) as response:
             payload = json.loads(response.read().decode("utf-8"))

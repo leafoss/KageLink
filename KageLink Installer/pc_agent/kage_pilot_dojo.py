@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import time
 
-from pc_agent.kage_pilot.dojo_training import (
+from pc_agent.kage_pilot import (
     DojoTrainingConfig,
     DojoTrainingPhase,
     DojoTrainingService,

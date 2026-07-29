@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+import sys
 
 import unified_app as base
 from pc_agent.dojo_api import create_dojo_router
@@ -9,16 +10,25 @@ from pc_agent.kage_pilot import DojoTrainingService
 
 
 APP_VERSION = "3.5.0"
+app = base.app
+runtime_status = base.runtime_status
+dojo_service: DojoTrainingService
 
 
 def ensure_dojo_integration() -> DojoTrainingService:
-    """Install the 3.5 Dojo service on the current canonical FastAPI app.
+    """Install the 3.5 Dojo service on the active canonical FastAPI app.
 
-    The unified backend is reloaded by parts of the regression suite and may also
-    be imported by packaging discovery before the production entry point runs.
-    Keeping the service on ``app.state`` and checking actual route paths makes
-    this operation safe for both a fresh app and repeated imports.
+    Packaging discovery and some regression fixtures may replace ``unified_app``
+    in ``sys.modules``. Rebinding here keeps the product wrapper attached to the
+    backend that will actually be served, while app-state guards prevent route
+    and lifespan duplication.
     """
+
+    global app, base, dojo_service, runtime_status
+
+    active_base = sys.modules.get("unified_app")
+    if active_base is not None and active_base is not base:
+        base = active_base
 
     base.legacy.APP_VERSION = APP_VERSION
     base.app.version = APP_VERSION
@@ -53,12 +63,13 @@ def ensure_dojo_integration() -> DojoTrainingService:
         base.app.router.lifespan_context = dojo_lifespan
         base.app.state.dojo_v35_lifespan_installed = True
 
+    app = base.app
+    runtime_status = base.runtime_status
+    dojo_service = service
     return service
 
 
 dojo_service = ensure_dojo_integration()
-app = base.app
-runtime_status = base.runtime_status
 
 __all__ = [
     "APP_VERSION",

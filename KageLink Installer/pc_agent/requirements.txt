@@ -3,3 +3,4 @@ uvicorn[standard]>=0.34,<1.0
 pywin32>=308
 mss>=10.0,<11.0
 Pillow>=11.0,<13.0
+opencv-python>=4.13,<5.0

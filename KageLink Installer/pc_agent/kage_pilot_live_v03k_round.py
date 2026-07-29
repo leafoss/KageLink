@@ -7,8 +7,11 @@ import sys
 import kage_pilot_live_v03 as live_v03
 import kage_pilot_live_v03j_round as round_v03j  # installs validated v0.3j patches first
 
+from pc_agent.kage_pilot.dojo_leader_v03l import install_clear_dojo_leader_detector
 from pc_agent.kage_pilot.ko_identity_v03k import RoundKOIdentityGate
 
+
+install_clear_dojo_leader_detector()
 
 _BASE_WATCHER = live_v03.ChatVictoryWatcher
 _BASE_OBSERVER = live_v03.ParticleSafeGridTargetObserver
@@ -175,6 +178,7 @@ def main() -> int:
     _configure_round(previous_name)
 
     print("Kage Pilot v0.3j HOTFIX: OPPONENT-AWARE KO IDENTITY BUFFER")
+    print("TRAINER: local calibration + clearer bundled 32x45 template")
     print(
         f"KO BUFFER previous={_quoted(previous_name or None)}; "
         "same opponent KO is rejected and combat continues"

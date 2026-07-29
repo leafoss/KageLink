@@ -1,5 +1,5 @@
 ﻿#define MyAppName "KageLink"
-#define MyAppVersion "3.4.2"
+#define MyAppVersion "3.5.0"
 #define MyAppPublisher "KageLink"
 #define MyAppExeName "KageLink.exe"
 
@@ -15,7 +15,7 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=output
-OutputBaseFilename=KageLink-PC-Agent-Setup-v3.4.2
+OutputBaseFilename=KageLink-PC-Agent-Setup-v3.5.0
 SetupIconFile=assets\kagelink.ico
 WizardImageFile=assets\wizard_large.bmp
 WizardSmallImageFile=assets\wizard_small.bmp
@@ -24,7 +24,7 @@ SolidCompression=yes
 ShowLanguageDialog=yes
 LanguageDetectionMethod=uilanguage
 UninstallDisplayIcon={app}\KageLink.exe
-VersionInfoVersion=3.4.2.0
+VersionInfoVersion=3.5.0.0
 AppMutex=Local\KageLinkPcAgent_v3
 CloseApplications=yes
 RestartApplications=no
@@ -59,6 +59,8 @@ Type: filesandordirs; Name: "{app}\web"
 
 [Files]
 Source: "build_output\KageLink.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "build_output\KagePilotDojo.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "build_output\KagePilotRound.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "payload\cloudflared.exe"; DestDir: "{app}\tools"; Flags: ignoreversion
 Source: "payload\cloudflared.sha256"; DestDir: "{app}\tools"; Flags: ignoreversion
 Source: "assets\kagelink.ico"; DestDir: "{app}"; Flags: ignoreversion

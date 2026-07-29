@@ -150,6 +150,30 @@ TRAINER_SEARCH ... ring=3/29 completed=2 cells=19
 
 O contrato foi protegido por testes de regressão dedicados.
 
+## Validação automatizada final
+
+Workflow dedicado em Windows Server 2025 / Python 3.11:
+
+```text
+67 testes direcionados: OK
+190 testes Kage Pilot: OK
+318 testes completos PC Agent: OK
+compilação: OK
+configuração canônica: OK
+```
+
+Workflow unificado:
+
+```text
+PC Agent Python: OK
+KageLink.exe: build e verificação OK
+smoke test do desktop unificado: OK
+Windows Setup: OK
+Flutter analyze: OK
+Flutter tests: OK
+Android release APK: OK
+```
+
 ## Documentação e rastreabilidade
 
 - documentação equivalente em PT-BR e EN-US;
@@ -170,4 +194,6 @@ O contrato foi protegido por testes de regressão dedicados.
 - [x] artefatos locais protegidos por `.gitignore`;
 - [x] telemetria de rodadas endurecida;
 - [x] documentação PT-BR/EN-US atualizada;
+- [x] workflow dedicado completo em sucesso;
+- [x] workflow unificado completo em sucesso;
 - [ ] merge somente após aprovação explícita de Rafael.

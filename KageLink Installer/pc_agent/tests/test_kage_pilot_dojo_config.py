@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import kage_pilot_dojo
+import kage_pilot
 import kage_pilot_loop_v03g as loop_v03g
 from pc_agent.kage_pilot.dojo_training import DojoTrainingConfig
 
@@ -27,7 +27,7 @@ class FakeRoundProcess:
 
 class KagePilotDojoConfigTests(unittest.TestCase):
     def test_repository_default_config_is_loadable_and_matches_safe_baseline(self):
-        value = DojoTrainingConfig.load_json(kage_pilot_dojo.DEFAULT_CONFIG_PATH)
+        value = DojoTrainingConfig.load_json(kage_pilot.DEFAULT_CONFIG_PATH)
         self.assertEqual(value.rounds, 1)
         self.assertEqual(value.dialog_delay, 5.0)
         self.assertEqual(value.spawn_delay, 5.0)
@@ -49,7 +49,7 @@ class KagePilotDojoConfigTests(unittest.TestCase):
                 json.dumps(base.to_public_dict(), ensure_ascii=False),
                 encoding="utf-8",
             )
-            args = kage_pilot_dojo.build_parser().parse_args(
+            args = kage_pilot.build_dojo_parser().parse_args(
                 [
                     "--config",
                     str(path),
@@ -60,7 +60,7 @@ class KagePilotDojoConfigTests(unittest.TestCase):
                     "--disable-h",
                 ]
             )
-            value = kage_pilot_dojo.resolve_config(args)
+            value = kage_pilot.resolve_dojo_config(args)
 
         self.assertEqual(value.rounds, 2)
         self.assertEqual(value.dialog_delay, 3)

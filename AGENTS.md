@@ -1,10 +1,10 @@
 # KageLink — Bíblia de Desenvolvimento
 
-[English](AGENTS.en.md) · [README em Português](README.pt-BR.md) · [README in English](README.md)
+[English](AGENTS.en.md) · [Runtime e organização](AGENTS_RUNTIME.md) · [Kage Pilot](KAGE_PILOT.md) · [README PT-BR](README.pt-BR.md) · [README EN-US](README.md)
 
 Este arquivo é a **fonte operacional de verdade para qualquer pessoa ou agente de IA que altere o KageLink**.
 
-Ele descreve os contratos que devem ser preservados na versão oficial atual, **KageLink 3.4.1**, e o processo obrigatório para evitar regressões, versões divergentes e o antigo fluxo baseado em ZIPs.
+Ele governa a versão oficial publicada no `main`, incluindo Android, PC Agent, Installer, LeafOS e Kage Pilot. Contratos especializados estão nos capítulos vinculados acima e têm força normativa equivalente dentro de seus escopos.
 
 ---
 
@@ -25,9 +25,11 @@ Não tratar como fonte principal:
 - ZIP antigo;
 - pasta no Desktop;
 - build instalado;
-- APK isolado;
-- EXE isolado;
+- APK ou EXE isolado;
 - arquivo enviado em conversa;
+- log de execução;
+- ambiente virtual;
+- configuração local;
 - cópia local não commitada.
 
 Fluxo correto:
@@ -37,7 +39,7 @@ main
   ↓
 branch de trabalho
   ↓
-alteração mínima
+alteração mínima e coerente
   ↓
 testes
   ↓
@@ -47,34 +49,26 @@ Pull Request
   ↓
 validação real quando necessária
   ↓
-merge
+merge explícito
 ```
 
-Nunca usar um ZIP como substituto do versionamento Git.
+Nunca usar ZIP como substituto do Git.
 
 ---
 
-## 2. Versão oficial atual
+## 2. Versão oficial
 
-A documentação desta Bíblia descreve:
+A versão de release é definida por:
 
 ```text
-KageLink 3.4.1
-Flutter: 3.4.1+20
+RELEASE_VERSION
 ```
 
-A versão deve permanecer coerente entre:
+Essa é a única fonte humana editável. Flutter, Installer, backend, `/api/health`, labels, artefatos, workflows e READMEs devem permanecer sincronizados por geração ou teste automático.
 
-- `pubspec.yaml`;
-- `APP_VERSION` do PC Agent;
-- `COMPILAR_APK.bat`;
-- `CRIAR_INSTALADOR.bat`;
-- `KageLink_PC_Agent.iss`;
-- nomes de artefatos;
-- textos de versão no app;
-- READMEs quando uma nova release for publicada.
+O `main` analisado após o PR #16 contém release `3.4.2` e Kage Pilot Dojo validado. Não manter referências manuais a `3.4.1` como estado atual.
 
-Não aumentar versão por uma alteração local ainda não validada sem uma decisão explícita de release.
+Não aumentar versão por alteração local ainda não validada sem decisão explícita de release.
 
 ---
 
@@ -92,26 +86,27 @@ Toda alteração deve ser:
 - localizada;
 - rastreável;
 - testável;
+- reversível quando possível;
 - compatível com comportamento funcional não relacionado.
 
 ### Proibido durante uma tarefa limitada
 
 - refatorar por estética;
-- renomear arquivos/classes/rotas sem necessidade;
-- reorganizar pastas incidentalmente;
-- trocar bibliotecas sem motivo funcional;
-- alterar UI não relacionada;
-- alterar protocolo não relacionado;
+- trocar biblioteca sem motivo funcional;
+- alterar UI ou protocolo não relacionado;
 - mudar mapeamentos padrão sem solicitação;
 - apagar histórico/configuração para “resolver” bug;
 - substituir módulo inteiro quando uma mudança pequena resolve;
-- ampliar o escopo porque “seria melhor aproveitar”.
+- ampliar o escopo por conveniência;
+- criar nova cópia versionada quando o arquivo canônico pode ser atualizado.
 
 Quando o usuário disser **“mude somente X”**, isso é uma restrição dura.
 
+Uma reorganização ampla só é permitida quando explicitamente solicitada, como nesta consolidação do Kage Pilot, e deve possuir inventário, testes, rollback e PR dedicado.
+
 ---
 
-## 4. Arquitetura oficial 3.4.1
+## 4. Arquitetura oficial
 
 Produtos principais:
 
@@ -119,29 +114,30 @@ Produtos principais:
 2. **KageLink PC Agent** — Windows/Python.
 3. **Installer Windows** — empacota o PC Agent.
 4. **LeafOS integration** — módulo opcional dentro do Agent.
+5. **Kage Pilot** — subsistema local de percepção, combate e treinamento no Dojo.
 
-Estrutura principal:
+Estrutura canônica:
 
 ```text
 KageLink/
 ├── AGENTS.md
 ├── AGENTS.en.md
+├── AGENTS_RUNTIME.md
+├── AGENTS_RUNTIME.en.md
+├── KAGE_PILOT.md
+├── KAGE_PILOT.en.md
 ├── README.md
 ├── README.pt-BR.md
-├── LICENSE
+├── RELEASE_VERSION
 └── KageLink Installer/
-    ├── COMPILAR_APK.bat
-    ├── DIAGNOSTICAR_KAGELINK.bat
-    ├── android_overlay/
-    ├── assets/
     ├── installer/
     ├── lib/
     ├── pc_agent/
     ├── test/
-    ├── analysis_options.yaml
-    ├── l10n.yaml
     └── pubspec.yaml
 ```
+
+A composição empacotada, workers, falhas, persistência, janelas e regras de organização estão em `AGENTS_RUNTIME.md`.
 
 Antes de editar, identificar qual componente realmente controla o comportamento observado.
 
@@ -155,68 +151,63 @@ Responsável por:
 
 - perfis de conexão;
 - armazenamento seguro do token;
-- OOC;
-- IC/RP;
-- GAME;
-- STATS;
-- apresentação do histórico;
-- conexão HTTP/WebSocket;
-- reconexão;
-- idioma;
-- navegação;
-- calibração solicitada ao Agent;
-- configuração dos controles GAME;
-- persistência do banco ativo `ABCD`/`ZXVU` e mapeamentos no Android.
+- OOC e IC/RP;
+- GAME e STATS;
+- apresentação e reconciliação do histórico;
+- HTTP/WebSocket e reconexão;
+- idioma PT-BR/EN-US;
+- navegação e calibração;
+- configuração/persistência dos controles `ABCD`/`ZXVU`.
 
 ### PC Agent
 
 Responsável por:
 
 - localizar `Shinobi Story Online`;
-- ler chat;
-- classificar OOC/IC;
-- persistir histórico;
-- persistir estado do parser;
+- ler e classificar chat;
+- persistir histórico e parser;
 - localizar campos OOC/IC;
-- enviar texto ao jogo;
-- autenticação;
-- API/WebSockets;
-- servidor local;
-- Cloudflare Tunnel;
-- captura GAME;
-- controle GAME;
-- foco da janela do jogo;
-- proteção contra teclas presas;
+- enviar texto;
+- autenticação, API e WebSockets;
+- servidor local e Cloudflare Tunnel;
+- captura/controle GAME;
 - captura/controle STATS;
-- LeafOS RAW;
-- LeafOS Processor quando habilitado.
+- foco e proteção contra inputs presos;
+- LeafOS RAW/Processor/Interpreter/Reviewer quando habilitados;
+- serviços estáveis expostos ao Kage Pilot.
 
 ### Installer
 
 Responsável por:
 
-- empacotar a fonte atual do Agent;
-- incluir runtime/dependências necessárias;
-- incluir `cloudflared` preparado/verificado;
+- empacotar a fonte atual;
+- incluir dependências e `cloudflared` verificado;
 - instalar `KageLink.exe`;
-- preservar dados durante atualização normal;
-- permitir remoção deliberada de dados no uninstall.
+- preservar dados em atualização normal;
+- oferecer remoção deliberada de dados no uninstall.
 
-**Nunca corrigir um bug do Agent somente no instalador. Corrigir a fonte e garantir que o instalador empacote essa fonte.**
+**Nunca corrigir um bug do Agent somente no instalador.**
+
+### Kage Pilot
+
+Responsável por:
+
+- percepção e tracking no jogo;
+- seleção de alvo;
+- aquisição do treinador;
+- fluxo determinístico do Dojo;
+- combate, KO, retorno e recuperação;
+- telemetria e parada de emergência.
+
+O contrato completo está em `KAGE_PILOT.md`.
 
 ---
 
-## 6. Regra de fonte única de lógica
+## 6. Fonte única de lógica
 
-Decisões de domínio devem ter implementação canônica.
+Decisões de domínio devem possuir uma implementação canônica.
 
-Exemplo crítico:
-
-```text
-classificação OOC / IC
-```
-
-Fluxo correto:
+Exemplo OOC/IC:
 
 ```text
 texto capturado
@@ -230,49 +221,39 @@ mensagem classificada
     └── LeafOS RAW
 ```
 
-O RAW não deve decidir novamente se a mensagem é OOC ou IC.
+O RAW não decide novamente o canal.
 
-O campo `channel` exportado pelo LeafOS deve vir do registro persistido que já passou pelo parser canônico.
+Para Kage Pilot:
+
+```text
+entrypoint estável
+    ↓
+serviço canônico
+    ↓
+módulos internos por responsabilidade
+```
+
+Não criar `v03l`, `v03m` ou equivalente como nova fonte oficial. Atualizar o nome canônico e preservar histórico pelo Git.
 
 ---
 
 ## 7. Contrato OOC / IC — REGRA PROTEGIDA
 
-### 7.1 IC por bloco de roleplay
+### IC por bloco de roleplay
 
-Todo bloco iniciado por:
+Todo bloco iniciado por `(*` e encerrado pelo próximo `*)` é IC/RP. Blocos fragmentados permanecem pendentes até o fechamento.
 
-```text
-(*
-```
+### IC por fala `Says:`
 
-e encerrado pelo próximo:
+A regra é **literal e case-sensitive**.
 
-```text
-*)
-```
-
-é IC/RP.
-
-Exemplo:
-
-```text
-(*Uchiha, Leafos nods.*)
-```
-
-Blocos podem chegar fragmentados. O parser deve manter o conteúdo pendente até receber `*)`.
-
-### 7.2 IC por fala `Says:`
-
-A regra oficial é **literal e case-sensitive**.
-
-O marcador válido é exatamente:
+Marcador válido:
 
 ```text
 Says:
 ```
 
-Exemplos que DEVEM ser IC:
+Devem ser IC:
 
 ```text
 **Anbu** Says: ???
@@ -281,7 +262,7 @@ Uchiha, Leafos Says: Hello
 Hozuki, Shin'ya Says: Hello
 ```
 
-Exemplos que NÃO ativam essa regra:
+Não ativam essa regra:
 
 ```text
 **Anbu** says: test
@@ -290,58 +271,35 @@ Uchiha, Leafos sAyS: test
 Leafos Says Hello
 ```
 
-Se nenhuma outra regra IC se aplicar, esses exemplos permanecem OOC.
+Não tornar `Says:` case-insensitive sem nova decisão explícita.
 
-### Regra dura
+A regra deve permanecer alinhada em parser, testes, speaker extraction, LeafOS, READMEs e Bíblia.
 
-**Não tornar `Says:` case-insensitive sem uma nova decisão explícita do projeto.**
-
-Essa regra deve permanecer alinhada em:
-
-- `pc_agent/chat_channels.py`;
-- testes do parser;
-- `pc_agent/leafos.py` para extração de `speaker`;
-- testes LeafOS;
-- READMEs;
-- esta Bíblia.
-
-### Nome do falante
-
-Não assumir nome simples. Pode conter:
-
-- espaços;
-- vírgulas;
-- apóstrofos;
-- clã + nome;
-- Markdown/asteriscos como `**Anbu**`.
-
-O parser não deve depender de uma regex rígida de nome para decidir o canal. A decisão de canal depende do marcador canônico.
+Nomes de falante podem conter espaços, vírgulas, apóstrofos, clã e Markdown. A classificação depende do marcador, não de regex rígida do nome.
 
 ---
 
-## 8. Contrato de envio OOC / IC
+## 8. Envio OOC / IC
 
-OOC e IC são destinos diferentes.
-
-O Android 3.4.1 utiliza endpoints dedicados:
+Endpoints dedicados:
 
 ```text
 /api/send/ooc
 /api/send/ic
 ```
 
-`/api/send` permanece apenas para compatibilidade.
+`/api/send` permanece para compatibilidade.
 
 O Agent deve:
 
 1. receber o canal explicitamente;
-2. trazer/confirmar o jogo em condição válida;
-3. localizar novamente os controles;
-4. escolher somente o controle do canal solicitado;
-5. recusar envio se o controle não for encontrado;
+2. validar/focar o jogo;
+3. relocalizar os controles;
+4. selecionar somente o canal solicitado;
+5. recusar se o controle não existir;
 6. nunca usar o outro canal como fallback silencioso.
 
-O mesmo HWND não pode representar simultaneamente OOC e IC.
+O mesmo HWND não representa simultaneamente OOC e IC.
 
 ---
 
@@ -357,20 +315,21 @@ Preservar:
 
 - IDs;
 - timestamps;
-- direção incoming/outgoing;
-- `channel`;
+- direção;
+- canal;
 - estado do monitor/parser;
-- comportamento de replay/resync.
+- replay/resync;
+- monotonicidade de IDs em relação à Vault.
 
-Não “consertar” histórico apagando banco como comportamento padrão.
+Não apagar banco como solução padrão.
 
-O limite configurado de mensagem na 3.4.1 é `32000`. A migração de configurações antigas com limite 400 deve ser preservada.
+Limite atual de mensagem: `32000`. Preservar migração de configurações antigas com limite 400.
 
 ---
 
-## 10. LeafOS / RAW — contrato oficial 3.4.1
+## 10. LeafOS / RAW
 
-A integração LeafOS existe na fonte oficial e é **desativada por padrão**.
+A integração é opcional e desativada por padrão.
 
 Configuração padrão:
 
@@ -382,111 +341,54 @@ processor_interval_seconds: 30
 session_idle_seconds: 900
 ```
 
-O usuário pode configurar:
+Nunca hardcode Vault pessoal.
 
-- Vault;
-- diretório RAW;
-- exportação IC;
-- exportação OOC.
-
-Se Vault existe e RAW está vazio, a migração pode usar:
-
-```text
-<Vault>\90 - KageAgent\Raw
-```
-
-Nunca hardcode uma Vault pessoal como padrão universal.
-
-### Estrutura RAW
+### RAW
 
 ```text
 RAW/
-├── IC/
-│   └── YYYY-MM-DD.md
-└── OOC/
-    └── YYYY-MM-DD.md
-```
-
-Formato:
-
-```html
-<!-- kagelink-raw-begin {"id":7538,"timestamp":"...","channel":"ic","speaker":"**Anbu**"} -->
-**Anbu** Says: test
-<!-- kagelink-raw-end -->
+├── IC/YYYY-MM-DD.md
+└── OOC/YYYY-MM-DD.md
 ```
 
 Regras:
 
 - append-only;
 - UTF-8;
-- um arquivo diário por canal;
-- IDs são identidade primária;
-- não duplicar após restart;
-- não reexportar histórico antigo ao trocar caminho;
-- erro de escrita não deve avançar cursor;
-- `channel` vem do histórico canônico;
-- `speaker` reconhece a forma literal `Says:`;
-- bloco `(* ... *)` pode ter `speaker: null`;
+- IDs como identidade;
+- sem duplicação após restart;
+- erro de escrita não avança cursor;
+- canal vem do histórico canônico;
+- speaker usa `Says:` literal;
 - Obsidian não precisa estar aberto.
 
-### Processor
-
-Quando habilitado e configurado, o processador:
-
-- consome RAW;
-- mantém `last_processed_id`;
-- identifica participantes quando possível;
-- cria sessões;
-- fecha sessão por inatividade conforme `session_idle_seconds`;
-- não deve reprocessar IDs antigos;
-- deve permanecer isolado de chat/GAME/STATS/túnel.
-
-### Interpreter / Memory Reviewer / Canonical Memory
-
-O fluxo oficial de memória é:
+### Fluxo de memória
 
 ```text
 RAW imutável
-  ↓
-LeafOS Processor
-  ↓
-sessão fechada
-  ↓
-LeafOS Interpreter
-  ↓
-Interpretation Bundle (pending_review)
-  ↓
-LeafOS Memory Reviewer
-  ↓
-Canonical Memory
+→ Processor
+→ sessão fechada
+→ Interpreter
+→ Bundle pending_review
+→ Memory Reviewer
+→ Canonical Memory
 ```
 
 Regras permanentes:
 
-- o Interpreter produz candidatos, nunca verdade canônica automática;
-- nenhum candidato entra na memória canônica sem ação humana explícita de aprovar ou editar + aprovar;
-- RAW, sessão do Processor e bundle do Interpreter são somente leitura para o Reviewer;
-- promoção exige cadeia de evidência válida até o RAW;
-- `60 - Canonical Memory/memory.json` é a fonte canônica computável;
-- `60 - Canonical Memory/MEMORY.md` é somente uma projeção derivada e regenerável;
-- arquivos JSON existentes do Reviewer ou da Canonical Memory que estejam inválidos/corrompidos devem bloquear processamento e escrita;
-- é proibido tratar JSON existente mas inválido como estado vazio e sobrescrevê-lo silenciosamente.
+- Interpreter produz candidatos;
+- promoção exige aprovação humana;
+- Reviewer não altera RAW/Processor/Bundle;
+- evidência deve voltar ao RAW;
+- `memory.json` é fonte canônica;
+- `MEMORY.md` é projeção derivada;
+- JSON canônico inválido bloqueia escrita.
 
-### Privacidade
-
-Nunca commitar:
-
-- RAW pessoal;
-- `config.json` pessoal;
-- tokens;
-- URLs privadas/temporárias;
-- banco de histórico;
-- logs sensíveis;
-- Vault privada.
+Políticas completas de persistência e corrupção estão em `AGENTS_RUNTIME.md`.
 
 ---
 
-## 11. GAME — contrato 3.4.1
+## 11. GAME e STATS
 
 Janela alvo:
 
@@ -494,12 +396,12 @@ Janela alvo:
 Shinobi Story Online
 ```
 
-Captura padrão:
+GAME padrão:
 
 ```text
 JPEG
 960 × 540
-qualidade 70
+quality 70
 ~10 FPS
 sem áudio
 ```
@@ -511,495 +413,108 @@ full
 zoom
 ```
 
-GAME deve permanecer isolado do chat.
+GAME deve permanecer isolado de chat, LeafOS e STATS. Falha de captura/controle não derruba o restante.
 
-Falha de captura/controle não pode derrubar:
+STATS trabalha com `Status | Inventory` e deve validar HWND, PID, título, classe, frame esperado e coordenadas dentro do client antes do clique.
 
-- OOC;
-- IC;
-- histórico;
-- autenticação;
-- LeafOS;
-- STATS.
-
-### Foco e segurança operacional
-
-Ao ativar controle:
-
-- validar janela do jogo;
-- rejeitar jogo minimizado;
-- focar a janela antes de key-down quando necessário;
-- liberar teclas ao desativar;
-- liberar teclas em erro/desconexão;
-- evitar estado de tecla preso.
+O gate comum de janelas e inputs está em `AGENTS_RUNTIME.md` e também se aplica ao Kage Pilot.
 
 ---
 
-## 12. Controles GAME configuráveis
+## 12. Segurança
 
-Bancos:
-
-```text
-ABCD
-ZXVU
-```
-
-Padrões:
-
-```text
-A -> E
-B -> Space
-C -> G
-D -> V
-
-Z -> Z
-X -> X
-V -> V
-U -> U
-```
-
-Banco inicial:
-
-```text
-ABCD
-```
-
-Mapeamentos são persistidos no Android.
-
-Whitelist atual do protocolo:
-
-```text
-A-Z
-0-9
-up, down, left, right
-space
-enter
-escape
-tab
-shift
-ctrl
-alt
-backspace
-insert
-delete
-home
-end
-pageup
-pagedown
-F1-F12
-```
-
-Não ampliar essa lista incidentalmente.
-
-Como modificadores e teclas de função fazem parte da whitelist atual, mudanças de UI/protocolo que alterem combinações devem ser revisadas com cuidado.
-
-O KageLink não deve virar um sistema genérico de execução de comandos/programas.
+- token aleatório e comparação segura;
+- tokens Android em secure storage;
+- não registrar tokens ou query strings sensíveis;
+- `cloudflared` fixado por versão e SHA-256;
+- teclado GAME/Kage Pilot limitado a teclas autorizadas;
+- inputs liberados em erro/desconexão/shutdown;
+- fallback de captura genérica somente após validar e focar a janela correta;
+- nenhuma automação deve executar programas, URLs ou comandos arbitrários recebidos do usuário.
 
 ---
 
-## 13. STATS — contrato 3.4.1
+## 13. PT-BR e EN-US
 
-STATS é independente de GAME.
+Todos os textos de produto devem suportar `pt-BR` e `en-US`.
 
-Alvo:
-
-```text
-Título: Status | Inventory
-Classe: #32770
-```
-
-A janela deve:
-
-- existir;
-- estar visível;
-- pertencer ao mesmo PID do Shinobi Story Online;
-- corresponder ao título/classe esperados.
-
-Target atual:
-
-```text
-5 FPS
-```
-
-Controles permitidos:
-
-```text
-left click
-right click
-```
-
-O clique usa coordenadas normalizadas e o `window_id` do último frame válido.
-
-Não transformar STATS em controle genérico do desktop.
+- UI usa catálogos de localização;
+- controllers/services retornam códigos, não prosa localizada;
+- API/WebSocket usa códigos técnicos estáveis;
+- documentação de usuário possui par equivalente;
+- IDs, campos JSON e códigos não são traduzidos;
+- ausência de tradução não pode quebrar funcionalidade.
 
 ---
 
-## 14. API e protocolo
+## 14. Organização de arquivos
 
-Rotas principais de chat:
+A árvore ativa não é arquivo histórico.
 
-```text
-/api/health
-/api/auth
-/api/status
-/api/history
-/api/input-candidates
-/api/input-preference
-/api/send/ooc
-/api/send/ic
-/api/send        # compatibilidade
-/ws
-```
+### Regra canônica
 
-GAME:
+- um arquivo público por entrypoint estável;
+- módulos internos por responsabilidade;
+- nenhum sufixo de tentativa em nova implementação oficial;
+- testes por contrato, não por versão transitória;
+- relatórios antigos permanecem no Git, não como manual atual;
+- scripts descartáveis saem da árvore quando absorvidos por testes;
+- versões substituídas são removidas após atualização de imports, workflows e testes.
 
-```text
-/api/game/status
-/ws/game/stream
-/ws/game/control
-```
+“Um Kage Pilot” significa uma superfície única e coerente, não um monólito de milhares de linhas.
 
-STATS possui protocolo/stream próprios no Agent e no app.
-
-Mudança de rota, payload ou semântica exige:
-
-1. motivo explícito;
-2. atualização coordenada Agent + App;
-3. testes;
-4. documentação.
+Toda consolidação deve ocorrer em branch dedicada e passar pela suíte completa.
 
 ---
 
-## 15. Persistência e atualização
+## 15. Testes
 
-Atualização normal deve preservar, quando aplicável:
-
-- `config.json`;
-- token;
-- histórico;
-- calibração OOC/IC;
-- logs úteis;
-- estado do parser;
-- configuração LeafOS.
-
-O Android preserva:
-
-- perfis;
-- tokens em secure storage;
-- favoritos;
-- banco GAME ativo;
-- mapeamentos GAME.
-
-Migração destrutiva exige autorização explícita.
-
----
-
-## 16. Fluxo obrigatório de mudança
-
-### 1. Atualizar contexto
-
-```bash
-git checkout main
-git pull
-```
-
-### 2. Criar branch
-
-Exemplos:
-
-```text
-fix/ic-says-parser
-fix/leafos-speaker
-fix/stats-click
-feat/game-controls
-chore/installer-build
-docs/3.4.1
-```
-
-Não desenvolver diretamente no `main` para mudanças relevantes.
-
-### 3. Reproduzir
-
-Registrar:
-
-- comportamento observado;
-- comportamento esperado;
-- entrada que causa o erro;
-- componente responsável;
-- teste de regressão.
-
-### 4. Localizar todas as implementações relacionadas
-
-Pesquisar:
-
-- funções;
-- constantes;
-- regex;
-- strings marcadoras;
-- modelos;
-- rotas;
-- testes;
-- documentação.
-
-O bug de `Says:` em 3.4.1 mostrou por que isso é obrigatório: parser, testes e extrator LeafOS precisam compartilhar o mesmo contrato.
-
-### 5. Alteração mínima
-
-Modificar somente o necessário.
-
-### 6. Testar
-
-Executar testes disponíveis.
-
-### 7. Revisar diff
-
-Pergunta obrigatória:
-
-> Existe alguma linha alterada que não é necessária para esta tarefa?
-
-Se sim, remover.
-
-### 8. Commit claro
-
-Exemplos:
-
-```text
-Restore exact Says marker classification
-Align LeafOS speaker extraction with Says marker
-Document KageLink 3.4.1
-```
-
-### 9. Pull Request
-
-Explicar:
-
-- problema;
-- causa;
-- mudança;
-- arquivos;
-- testes;
-- validação manual ainda necessária.
-
-### 10. Merge após validação
-
-Bugs dependentes de BYOND/Windows real podem exigir teste manual antes do merge.
-
----
-
-## 17. Testes mínimos
-
-### Parser/chat
-
-Obrigatório cobrir:
-
-```text
-(*Roleplay*)                         -> IC
-**Anbu** Says: test                  -> IC
-**Anbu** Says: ???                   -> IC
-Uchiha, Leafos Says: hello           -> IC
-Hozuki, Shin'ya Says: hello          -> IC
-**Anbu** says: test                  -> OOC
-**Anbu** SAYS: test                  -> OOC
-texto OOC normal                     -> OOC
-bloco IC fragmentado                 -> preservado
-fala Says: fragmentada               -> uma mensagem lógica
-```
-
-### LeafOS
-
-Validar:
-
-- `Says:` extrai speaker;
-- `says:` não extrai speaker;
-- Markdown no nome;
-- RAW diário;
-- IC/OOC separados;
-- append;
-- restart sem duplicação;
-- IDs iguais/textos diferentes;
-- textos iguais/IDs diferentes;
-- troca de caminho;
-- erro de escrita não avança cursor;
-- processor não reprocessa;
-- sessão fecha por gap;
-- falha do processor é isolada;
-- Reviewer exige evidência válida até o RAW antes de promover;
-- memória canônica exige revisão humana explícita;
-- JSON corrompido do Reviewer/Canonical Memory bloqueia escrita em vez de assumir estado vazio.
-
-### GAME
-
-Validar:
-
-- janela aberta/fechada/minimizada;
-- captura Full/Zoom;
-- joystick;
-- diagonais;
-- bancos ABCD/ZXVU;
-- custom mapping;
-- reset de mapping;
-- hold/multitouch;
-- troca de aba;
-- desconexão com tecla pressionada;
-- nenhuma tecla presa.
-
-### STATS
-
-Validar:
-
-- janela `Status | Inventory` fechada/aberta/minimizada;
-- auto/open request;
-- stream;
-- frame dimensions;
-- clique esquerdo;
-- clique direito;
-- coordenadas fora de faixa rejeitadas;
-- `window_id` divergente rejeitado;
-- processo errado rejeitado;
-- falha STATS não afeta chat/GAME.
+Antes de declarar pronto, executar o conjunto proporcional ao risco.
 
 ### Python
 
-Da pasta apropriada do PC Agent:
-
-```bash
+```powershell
+cd "KageLink Installer\pc_agent"
 python -m unittest discover -s tests -v
 python -m compileall .
 ```
 
 ### Flutter
 
-```bash
+```powershell
+cd "KageLink Installer"
+flutter pub get
+flutter gen-l10n
 flutter analyze
 flutter test
 ```
 
-Nunca afirmar que um teste passou se ele não foi executado.
+### Empacotamento
+
+Validar build, smoke launch e installer quando entrypoint/dependência/release forem afetados.
+
+### Kage Pilot
+
+Executar suíte direcionada, suíte completa do PC Agent e validação real no Windows/BYOND quando a mudança afetar percepção, input, janela, timing, KO ou Dojo.
+
+Nunca afirmar teste não executado.
 
 ---
 
-## 18. Build
+## 16. Definição de pronto
 
-### Android
+Uma tarefa só está pronta quando:
 
-```text
-KageLink Installer\COMPILAR_APK.bat
-```
+- o escopo foi conferido;
+- a fonte ativa foi identificada;
+- contratos não relacionados foram preservados;
+- testes proporcionais foram executados;
+- cleanup e falhas foram considerados;
+- documentação PT-BR/EN-US foi atualizada;
+- versão permanece coerente;
+- nenhuma informação sensível foi publicada;
+- validação real pendente foi declarada;
+- a árvore ativa não ganhou novo snapshot redundante;
+- a mudança está em branch/PR revisável.
 
-Saída 3.4.1:
-
-```text
-KageLink Installer\KageLink-v3.4.1.apk
-```
-
-O script valida localização, roda `flutter analyze` e gera o APK release.
-
-**O installer Windows não gera o APK.**
-
-### PC Agent
-
-```text
-KageLink Installer\installer\CRIAR_INSTALADOR.bat
-```
-
-Saída 3.4.1:
-
-```text
-KageLink Installer\installer\output\KageLink-PC-Agent-Setup-v3.4.1.exe
-```
-
-O builder pode instalar ferramentas de build como Python/Inno Setup. O usuário final do Setup empacotado não deve precisar de Python para executar o Agent.
-
----
-
-## 19. Como investigar um bug que “continuou” após correção
-
-Verificar nesta ordem:
-
-1. o arquivo alterado é realmente importado?
-2. existe implementação duplicada?
-3. testes antigos contradizem o novo contrato?
-4. outro módulo reinterpreta o dado?
-5. o instalador empacotou a fonte nova?
-6. o EXE instalado é realmente o novo build?
-7. existe cache/workspace intermediário?
-8. APK e Agent são compatíveis?
-9. o problema ocorre antes ou depois do parser?
-10. RAW consome `channel` persistido ou reprocessa texto?
-
-Nunca declarar “corrigido” somente porque um arquivo foi editado.
-
----
-
-## 20. GitHub como memória técnica
-
-Registrar decisões em:
-
-- `AGENTS.md` / `AGENTS.en.md` — contratos permanentes;
-- `README.pt-BR.md` / `README.md` — instalação e uso;
-- commits — alterações;
-- Pull Requests — contexto e validação;
-- Issues — problemas/funções ainda pendentes.
-
-Conversas com IA podem ajudar, mas não devem ser a única memória de uma decisão crítica.
-
----
-
-## 21. Regra para agentes de IA
-
-Ao receber tarefa sobre KageLink:
-
-1. usar este repositório como fonte oficial;
-2. ler `AGENTS.md` ou `AGENTS.en.md`;
-3. verificar versão atual do `main`;
-4. inspecionar arquivos diretamente relacionados;
-5. pesquisar implementações duplicadas;
-6. preservar comportamento não relacionado;
-7. trabalhar em branch;
-8. produzir diff focado;
-9. executar testes disponíveis;
-10. declarar honestamente limitações de validação;
-11. atualizar documentação quando o contrato mudar;
-12. não gerar ZIP como “versão oficial”;
-13. não fazer merge de mudança dependente de teste real sem registrar a necessidade.
-
----
-
-## 22. Definição de pronto
-
-Uma tarefa está pronta quando:
-
-- causa identificada ou mudança claramente justificada;
-- código está no GitHub;
-- escopo está controlado;
-- regras duplicadas foram verificadas;
-- testes passaram ou limitações foram registradas;
-- não há regressão conhecida;
-- documentação relevante está atualizada;
-- build real foi validado quando necessário;
-- não existe uma “versão certa” somente fora do repositório.
-
----
-
-## 23. Internacionalizacao obrigatoria
-
-KageLink deve tratar **PT-BR e EN-US como idiomas oficiais de primeira classe** desde a arquitetura inicial.
-
-Regras permanentes:
-
-- toda nova interface visivel ao usuario deve prever PT-BR e EN-US;
-- labels, botoes, menus, dialogs, avisos, erros, status, tooltips, onboarding e configuracoes devem usar o sistema de localizacao quando aplicavel;
-- nao adicionar texto de UI hardcoded em um unico idioma quando existir infraestrutura de internacionalizacao;
-- novas chaves de localizacao devem existir nos dois idiomas antes da funcionalidade ser considerada pronta;
-- documentacao relevante deve manter equivalencia entre PT-BR e EN-US;
-- CLI e mensagens controladas pelo KageLink devem respeitar o idioma configurado quando aplicavel;
-- valores tecnicos, protocolos, IDs, nomes de arquivos, campos JSON e contratos de API nao devem ser traduzidos quando isso quebraria compatibilidade;
-- fallback de idioma deve ser previsivel e nunca comprometer funcionamento;
-- codigo legado pode ser migrado incrementalmente, sem refatoracoes amplas nao relacionadas;
-- alteracoes de localizacao nao autorizam mudancas funcionais incidentais.
-
----
-
-# Mandamento final
-
-> **KageLink deve evoluir sem perder o que já funciona. O GitHub é a memória oficial; `Says:` é um contrato exato; chat, GAME, STATS e LeafOS devem permanecer coerentes, isolados e rastreáveis.**
+Em caso de dúvida, preservar o comportamento atual, registrar a incerteza e voltar às Bíblicas antes de alterar.

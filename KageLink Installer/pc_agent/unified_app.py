@@ -8,12 +8,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends
+from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field
 
 import app as legacy
 from pc_agent.chat_channels import ChatChannelParser, drop_replayed_prefix, find_new_text, unfinished_ic_suffix
-from pc_agent.dojo_api import create_dojo_router
+from pc_agent.dojo_api import DojoStartRequest, dojo_status_payload, install_game_control_interlock
 from pc_agent.kage_pilot import DojoTrainingService
 from pc_agent.leafos_lifecycle import LifecycleLeafOSProcessor
 from pc_agent.primary_character import get_primary_character, resolve_primary_character
@@ -29,14 +29,47 @@ if not isinstance(dojo_service, DojoTrainingService):
     dojo_service = DojoTrainingService()
     legacy.app.state.dojo_v35_service = dojo_service
 
+install_game_control_interlock(dojo_service, legacy.game_runtime)
+
 if not any(getattr(route, "path", "") == "/api/dojo/status" for route in legacy.app.routes):
-    legacy.app.include_router(
-        create_dojo_router(
-            dojo_service,
-            legacy.security,
-            legacy.game_runtime,
-        )
+
+    @legacy.app.get(
+        "/api/dojo/status",
+        dependencies=[Depends(legacy.security.require_authorization)],
     )
+    async def get_dojo_status() -> dict[str, Any]:
+        return dojo_status_payload(dojo_service)
+
+    @legacy.app.post(
+        "/api/dojo/start",
+        dependencies=[Depends(legacy.security.require_authorization)],
+    )
+    async def start_dojo(request: DojoStartRequest) -> dict[str, Any]:
+        if dojo_service.is_running:
+            raise HTTPException(status_code=409, detail="DOJO_ALREADY_RUNNING")
+        if not dojo_service.runtime_available():
+            raise HTTPException(status_code=503, detail="DOJO_RUNTIME_NOT_INSTALLED")
+
+        await asyncio.to_thread(legacy.game_runtime.deactivate_control)
+        await asyncio.to_thread(legacy.game_runtime.release_all)
+        started = await asyncio.to_thread(dojo_service.start, request.to_config())
+        if not started:
+            snapshot = dojo_service.snapshot()
+            raise HTTPException(
+                status_code=409,
+                detail=snapshot.last_error or "DOJO_START_FAILED",
+            )
+        return dojo_status_payload(dojo_service)
+
+    @legacy.app.post(
+        "/api/dojo/stop",
+        dependencies=[Depends(legacy.security.require_authorization)],
+    )
+    async def stop_dojo() -> dict[str, Any]:
+        if dojo_service.is_running:
+            await asyncio.to_thread(dojo_service.stop, timeout=8.0)
+        await asyncio.to_thread(legacy.game_runtime.release_all)
+        return dojo_status_payload(dojo_service)
 
 
 class FinalizeSessionRequest(BaseModel):

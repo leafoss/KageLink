@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 from .grid_target_observer_v03 import _grid_distance
 from .post_combat_v03 import PostCombatDecision
@@ -86,7 +87,13 @@ class ExpandingSquareSearch:
 
 
 class PostCombatRecoveryEngineV3(PostCombatRecoveryEngineV2):
-    """Trainer anchor return first, bounded visual search second, meditation last."""
+    """Trainer anchor return first, bounded visual search second, meditation last.
+
+    Memory may navigate but never authorizes ``V``. When memory claims adjacency for too long,
+    the engine deliberately ignores that memory and performs a bounded visual reacquisition
+    search. Two nearby current visual observations may authorize meditation even when camera/grid
+    jitter places the same trainer foot in neighboring cells.
+    """
 
     def __init__(
         self,
@@ -102,6 +109,9 @@ class PostCombatRecoveryEngineV3(PostCombatRecoveryEngineV2):
         search_timeout_seconds: float = 45.0,
         search_pulses_per_tile: int = 4,
         search_max_radius_tiles: int = 8,
+        adjacent_visual_radius_px: float = 48.0,
+        adjacent_visual_window_seconds: float = 1.25,
+        adjacent_memory_reacquire_seconds: float = 1.0,
     ) -> None:
         detector = leader_detector or PersistentDojoLeaderDetector()
         super().__init__(
@@ -119,18 +129,55 @@ class PostCombatRecoveryEngineV3(PostCombatRecoveryEngineV2):
             pulses_per_tile=search_pulses_per_tile,
             max_radius_tiles=search_max_radius_tiles,
         )
+        self.adjacent_visual_radius_px = max(8.0, min(96.0, float(adjacent_visual_radius_px)))
+        self.adjacent_visual_window_seconds = max(
+            0.25,
+            min(3.0, float(adjacent_visual_window_seconds)),
+        )
+        self.adjacent_memory_reacquire_seconds = max(
+            0.25,
+            min(5.0, float(adjacent_memory_reacquire_seconds)),
+        )
         self._search_started_at: float | None = None
         self._post_started = False
         self.last_combat_anchor = None
+        self._adjacent_visual_hits = 0
+        self._adjacent_visual_foot: tuple[float, float] | None = None
+        self._adjacent_visual_seen_at = -1e9
+        self._adjacent_memory_since: float | None = None
+        self._visual_reacquire_mode = False
 
     @property
     def post_started(self) -> bool:
         return self._post_started
 
+    def _reset_adjacent_visual_evidence(self) -> None:
+        self._adjacent_visual_hits = 0
+        self._adjacent_visual_foot = None
+        self._adjacent_visual_seen_at = -1e9
+
+    def _record_adjacent_visual(self, match, *, now: float) -> None:
+        foot = (float(match.foot[0]), float(match.foot[1]))
+        stable = (
+            self._adjacent_visual_foot is not None
+            and float(now) - self._adjacent_visual_seen_at <= self.adjacent_visual_window_seconds
+            and math.hypot(
+                foot[0] - self._adjacent_visual_foot[0],
+                foot[1] - self._adjacent_visual_foot[1],
+            )
+            <= self.adjacent_visual_radius_px
+        )
+        self._adjacent_visual_hits = self._adjacent_visual_hits + 1 if stable else 1
+        self._adjacent_visual_foot = foot
+        self._adjacent_visual_seen_at = float(now)
+
     def begin_post_combat(self) -> None:
         self._post_started = True
         self._search_started_at = None
         self.search.reset()
+        self._adjacent_memory_since = None
+        self._visual_reacquire_mode = False
+        self._reset_adjacent_visual_evidence()
 
     def observe_world(self, frame_bgr, observer_state, observer, *, now: float):
         """Read-only combat hook that keeps the trainer world anchor camera-aligned."""
@@ -173,6 +220,21 @@ class PostCombatRecoveryEngineV3(PostCombatRecoveryEngineV2):
             reason=f"bounded expanding-square search / busca limitada: {direction}",
         )
 
+    def _visual_reacquire_decision(self, match, distance: int, *, now: float) -> PostCombatDecision:
+        decision = self._search_decision(now=float(now))
+        state = "REACQUIRE_LEADER_VISUAL" if decision.move_pulse is not None else "REACQUIRE_VISUAL_WAIT"
+        return PostCombatDecision(
+            state=state,
+            move_pulse=decision.move_pulse,
+            leader_score=match.score,
+            leader_distance=distance,
+            reason=(
+                "adjacent trainer memory stalled; forcing current visual reacquisition / "
+                "memoria adjacente travada; forcar nova confirmacao visual: "
+                f"{decision.reason}"
+            ),
+        )
+
     def step(self, frame_bgr, observer_state, observer, *, now: float) -> PostCombatDecision:
         self._post_started = True
         now = float(now)
@@ -188,11 +250,14 @@ class PostCombatRecoveryEngineV3(PostCombatRecoveryEngineV2):
         if match is None:
             self._leader_cell = None
             self._leader_hits = 0
+            if now - self._adjacent_visual_seen_at > self.adjacent_visual_window_seconds:
+                self._reset_adjacent_visual_evidence()
             return self._search_decision(now=now)
 
-        # A remembered anchor is preferred over blind search. Any visual reacquisition resets the
-        # fallback pattern because navigation is once again deterministic.
+        # A current visual always exits forced reacquisition and resets the fallback route.
         if match.source == "visual":
+            self._visual_reacquire_mode = False
+            self._adjacent_memory_since = None
             self._search_started_at = None
             self.search.reset()
 
@@ -211,11 +276,28 @@ class PostCombatRecoveryEngineV3(PostCombatRecoveryEngineV2):
             else:
                 self._leader_cell = leader_cell
                 self._leader_hits = 1
+            if distance <= 1:
+                self._record_adjacent_visual(match, now=now)
+            else:
+                self._reset_adjacent_visual_evidence()
         else:
             # Memory can return Leafos toward the trainer but can never build V authorization.
             self._leader_hits = 0
+            if now - self._adjacent_visual_seen_at > self.adjacent_visual_window_seconds:
+                self._reset_adjacent_visual_evidence()
+            if self._visual_reacquire_mode:
+                return self._visual_reacquire_decision(match, distance, now=now)
 
-        if match.source == "visual" and self._leader_hits < self.leader_confirm_frames:
+        visual_ready = (
+            match.source == "visual"
+            and distance <= 1
+            and (
+                self._leader_hits >= self.leader_confirm_frames
+                or self._adjacent_visual_hits >= self.leader_confirm_frames
+            )
+        )
+
+        if match.source == "visual" and self._leader_hits < self.leader_confirm_frames and not visual_ready:
             return PostCombatDecision(
                 state="SEEK_LEADER",
                 leader_score=match.score,
@@ -225,11 +307,28 @@ class PostCombatRecoveryEngineV3(PostCombatRecoveryEngineV2):
 
         if distance <= 1:
             if match.source != "visual":
+                if self._adjacent_memory_since is None:
+                    self._adjacent_memory_since = now
+                if now - self._adjacent_memory_since >= self.adjacent_memory_reacquire_seconds:
+                    self._visual_reacquire_mode = True
+                    self._search_started_at = None
+                    self.search.reset()
+                    return self._visual_reacquire_decision(match, distance, now=now)
                 return PostCombatDecision(
                     state="SEEK_LEADER",
                     leader_score=match.score,
                     leader_distance=distance,
-                    reason="memory says adjacent; visual required for V / memoria adjacente; exige visual",
+                    reason=(
+                        "memory says adjacent; visual required for V / "
+                        "memoria adjacente; exige visual"
+                    ),
+                )
+            if not visual_ready:
+                return PostCombatDecision(
+                    state="SEEK_LEADER",
+                    leader_score=match.score,
+                    leader_distance=distance,
+                    reason="confirming adjacent trainer visual / confirmando treinador adjacente",
                 )
             self.state = "MEDITATING"
             self._meditation_started_at = now
@@ -239,9 +338,13 @@ class PostCombatRecoveryEngineV3(PostCombatRecoveryEngineV2):
                 tap_v=True,
                 leader_score=match.score,
                 leader_distance=distance,
-                reason="visually adjacent to trainer; toggle V on / adjacente visual; ligar V",
+                reason=(
+                    "two current adjacent trainer visuals confirmed; toggle V on / "
+                    "duas confirmacoes visuais adjacentes; ligar V"
+                ),
             )
 
+        self._adjacent_memory_since = None
         direction = self._direction(player_cell, leader_cell)
         return PostCombatDecision(
             state="RETURN_TO_LEADER" if match.source == "memory" else "SEEK_LEADER",

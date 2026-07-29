@@ -58,6 +58,7 @@ jobs:
             tests.test_kage_pilot_v03j_burst_facing `
             tests.test_kage_pilot_v03k_ko_identity `
             tests.test_kage_pilot_v03k_trainer_search_gate `
+            tests.test_kage_pilot_v03k_service_telemetry `
             tests.test_kage_pilot_v03i_runtime `
             tests.test_kage_pilot_v03g_victory `
             -v

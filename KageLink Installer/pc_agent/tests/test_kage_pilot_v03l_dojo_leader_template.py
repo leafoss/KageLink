@@ -17,12 +17,13 @@ from pc_agent.kage_pilot.dojo_leader_v03l import (
 
 
 class KagePilotV03LDojoLeaderTemplateTests(unittest.TestCase):
-    def test_bundled_clear_source_decodes_and_builds_runtime_size(self):
+    def test_bundled_clear_pixels_decode_at_runtime_size(self):
         clear = decode_bundled_clear_template()
         compact = compact_bundled_clear_template(clear)
 
-        self.assertEqual(clear.shape[:2], (77, 68))
-        self.assertEqual(compact.shape[:2], (45, 32))
+        self.assertEqual(clear.shape, (45, 32, 3))
+        self.assertEqual(compact.shape, (45, 32, 3))
+        self.assertTrue(np.array_equal(clear, compact))
         self.assertGreater(int(np.ptp(compact)), 0)
 
     def test_detector_matches_bundled_clear_runtime_template(self):

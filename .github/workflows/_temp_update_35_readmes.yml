@@ -89,7 +89,6 @@ Consulte [KAGELINK_3_5_DOJO.md](KAGELINK_3_5_DOJO.md) para arquitetura, API, ins
 ## 3. Instalação para o usuário final""",
               "pt dojo section",
           )
-          # Keep the existing detailed guide intact while aligning remaining current-version mentions.
           pt = pt.replace("versão 3.4.1", "versão 3.5.0")
           pt = pt.replace("KageLink 3.4.1", "KageLink 3.5.0")
           pt_path.write_text(pt, encoding="utf-8")
@@ -117,8 +116,8 @@ Consulte [KAGELINK_3_5_DOJO.md](KAGELINK_3_5_DOJO.md) para arquitetura, API, ins
           )
           en = replace_once(
               en,
-              "- keeps GAME, STATS, chat, and LeafOS isolated so a local failure does not stop the entire Agent.",
-              "- keeps GAME, STATS, chat, and LeafOS isolated so a local failure does not stop the entire Agent;\n- runs the Dojo Trainer through isolated helpers installed beside KageLink;\n- blocks manual GAME controls while autonomous training is active;\n- exposes authenticated Dojo status, start, and stop operations.",
+              "- isolates chat, GAME, STATS and LeafOS so a local failure should not take down the whole Agent.",
+              "- isolates chat, GAME, STATS and LeafOS so a local failure should not take down the whole Agent;\n- runs the Dojo Trainer through isolated helpers installed beside KageLink;\n- blocks manual GAME controls while autonomous training is active;\n- exposes authenticated Dojo status, start, and stop operations.",
               "en pc bullets",
           )
           en = replace_once(

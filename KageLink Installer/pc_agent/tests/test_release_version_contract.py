@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
+import re
 import unittest
 
 from pc_agent.release_version import release_version, release_version_path
@@ -28,7 +28,7 @@ class ReleaseVersionContractTests(unittest.TestCase):
         agents_en = (REPOSITORY_ROOT / "AGENTS.en.md").read_text(encoding="utf-8")
         agents_pt = (REPOSITORY_ROOT / "AGENTS.md").read_text(encoding="utf-8")
 
-        self.assertRegex(pubspec, rf"(?m)^version: {version.replace('.', r'\.') }\+[0-9]+$")
+        self.assertRegex(pubspec, rf"(?m)^version: {re.escape(version)}\+[0-9]+$")
         self.assertIn(f'#define MyAppVersion "{version}"', installer)
         for text in (readme_en, readme_pt, agents_en, agents_pt):
             self.assertIn(version, text)

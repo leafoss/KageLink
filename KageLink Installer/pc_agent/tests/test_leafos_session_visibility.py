@@ -66,6 +66,8 @@ class LeafOSCurrentSessionVisibilityTests(unittest.TestCase):
             self.assertTrue(status["open"])
             self.assertEqual(status["primary_character"], "Uchiha, Leafos")
             self.assertEqual(status["message_count"], 1)
+            # The regression concerns cursor alignment and session visibility, not a fixed calendar
+            # date. Validate the stable YYYY-MM-DD_counter contract so this test remains valid.
             self.assertRegex(status["session_id"], r"^\d{4}-\d{2}-\d{2}_001$")
 
     def test_sequence_alignment_never_rewrites_existing_messages(self) -> None:

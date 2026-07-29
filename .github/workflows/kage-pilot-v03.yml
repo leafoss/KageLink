@@ -1,0 +1,86 @@
+name: Kage Pilot v0.3j
+
+on:
+  pull_request:
+    paths:
+      - "KageLink Installer/pc_agent/**"
+      - ".github/workflows/kage-pilot-v03.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-tests:
+    name: Windows Python 3.11
+    runs-on: windows-latest
+    timeout-minutes: 25
+
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: KageLink Installer/pc_agent
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: KageLink Installer/pc_agent/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Compile Kage Pilot
+        run: |
+          python -m compileall -q pc_agent/kage_pilot
+          python -m py_compile `
+            kage_pilot_dojo.py `
+            kage_pilot_loop_v03g.py `
+            kage_pilot_loop_v03j.py `
+            kage_pilot_live_v03j_round.py `
+            kage_pilot_live_v03k_round.py
+
+      - name: Targeted release-candidate tests
+        run: |
+          python -m unittest `
+            tests.test_kage_pilot_dojo_service `
+            tests.test_kage_pilot_dojo_config `
+            tests.test_kage_pilot_dojo_dialog_retry `
+            tests.test_kage_pilot_post_combat_visual_reacquire `
+            tests.test_kage_pilot_v03j_self_occlusion `
+            tests.test_kage_pilot_v03j_burst_facing `
+            tests.test_kage_pilot_v03k_ko_identity `
+            tests.test_kage_pilot_v03k_trainer_search_gate `
+            tests.test_kage_pilot_v03k_service_telemetry `
+            tests.test_kage_pilot_v03i_runtime `
+            tests.test_kage_pilot_v03g_victory `
+            -v
+
+      - name: Full Kage Pilot suite
+        run: |
+          python -m unittest discover -s tests -p "test_kage_pilot*.py" -v
+
+      - name: Validate canonical configuration
+        run: |
+          python kage_pilot_dojo.py --show-config
+
+      - name: Full PC Agent Python suite
+        run: |
+          python -m unittest discover -s tests -v 2>&1 | Tee-Object -FilePath full-python-suite.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload full-suite log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kage-pilot-full-python-suite
+          path: KageLink Installer/pc_agent/full-python-suite.txt
+          if-no-files-found: error
+          retention-days: 7

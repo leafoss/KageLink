@@ -1,217 +1,295 @@
-# LeafOS Interpreter v1
+# LeafOS Interpreter v3
 
 [English](LEAFOS_INTERPRETER.en.md) · [README](README.pt-BR.md) · [Bíblia](AGENTS.md)
 
-O **LeafOS Interpreter** é a camada semântica entre as sessões técnicas produzidas pelo `LeafOSProcessor` e uma futura memória canônica do personagem.
+O **LeafOS Interpreter** é a camada semântica entre uma sessão fechada pelo `LeafOSProcessor` e os candidatos que serão apresentados ao **Memory Reviewer**.
 
-Ele responde à pergunta:
+Ele responde somente à pergunta:
 
-> **O que provavelmente aconteceu nesta sessão, segundo apenas o que foi registrado no RP?**
-
-## Princípio fundamental
+> **O que esta sessão sustenta como candidato, segundo as mensagens realmente registradas?**
 
 O Interpreter **não escreve memória canônica**.
-
-Fluxo:
 
 ```text
 Shinobi Story Online
         ↓
-KageLink / ChatChannelParser
-        ↓
-RAW imutável
+KageLink / RAW
         ↓
 LeafOSProcessor
         ↓
 Sessão fechada
         ↓
-LeafOS Interpreter
+LeafOS Interpreter v3
         ↓
-70 - LeafOS Inbox/Interpretations
-        ↓
-REVISÃO HUMANA
-        ↓
-memória canônica futura
-```
-
-Tudo criado pelo Interpreter recebe:
-
-```text
+Interpretation Bundle
 status: pending_review
+        ↓
+Memory Reviewer
+        ↓
+Aprovar / Editar + aprovar / Rejeitar
+        ↓
+Canonical Memory
 ```
 
-Nenhuma inferência deve ser promovida automaticamente como verdade do universo ou memória de Leafos.
+## Contrato de entrada
 
----
-
-## Por que existe uma camada separada
-
-O RAW responde:
-
-> O que foi escrito no jogo?
-
-O Processor responde:
-
-> Quais mensagens pertencem à mesma sessão?
-
-O Interpreter responde:
-
-> Que acontecimentos, fatos, relações e memórias podem ser candidatos a partir desta sessão?
-
-A memória canônica futura responderá:
-
-> O que foi revisado e aceito como verdade?
-
-Misturar essas etapas destruiria a rastreabilidade do LeafOS.
-
----
-
-## Entrada
-
-O Interpreter lê somente sessões já fechadas em:
+O Interpreter lê somente sessões fechadas em:
 
 ```text
 <Vault>/80 - Processor/Sessions/*.json
 ```
 
-Uma sessão contém, entre outros campos:
+A sessão do Processor continua sendo o contrato de entrada. O Interpreter não reconstitui o passado consultando novamente o banco do KageLink e não modifica a sessão original.
+
+Campos importantes incluem:
 
 - `session_id`;
-- `started_at`;
-- `ended_at`;
+- `started_at` / `ended_at`;
+- `primary_character`;
 - `participants`;
 - `message_ids`;
 - `raw_sources`;
 - `messages`.
 
-O Interpreter não lê diretamente o banco do KageLink para reinterpretar o passado. A sessão fechada é seu contrato de entrada.
-
----
-
-## Saída
-
-Cada sessão interpretada gera um bundle em:
-
-```text
-<Vault>/70 - LeafOS Inbox/Interpretations/<session_id>.json
-```
-
-O bundle pode conter candidatos para:
-
-- `events` — acontecimentos ou decisões;
-- `characters` — observações sobre personagens;
-- `locations` — lugares explicitamente sustentados pela sessão;
-- `relationships` — observações relacionais entre participantes;
-- `facts` — fatos/lore candidatos sustentados pelas mensagens;
-- `leafos_memories` — possíveis memórias subjetivas de Leafos.
-
-Também contém:
-
-- resumo da sessão;
-- timestamps;
-- participantes detectados;
-- `message_ids` originais;
-- `raw_sources`;
-- modelo utilizado;
-- versão do prompt;
-- indicação se o transcript precisou ser truncado;
-- status de revisão.
-
----
-
 ## Regra de evidência
 
-Todo candidato deve possuir:
+Todo candidato precisa citar um ou mais IDs realmente enviados ao modelo:
 
 ```json
 "source_message_ids": [101, 102]
 ```
 
-O Interpreter valida esses IDs contra as mensagens realmente enviadas ao modelo.
+IDs inexistentes são removidos. Um candidato sem nenhuma evidência válida é descartado.
 
-Se um modelo inventar um ID inexistente, o candidato é descartado.
-
-Se um candidato não possuir nenhuma fonte válida, ele também é descartado.
-
-Isso cria a cadeia:
+A cadeia permanece:
 
 ```text
 candidato
    ↓
 source_message_ids
    ↓
-sessão
+sessão do Processor
    ↓
 raw_source
    ↓
 RAW original
 ```
 
----
+## O que mudou no v3
 
-## Inferência não é fato
+O v2 enviava uma sessão grande em uma única chamada ao `qwen3:14b`. Além disso, sessões acima do limite podiam usar apenas início + final. Em hardware local isso podia provocar `OLLAMA_TIMEOUT: 600s` e também significava que mensagens do meio não chegavam ao modelo.
 
-O prompt do Interpreter proíbe usar conhecimento externo de Naruto ou conhecimento anterior do modelo.
+O v3 elimina esse comportamento do fluxo normal.
 
-Ele é instruído a:
+### Chunking sem descarte
 
-- usar somente o transcript fornecido;
-- não inventar identidade;
-- não inventar rank;
-- não inventar facção;
-- não inventar localização;
-- não inventar motivo;
-- não inventar desfecho;
-- preferir omitir algo a especular.
-
-Memórias de Leafos possuem perspectiva:
+O tamanho padrão aproximado de cada bloco é:
 
 ```text
-observed
-said
-inferred
+9000 caracteres de transcript por chunk
 ```
 
-Mesmo uma memória marcada como `observed` continua `pending_review` até existir uma etapa formal de aprovação.
+Com sobreposição padrão de:
 
----
+```text
+2 mensagens entre fronteiras
+```
+
+Exemplo:
+
+```text
+Sessão grande
+    │
+    ├── Chunk 1
+    ├── Chunk 2
+    ├── Chunk 3
+    └── Chunk 4
+            ↓
+       qwen3:14b
+            ↓
+ resultados parciais normalizados
+            ↓
+ merge determinístico
+            ↓
+ único Interpretation Bundle
+```
+
+Todas as mensagens continuam fazendo parte de pelo menos um chunk. O v3 não usa o antigo recorte início/fim para interpretar normalmente uma sessão grande.
+
+O campo final passa a registrar:
+
+```json
+{
+  "prompt_version": "leafos-interpreter-v3",
+  "interpretation_mode": "chunked",
+  "chunk_count": 4,
+  "chunk_chars": 9000,
+  "chunk_overlap_messages": 2,
+  "transcript_truncated": false
+}
+```
+
+Sessões pequenas continuam produzindo um único chunk e recebem:
+
+```json
+"interpretation_mode": "single"
+```
+
+## Contexto nas fronteiras
+
+A pequena sobreposição reduz a chance de uma fala ou reação ser separada artificialmente da mensagem imediatamente anterior.
+
+O prompt informa explicitamente ao modelo que ele está vendo apenas um chunk. O modelo é proibido de inventar o conteúdo dos outros blocos ou continuidade não presente nas mensagens fornecidas.
+
+## Merge determinístico
+
+O v3 **não usa outro LLM para resumir ou combinar os resultados dos chunks**.
+
+A união é feita em código:
+
+```text
+Chunk 1 candidates
+Chunk 2 candidates
+Chunk 3 candidates
+        ↓
+deduplicação conservadora
+        ↓
+união de source_message_ids
+        ↓
+maior confidence entre duplicatas exatas
+        ↓
+pending_review
+```
+
+Candidatos somente são considerados duplicados quando seu conteúdo semântico estruturado é equivalente após normalização simples. Conteúdo diferente permanece separado para o Reviewer decidir.
+
+## Checkpoint e retry parcial
+
+Durante uma sessão com múltiplos chunks, o Interpreter grava checkpoints temporários em:
+
+```text
+<Vault>/80 - Interpreter/Checkpoints/<session_id>.json
+```
+
+Cada chunk concluído é persistido atomicamente antes do próximo começar.
+
+Assim, se ocorrer:
+
+```text
+Chunk 1 ✓
+Chunk 2 ✓
+Chunk 3 → OLLAMA_TIMEOUT
+Chunk 4
+Chunk 5
+```
+
+uma nova tentativa começa assim:
+
+```text
+Chunk 1 ✓ reutilizado
+Chunk 2 ✓ reutilizado
+Chunk 3 → retry
+Chunk 4 → processar
+Chunk 5 → processar
+```
+
+Os minutos gastos nos chunks já concluídos não são descartados.
+
+Quando o bundle final é criado com sucesso, o checkpoint temporário da sessão é removido.
+
+## Proteção contra checkpoint obsoleto
+
+O checkpoint contém uma impressão digital da entrada semântica da sessão, incluindo mensagens, personagem principal, versão do prompt e configuração de chunking.
+
+Se a sessão ou a configuração mudar, o Interpreter não reutiliza resultados parciais antigos. Um novo checkpoint é iniciado.
+
+## Falhas
+
+Uma falha continua sem promover nada para memória canônica.
+
+O estado em:
+
+```text
+<Vault>/80 - Interpreter/interpreter_state.json
+```
+
+registra a sessão e, quando aplicável:
+
+```json
+{
+  "error": "OLLAMA_TIMEOUT: 600s",
+  "attempts": 2,
+  "chunk_number": 3,
+  "total_chunks": 5,
+  "completed_chunks": 2,
+  "last_failed_at": "..."
+}
+```
+
+A sessão **não** entra em `processed_sessions` até o bundle completo existir.
+
+O botão **Interpretar pendentes** pode portanto tentar novamente a sessão, reaproveitando o checkpoint válido.
+
+## Progresso na UI
+
+O Desktop recebe eventos de progresso do Interpreter. Durante sessões grandes, a barra de status pode mostrar algo como:
+
+```text
+Processando... · 2026-07-24_001 · 2/5
+```
+
+Em uma falha, o diálogo também inclui a posição do chunk quando disponível.
 
 ## IA local / privacidade
 
-O Interpreter v1 usa **Ollama local** por padrão.
-
-Configuração padrão do comando:
+Configuração padrão:
 
 ```text
 URL: http://127.0.0.1:11434
 Modelo: qwen3:14b
+Timeout: 600 segundos por chunk
 ```
 
-Isso significa que o transcript é enviado ao servidor Ollama configurado. Com a URL padrão, o processamento ocorre na própria máquina.
+Com a URL padrão, o conteúdo é enviado apenas ao servidor Ollama local. Uma URL remota pode transmitir o RP para outro computador/serviço.
 
-Não configure uma URL remota sem compreender que isso pode transmitir conteúdo do RP para outro computador/serviço.
-
-O Interpreter usa o endpoint:
+O endpoint usado permanece:
 
 ```text
 POST /api/chat
 ```
 
-com `stream: false`, temperatura `0` e resposta estruturada por JSON Schema.
+com `stream: false`, `think: false`, temperatura `0` e resposta estruturada por JSON Schema.
 
-Nenhuma biblioteca Python adicional do Ollama é necessária; a implementação utiliza a biblioteca padrão do Python.
+## Saída
 
----
+O bundle final continua em:
 
-## Como executar
+```text
+<Vault>/70 - LeafOS Inbox/Interpretations/<session_id>.json
+```
 
-Pré-requisitos:
+Categorias:
 
-1. O LeafOS Processor já precisa ter fechado pelo menos uma sessão.
-2. Ollama deve estar instalado e em execução.
-3. O modelo escolhido deve existir localmente.
+- `events`;
+- `characters`;
+- `locations`;
+- `relationships`;
+- `facts`;
+- `leafos_memories`.
 
-Exemplo com o modelo padrão:
+Tudo continua com:
+
+```text
+status: pending_review
+```
+
+Nenhum candidato se torna memória permanente sem o Memory Reviewer e ação humana explícita.
+
+## Execução
+
+O uso normal deve ser feito pelo `KageLink.exe`.
+
+A CLI permanece disponível para desenvolvimento/diagnóstico:
 
 ```powershell
 cd "KageLink Installer\pc_agent"
@@ -219,145 +297,30 @@ python -m pc_agent.leafos_interpreter `
   --vault "C:\caminho\LeafOS-Vault"
 ```
 
-Usando outro modelo:
-
-```powershell
-python -m pc_agent.leafos_interpreter `
-  --vault "C:\caminho\LeafOS-Vault" `
-  --model "qwen3:14b"
-```
-
-Interpretar somente uma sessão nova por execução:
-
-```powershell
-python -m pc_agent.leafos_interpreter `
-  --vault "C:\caminho\LeafOS-Vault" `
-  --max-sessions 1
-```
-
-Servidor Ollama diferente:
-
-```powershell
-python -m pc_agent.leafos_interpreter `
-  --vault "C:\caminho\LeafOS-Vault" `
-  --ollama-url "http://127.0.0.1:11434"
-```
-
----
-
-## Estado e idempotência
-
-O Interpreter mantém seu próprio estado em:
+Parâmetros úteis para testes:
 
 ```text
-<Vault>/80 - Interpreter/interpreter_state.json
+--chunk-chars 9000
+--chunk-overlap-messages 2
+--timeout 600
+--max-sessions 1
 ```
 
-Ele registra sessões já processadas para não interpretar repetidamente o mesmo arquivo.
+`--max-transcript-chars` continua aceito como alias de compatibilidade para o tamanho de chunk.
 
-Se uma interpretação falhar, a sessão **não é marcada como processada**. Portanto ela poderá ser tentada novamente depois que o problema for corrigido.
+## O que o Interpreter continua proibido de fazer
 
-Se o arquivo final de interpretação já existir, o Interpreter evita criar duplicata.
+O v3 não:
 
----
-
-## Sessões grandes
-
-O limite padrão do transcript enviado ao modelo é:
-
-```text
-48000 caracteres
-```
-
-Quando uma sessão excede o limite, o Interpreter preserva uma parte do início e uma parte do final da sessão e registra:
-
-```json
-"transcript_truncated": true
-```
-
-Os `source_message_ids` aceitos passam a ser somente IDs realmente incluídos na parte enviada ao modelo.
-
-Esse comportamento evita que o modelo alegue evidência em mensagens que ele não recebeu.
-
----
-
-## Falhas do Ollama
-
-Se Ollama estiver desligado, o modelo não existir ou a resposta não for JSON válido:
-
-- nenhuma memória canônica é alterada;
-- a sessão não é marcada como concluída;
-- o erro fica em `interpreter_state.json`;
-- a sessão poderá ser processada novamente.
-
----
-
-## Exemplo conceitual de saída
-
-```json
-{
-  "type": "interpretation_bundle",
-  "session_id": "2026-07-24_003",
-  "status": "pending_review",
-  "summary": "Leafos propõe mover o grupo antes do anoitecer e Urahara concorda.",
-  "events": [
-    {
-      "title": "Decisão de movimentação",
-      "description": "Leafos propôs mover o grupo antes do anoitecer; Urahara concordou.",
-      "event_type": "decision",
-      "confidence": 0.96,
-      "source_message_ids": [18453, 18457],
-      "review_status": "pending_review"
-    }
-  ],
-  "facts": [],
-  "relationships": [],
-  "leafos_memories": []
-}
-```
-
-O texto acima é somente um exemplo de formato; o Interpreter real deve produzir conteúdo baseado exclusivamente em cada sessão.
-
----
-
-## O que ainda NÃO faz parte do Interpreter v1
-
-O v1 deliberadamente não:
-
-- escreve notas canônicas automaticamente;
+- escreve memória canônica automaticamente;
 - altera fichas de personagens;
 - altera timeline oficial;
 - decide sozinho se uma inferência é verdade;
 - usa informação OOC para completar RP;
-- consulta internet;
-- consulta wiki de Naruto;
-- mistura sessões anteriores como conhecimento implícito;
+- consulta internet ou wiki;
+- usa sessões anteriores como conhecimento implícito;
 - apaga RAW;
-- modifica sessões do Processor.
+- modifica sessões do Processor;
+- inventa identidades, ranks, facções, motivos, locais ou resultados.
 
----
-
-## Próxima etapa após validar o v1
-
-A próxima camada deve ser um **Reviewer / Memory Promoter**.
-
-Fluxo esperado:
-
-```text
-Interpretation Bundle
-        ↓
-revisão
-        ├── aprovar
-        ├── editar
-        └── rejeitar
-        ↓
-Canonical Memory
-        ├── Events
-        ├── Characters
-        ├── Locations
-        ├── Relationships
-        ├── Lore
-        └── Leafos Memory
-```
-
-Somente essa futura etapa poderá promover candidatos para a memória permanente.
+O **Memory Reviewer** continua sendo o gate obrigatório entre interpretação e memória canônica.

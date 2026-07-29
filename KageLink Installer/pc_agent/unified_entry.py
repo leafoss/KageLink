@@ -8,9 +8,17 @@ from typing import Any, Iterable
 import unified_launcher as launcher
 from pc_agent.config import load_config
 from pc_agent.history import HistoryStore
-from pc_agent.leafos_interpreter import LeafOSInterpreter, OllamaInterpreterProvider
+from pc_agent.leafos_interpreter_v321 import LeafOSInterpreter, OllamaInterpreterProvider
 from pc_agent.leafos_ollama import OllamaManager
 from pc_agent.primary_character import resolve_primary_character
+
+
+# unified_launcher remains source-compatible, but every Interpreter path reached
+# through the packaged unified entry uses the v3.2.1 durable-revelation layer.
+# The validated v3.1 implementation remains intact in leafos_interpreter_v31.py,
+# and v3.2 remains intact in leafos_interpreter_v32.py.
+launcher.LeafOSInterpreter = LeafOSInterpreter
+launcher.OllamaInterpreterProvider = OllamaInterpreterProvider
 
 
 class UnifiedKageLinkAgentUI(launcher.UnifiedKageLinkAgentUI):
@@ -49,6 +57,36 @@ class UnifiedKageLinkAgentUI(launcher.UnifiedKageLinkAgentUI):
         finally:
             self._clear_busy()
 
+    def _interpreter_progress(self, payload: dict[str, Any]) -> None:
+        if not isinstance(payload, dict):
+            return
+        event = str(payload.get("event") or "")
+        if event not in {"session_start", "chunk_start", "chunk_reused", "chunk_complete"}:
+            return
+
+        session_id = str(payload.get("session_id") or "?")
+        try:
+            chunk_number = max(0, int(payload.get("chunk_number", 0) or 0))
+        except (TypeError, ValueError):
+            chunk_number = 0
+        try:
+            total_chunks = max(1, int(payload.get("total_chunks", 1) or 1))
+        except (TypeError, ValueError):
+            total_chunks = 1
+
+        if event == "session_start":
+            try:
+                completed = max(0, int(payload.get("completed_chunks", 0) or 0))
+            except (TypeError, ValueError):
+                completed = 0
+            progress = f"{completed}/{total_chunks}"
+        else:
+            progress = f"{chunk_number}/{total_chunks}"
+
+        marker = " ✓" if event in {"chunk_reused", "chunk_complete"} else ""
+        text = f"{launcher._t(self.lang, 'working')} · {session_id} · {progress}{marker}"
+        self.ui(lambda value=text: self.message_var.set(value))
+
     def _failure_message(self, failures: Iterable[dict[str, Any]]) -> str:
         lines: list[str] = []
         for item in failures:
@@ -56,7 +94,16 @@ class UnifiedKageLinkAgentUI(launcher.UnifiedKageLinkAgentUI):
                 continue
             session_id = str(item.get("session_id") or "?")
             error = str(item.get("error") or "UNKNOWN_INTERPRETER_ERROR")
-            lines.append(f"{session_id}: {error}")
+            try:
+                chunk_number = int(item.get("chunk_number", 0) or 0)
+                total_chunks = int(item.get("total_chunks", 0) or 0)
+                completed_chunks = int(item.get("completed_chunks", 0) or 0)
+            except (TypeError, ValueError):
+                chunk_number = total_chunks = completed_chunks = 0
+            chunk_detail = ""
+            if chunk_number > 0 and total_chunks > 0:
+                chunk_detail = f" [{chunk_number}/{total_chunks}; {completed_chunks} ✓]"
+            lines.append(f"{session_id}{chunk_detail}: {error}")
         details = "\n".join(lines[:8]) or "UNKNOWN_INTERPRETER_ERROR"
         if len(lines) > 8:
             details += f"\n... +{len(lines) - 8}"
@@ -98,6 +145,7 @@ class UnifiedKageLinkAgentUI(launcher.UnifiedKageLinkAgentUI):
                 history,
                 session.get("started_at"),
             ),
+            progress_callback=self._interpreter_progress,
         )
         result = interpreter.run_once(
             session_ids=session_ids,

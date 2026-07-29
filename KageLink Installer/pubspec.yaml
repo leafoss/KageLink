@@ -1,5 +1,5 @@
 name: kagelink
-version: 3.4.1+21
+version: 3.4.2+22
 publish_to: "none"
 description: Bilingual Android client for KageLink chat, Game controls, and remote Stats.
 

@@ -108,7 +108,7 @@ jobs:
           if (-not $iscc) { throw "ISCC.exe was not found" }
           & $iscc "installer\KageLink_PC_Agent.iss"
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed" }
-          $setup = "installer\output\KageLink-PC-Agent-Setup-v3.4.1.exe"
+          $setup = "installer\output\KageLink-PC-Agent-Setup-v3.4.2.exe"
           if (-not (Test-Path -LiteralPath $setup)) { throw "Final Setup was not created" }
           $item = Get-Item -LiteralPath $setup
           if ($item.Length -lt 1MB) { throw "Final Setup is unexpectedly small" }
@@ -118,7 +118,7 @@ jobs:
           name: KageLink-unified-preview
           path: |
             KageLink Installer/dist/KageLink.exe
-            KageLink Installer/installer/output/KageLink-PC-Agent-Setup-v3.4.1.exe
+            KageLink Installer/installer/output/KageLink-PC-Agent-Setup-v3.4.2.exe
           if-no-files-found: error
 
   flutter-regression:

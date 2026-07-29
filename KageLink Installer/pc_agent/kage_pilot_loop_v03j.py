@@ -7,6 +7,7 @@ import sys
 import kage_pilot_loop_v03g as loop_v03g
 
 from pc_agent.kage_pilot.dojo_fight_v03i import request_taijutsu_dojo_spar_single_click
+from pc_agent.kage_pilot.dojo_leader_v03l import install_clear_dojo_leader_detector
 from pc_agent.kage_pilot.ko_identity_v03k import extract_ko_identity
 
 
@@ -17,7 +18,6 @@ def _run_round_with_ko_buffer(args, *, round_number: int) -> bool:
     """Run one validated round while carrying the last accepted opponent name forward."""
 
     global _LAST_ACCEPTED_KO_NAME
-
     recovery_hp_percent, recovery_chakra_percent = loop_v03g._validate_recovery_targets(args)
     script = Path(__file__).with_name("kage_pilot_live_v03k_round.py")
     log_path = args.log_dir / f"round_{round_number:03d}.jsonl"
@@ -104,7 +104,9 @@ def main() -> int:
     global _LAST_ACCEPTED_KO_NAME
     _LAST_ACCEPTED_KO_NAME = ""
 
+    install_clear_dojo_leader_detector()
     print("Kage Pilot v0.3j: OPPONENT-AWARE KO BUFFER HOTFIX")
+    print("TRAINER: local calibration + clearer bundled 32x45 template")
     print("TRAINER: exactly one click; dialog retries never re-click or re-search the trainer")
     print("DIALOG: one initial check + configured retries; failed dialog round does not stop loop")
     print("BURST: only one confirmed adjacent facing pulse; movement and H remain blocked")

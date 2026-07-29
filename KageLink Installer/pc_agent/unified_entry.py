@@ -11,6 +11,7 @@ from pc_agent.history import HistoryStore
 from pc_agent.leafos_interpreter_v321 import LeafOSInterpreter, OllamaInterpreterProvider
 from pc_agent.leafos_ollama import OllamaManager
 from pc_agent.primary_character import resolve_primary_character
+from pc_agent.release_version import release_version
 
 
 # unified_launcher remains source-compatible, but every Interpreter path reached
@@ -19,6 +20,16 @@ from pc_agent.primary_character import resolve_primary_character
 # and v3.2 remains intact in leafos_interpreter_v32.py.
 launcher.LeafOSInterpreter = LeafOSInterpreter
 launcher.OllamaInterpreterProvider = OllamaInterpreterProvider
+
+
+def _apply_release_version(unified_backend) -> str:
+    """Apply RELEASE_VERSION to the backend object used by the packaged runtime."""
+
+    version = release_version()
+    unified_backend.legacy.APP_VERSION = version
+    unified_backend.legacy.app.version = version
+    unified_backend.app.version = version
+    return version
 
 
 class UnifiedKageLinkAgentUI(launcher.UnifiedKageLinkAgentUI):
@@ -192,7 +203,20 @@ launcher.UnifiedKageLinkAgentUI = UnifiedKageLinkAgentUI
 
 
 def main() -> int:
-    return launcher.main()
+    original_import_module = launcher.importlib.import_module
+
+    def import_module(name: str, package: str | None = None):
+        module = original_import_module(name, package)
+        if name == "unified_app":
+            _apply_release_version(module)
+            launcher.importlib.import_module = original_import_module
+        return module
+
+    launcher.importlib.import_module = import_module
+    try:
+        return launcher.main()
+    finally:
+        launcher.importlib.import_module = original_import_module
 
 
 if __name__ == "__main__":

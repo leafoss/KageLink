@@ -1,0 +1,104 @@
+name: Temporary canonical Dojo backend wiring
+
+on:
+  push:
+    branches: [release/3.5.0-dojo]
+    paths: [".github/workflows/_temp_fix_dojo_backend.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release/3.5.0-dojo
+          fetch-depth: 0
+      - name: Install Dojo routes in the canonical unified backend
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("KageLink Installer/pc_agent/unified_app.py")
+          text = path.read_text(encoding="utf-8")
+
+          import_anchor = "from pc_agent.chat_channels import ChatChannelParser, drop_replayed_prefix, find_new_text, unfinished_ic_suffix\n"
+          import_block = (
+              import_anchor
+              + "from pc_agent.dojo_api import create_dojo_router\n"
+              + "from pc_agent.kage_pilot import DojoTrainingService\n"
+          )
+          if "from pc_agent.dojo_api import create_dojo_router" not in text:
+              if import_anchor not in text:
+                  raise SystemExit("Missing canonical import anchor")
+              text = text.replace(import_anchor, import_block, 1)
+
+          class_anchor = "\n\nclass FinalizeSessionRequest(BaseModel):\n"
+          setup_block = """
+
+APP_VERSION = "3.5.0"
+dojo_service = DojoTrainingService()
+legacy.APP_VERSION = APP_VERSION
+legacy.app.version = APP_VERSION
+
+if not any(getattr(route, "path", "") == "/api/dojo/status" for route in legacy.app.routes):
+    legacy.app.include_router(
+        create_dojo_router(
+            dojo_service,
+            legacy.security,
+            legacy.game_runtime,
+        )
+    )
+
+
+class FinalizeSessionRequest(BaseModel):
+"""
+          if "dojo_service = DojoTrainingService()" not in text:
+              if class_anchor not in text:
+                  raise SystemExit("Missing canonical class anchor")
+              text = text.replace(class_anchor, setup_block, 1)
+
+          finally_anchor = """        finally:
+            watcher.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await watcher
+"""
+          finally_block = """        finally:
+            watcher.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await watcher
+            if dojo_service.is_running:
+                await asyncio.to_thread(dojo_service.stop, timeout=8.0)
+            await asyncio.to_thread(legacy.game_runtime.release_all)
+"""
+          if "await asyncio.to_thread(dojo_service.stop, timeout=8.0)" not in text:
+              if finally_anchor not in text:
+                  raise SystemExit("Missing canonical lifespan anchor")
+              text = text.replace(finally_anchor, finally_block, 1)
+
+          path.write_text(text, encoding="utf-8")
+
+          wrapper = Path("KageLink Installer/pc_agent/unified_app_v35.py")
+          wrapper.write_text(
+              """from __future__ import annotations
+
+# Compatibility import for packaged builds and older 3.5 development entry points.
+# The canonical unified_app module owns the service, routes and lifespan.
+from unified_app import APP_VERSION, app, dojo_service, runtime_status
+
+__all__ = ["APP_VERSION", "app", "dojo_service", "runtime_status"]
+""",
+              encoding="utf-8",
+          )
+      - name: Commit canonical wiring
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "KageLink Installer/pc_agent/unified_app.py" "KageLink Installer/pc_agent/unified_app_v35.py"
+          git diff --cached --check
+          git commit -m "Wire Dojo routes into the canonical unified backend"
+          git push origin HEAD:release/3.5.0-dojo

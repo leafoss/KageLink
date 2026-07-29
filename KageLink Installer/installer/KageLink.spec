@@ -7,6 +7,7 @@ agent = os.path.join(root, 'pc_agent')
 datas = [
     (os.path.join(agent, 'web'), 'web'),
     (os.path.join(agent, 'pc_agent', 'assets'), os.path.join('pc_agent', 'assets')),
+    (os.path.join(root, '..', 'RELEASE_VERSION'), '.'),
 ]
 binaries = []
 hiddenimports = ['app', 'unified_app', 'unified_launcher'] + collect_submodules('pc_agent') + ['win32timezone', 'win32ui', 'win32gui', 'win32api', 'win32con', 'win32process', 'uvicorn.logging', 'uvicorn.loops.auto', 'uvicorn.protocols.http.auto', 'uvicorn.protocols.websockets.auto', 'uvicorn.lifespan.on']

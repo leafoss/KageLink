@@ -55,6 +55,7 @@ jobs:
       - name: Targeted release-candidate tests
         run: |
           python -m unittest `
+            tests.test_dojo_api_v35 `
             tests.test_kage_pilot_dojo_service `
             tests.test_kage_pilot_dojo_config `
             tests.test_kage_pilot_dojo_dialog_retry `

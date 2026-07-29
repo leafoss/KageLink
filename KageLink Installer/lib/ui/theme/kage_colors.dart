@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 abstract final class KageColors {
   static const inkBlack = Color(0xFF090D13);
+  static const voidBlack = inkBlack;
   static const charcoal = Color(0xFF121923);
   static const shadowBlue = Color(0xFF182433);
   static const nightBlue = Color(0xFF0D1724);

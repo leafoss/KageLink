@@ -12,66 +12,71 @@ from .post_combat_v03b import LeaderMatchV2
 from .post_combat_v03c import PersistentDojoLeaderDetector as _PersistentDojoLeaderDetector
 
 
-# The clearer 68x77 Trainer frame supplied from the real Dojo was cropped and
-# normalized offline to the validated 32x45 runtime footprint. Raw BGR pixels
-# are zlib-compressed instead of storing the source PNG, avoiding differences
-# between libpng builds on Windows and Linux.
-_BUNDLED_CLEAR_TEMPLATE_ZLIB_B64 = """
-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
+# Exact BGR pixels from the clearer 68x77 Trainer frame supplied from the real
+# Dojo. The previous revision resized this image immediately to 32x45 and used
+# the normal 0.88 CLI threshold, which discarded the new template's intended
+# 0.72 acceptance floor before real matching could occur.
+#
+# Keep the native frame and derive a compact compatibility candidate at runtime.
+# Raw pixels are zlib-compressed to avoid libpng differences across platforms.
+_BUNDLED_CLEAR_NATIVE_ZLIB_B64 = """
+eNrlm9tP1UAQxnknxkAgQS7hcg4icDiIgJAA4aZHDCrGF4i+AD4Y0Pgu/7wO/UrP105n2CKYdF2+h82e6XZ+ZXa6u21bu5323oFo
+YfeNqLXTEXELq7XbEel2yOoHdWjx9aEo12fSbvWp+9e+ZV61bljQgjrO6Huu/fcp0FtK1Hkn0r1pUvbNasmIulcyIhb2iuu6f0t+
+FLX334osGz/e0utA/pdSZ/+LmFg4xqzxDn/0GPfpoN6kpNFLR/VS0b1xNFoZqf3qUMQhFxOLPwbDBa+43p+UXrfoKGUfQrIQLrW2
+rDtLOjbvlId1tIRTWFw5Rhr71nWG8zwW4mC5NeOV+u8TgWU4KWOqoN2iDp87aZtYWRBvTOHPLqxo6Q8uuczsXlVz7pQckuXnaFj4
+vqPzM9+zrHVB772W8LuAlb1jYtGz66p3SY4ZjPFWUk6Oj0UHSUEd7bAJIUpzcue9yBr+5uyrtizWf6fqipU9YRZQnH89E6Hus1hR
+ZM1+sdDTq8jas/C8zp1p5/LeA2QAHefwh6Mrd+VpYyS3Eo+CRUeavkuiZa61UCpY8tifW90VXSUlXYvtn4hQRztsquZkvR7s/lPi
+YtH7A1w/Oj6pJPgzv/VJBJ8x0sGCOtphw/77I93Z2SisDuJgKVn1UAaAh5+/XYh+XP0qCO0QLEeeLongJ/xHLLHQDhvYW/NY/06R
+8RaOjYOF+0lzIGUDn4WJYIne4OHsxgcRPGehnSnutiefERXu4HGwlOQ6uodWZeE4mZ4cEzER6mj3Z7b+2C/kqwJvHCx6ZZrbIV98
+VElNVVZU0TalTyKce3fIKiw+llwPiYeb2xO3yvI8pODYCk8VaY9F7/PHweLv2PxLFn9V6LQU5mBxsLB4lOkYW9veKJVmCeHS9jdP
+kcpXXiH5OVaWkiewCQt7jvXXbKstQov2vCqLlQH08z5e0XefuReev8fB4r7pwTEG/8ECCrQ8HEtQjO10CvOuOFj8jKdzMrNY2fjv
+Wcw3RnZKdikDs3e9WPw7JrMwBeeBhx77FhG/26MzWN1ZrLdi0lWzYsF4Z00nBeusxtKeCC0+C2xgn67RksIZODe3Z/8pX4nDW3tf
+eAUXB4temeZWPQFzGGiaSvisko/y+2eJ8wVZq+z6suj3NHJcwXNLXiOHjHRuD6ewWOaXX4riY9E5sOoa2WJhb/1ftcbmpwr6f1j8
+HTa9a6T7h6w9Jc1i/aopRo5mReM7o5nQXgBZ3/gY8nS4jiwls5fknsV7sOiHe2bB8vT8VPT98jITWmbacyLrV34axRTMwi2wEYRM
+t8zEasvC9Wcb26KZtU2R3z/r7OKnqDkyJFqkghawWL/6LJqiwPJkolGYbcbDQu9TTT1fEQ0Mj4i4f/8s8ApzRUh7yyxsyTY4r5Vh
+xhdmRbAZmmiIrkHs71/qy6J3+WDJLNDS1rrIOgv8sfS4r0/k2zDLwPCoCJ5DE+05EfsW8v1LfVk40hpLqyLE2ODw6OB1h91jrXdI
+cC5tz16hbtt0hbNznLOaL9ZE+NX//qXuLBxj3A8LjEw6ubgssuzxK9vAB27hPnVvzeU1EVvqs/jfv9SdRb8TaHl4i8SZzJ+knnqo
+6tax4OUo8hXy/Ut9WfQ3I36k6XY+O0cLR5oZkxmgHbH6LLmx737/Ul+W+/pmRPNqCj322UPrWvkxJs739PxO/noiYPkDhjmfsw==
 """.strip()
+
+_NATIVE_WIDTH = 68
+_NATIVE_HEIGHT = 77
+_CHANNELS = 3
+_NATIVE_BYTE_COUNT = _NATIVE_WIDTH * _NATIVE_HEIGHT * _CHANNELS
 
 _CLEAR_SOURCE_CROP = (2, 4, 67, 77)
 _COMPACT_WIDTH = 32
 _COMPACT_HEIGHT = 45
-_COMPACT_CHANNELS = 3
-_COMPACT_BYTE_COUNT = _COMPACT_WIDTH * _COMPACT_HEIGHT * _COMPACT_CHANNELS
+
+_BUNDLED_THRESHOLD = 0.72
+_BUNDLED_SCALES = (0.90, 0.95, 1.00, 1.05, 1.10)
 
 
 def decode_bundled_clear_template() -> np.ndarray:
-    """Decode the bundled normalized Dojo Trainer pixels as a BGR image."""
+    """Decode the exact clearer 68x77 Dojo Trainer frame as a BGR image."""
 
     try:
         compressed = base64.b64decode(
-            "".join(_BUNDLED_CLEAR_TEMPLATE_ZLIB_B64.split()),
+            "".join(_BUNDLED_CLEAR_NATIVE_ZLIB_B64.split()),
             validate=True,
         )
         raw = zlib.decompress(compressed)
     except (ValueError, binascii.Error, zlib.error) as error:
         raise RuntimeError("DOJO_CLEAR_TEMPLATE_DATA_INVALID") from error
-    if len(raw) != _COMPACT_BYTE_COUNT:
+    if len(raw) != _NATIVE_BYTE_COUNT:
         raise RuntimeError(
-            f"DOJO_CLEAR_TEMPLATE_SIZE_INVALID:{len(raw)}/{_COMPACT_BYTE_COUNT}"
+            f"DOJO_CLEAR_TEMPLATE_SIZE_INVALID:{len(raw)}/{_NATIVE_BYTE_COUNT}"
         )
     return np.frombuffer(raw, dtype=np.uint8).reshape(
-        (_COMPACT_HEIGHT, _COMPACT_WIDTH, _COMPACT_CHANNELS)
+        (_NATIVE_HEIGHT, _NATIVE_WIDTH, _CHANNELS)
     ).copy()
 
 
 def compact_bundled_clear_template(image: np.ndarray | None = None) -> np.ndarray:
-    """Return a 32x45 template, optionally normalizing the original clear frame."""
+    """Return the legacy 32x45 compatibility view of the clearer frame."""
 
     if image is None:
-        return decode_bundled_clear_template()
+        image = decode_bundled_clear_template()
     if image.size == 0:
         raise RuntimeError("DOJO_CLEAR_TEMPLATE_EMPTY")
     if image.shape[:2] == (_COMPACT_HEIGHT, _COMPACT_WIDTH):
@@ -94,21 +99,21 @@ def compact_bundled_clear_template(image: np.ndarray | None = None) -> np.ndarra
 
 
 class ClearDojoLeaderDetector(_PersistentDojoLeaderDetector):
-    """Use both local calibration and the clearer bundled Trainer template.
+    """Match local calibration plus native and compact clear Trainer templates.
 
-    The local ``data/kage_pilot/dojo_leader_template.png`` remains the first
-    authority when present. The bundled compact template is an additional
-    candidate, so existing validated installations keep working while clean
-    frames can recover from the old blurred-template weakness.
+    The caller's threshold remains authoritative for the existing local/legacy
+    template. The two bundled clear candidates use their own conservative 0.72
+    floor and still require the acquisition gate's stable multi-frame visual
+    confirmation before any click.
     """
 
     def __init__(
         self,
         *,
-        threshold: float = 0.72,
+        threshold: float = 0.88,
         template_path=None,
         memory_seconds: float = 180.0,
-        scales: Iterable[float] = (0.90, 0.95, 1.00, 1.05, 1.10),
+        scales: Iterable[float] = _BUNDLED_SCALES,
     ) -> None:
         super().__init__(
             threshold=threshold,
@@ -116,31 +121,65 @@ class ClearDojoLeaderDetector(_PersistentDojoLeaderDetector):
             memory_seconds=memory_seconds,
             scales=scales,
         )
-        clear_compact = compact_bundled_clear_template()
-        self._visual_templates: tuple[tuple[str, np.ndarray], ...] = (
-            (str(self.template_source), self.template_gray),
+        native = decode_bundled_clear_template()
+        compact = compact_bundled_clear_template(native)
+        bundled_threshold = min(float(self.threshold), _BUNDLED_THRESHOLD)
+        common_scales = tuple(float(value) for value in self.scales)
+
+        self._visual_templates: tuple[
+            tuple[str, np.ndarray, float, tuple[float, ...]], ...
+        ] = (
             (
-                "bundled-clear-32x45",
-                cv2.cvtColor(clear_compact, cv2.COLOR_BGR2GRAY),
+                str(self.template_source),
+                self.template_gray,
+                float(self.threshold),
+                common_scales,
+            ),
+            (
+                "bundled-clear-native-68x77",
+                cv2.cvtColor(native, cv2.COLOR_BGR2GRAY),
+                bundled_threshold,
+                _BUNDLED_SCALES,
+            ),
+            (
+                "bundled-clear-compact-32x45",
+                cv2.cvtColor(compact, cv2.COLOR_BGR2GRAY),
+                bundled_threshold,
+                _BUNDLED_SCALES,
             ),
         )
         self.last_raw_template_source = str(self.template_source)
+        self.last_raw_required_threshold = float(self.threshold)
+        self.last_accepted_template_source: str | None = None
+        self.last_accepted_threshold: float | None = None
 
-    def _best_visual(self, frame_bgr: np.ndarray, *, arena_rect=None) -> LeaderMatchV2 | None:
+    def _best_visual(
+        self,
+        frame_bgr: np.ndarray,
+        *,
+        arena_rect=None,
+    ) -> LeaderMatchV2 | None:
         roi, offset_x, offset_y = self._roi(frame_bgr, arena_rect)
         if roi.size == 0:
             return None
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
 
-        best_score = -1.0
-        best_scale = 1.0
-        best_location: tuple[int, int] | None = None
-        best_size: tuple[int, int] | None = None
-        best_source = str(self.template_source)
+        raw_best_score = -1.0
+        raw_best_scale = 1.0
+        raw_best_location: tuple[int, int] | None = None
+        raw_best_source = str(self.template_source)
+        raw_best_threshold = float(self.threshold)
 
-        for source_name, template_gray in self._visual_templates:
+        accepted_score = -1.0
+        accepted_scale = 1.0
+        accepted_location: tuple[int, int] | None = None
+        accepted_size: tuple[int, int] | None = None
+        accepted_source: str | None = None
+        accepted_threshold: float | None = None
+
+        for source_name, template_gray, required_threshold, source_scales in self._visual_templates:
             original_h, original_w = template_gray.shape[:2]
-            for scale in self.scales:
+            for scale in source_scales:
                 width = max(8, round(original_w * scale))
                 height = max(8, round(original_h * scale))
                 if width > gray.shape[1] or height > gray.shape[0]:
@@ -154,33 +193,53 @@ class ClearDojoLeaderDetector(_PersistentDojoLeaderDetector):
                 result = cv2.matchTemplate(gray, template, cv2.TM_CCOEFF_NORMED)
                 _, score, _, location = cv2.minMaxLoc(result)
                 score = float(score)
-                if score > best_score:
-                    best_score = score
-                    best_scale = float(scale)
-                    best_location = (int(location[0]), int(location[1]))
-                    best_size = (width, height)
-                    best_source = source_name
+                location = (int(location[0]), int(location[1]))
 
-        self.last_raw_score = best_score
-        self.last_raw_scale = best_scale
-        self.last_raw_template_source = best_source
+                if score > raw_best_score:
+                    raw_best_score = score
+                    raw_best_scale = float(scale)
+                    raw_best_location = location
+                    raw_best_source = source_name
+                    raw_best_threshold = float(required_threshold)
+
+                # Evaluate each source against its own threshold. A rejected
+                # higher raw score must not hide a valid bundled candidate.
+                if score >= float(required_threshold) and score > accepted_score:
+                    accepted_score = score
+                    accepted_scale = float(scale)
+                    accepted_location = location
+                    accepted_size = (width, height)
+                    accepted_source = source_name
+                    accepted_threshold = float(required_threshold)
+
+        self.last_raw_score = raw_best_score
+        self.last_raw_scale = raw_best_scale
+        self.last_raw_template_source = raw_best_source
+        self.last_raw_required_threshold = raw_best_threshold
         self.last_raw_location = (
-            (offset_x + best_location[0], offset_y + best_location[1])
-            if best_location is not None
+            (offset_x + raw_best_location[0], offset_y + raw_best_location[1])
+            if raw_best_location is not None
             else None
         )
-        if best_location is None or best_size is None or best_score < self.threshold:
+        self.last_accepted_template_source = accepted_source
+        self.last_accepted_threshold = accepted_threshold
+
+        if (
+            accepted_location is None
+            or accepted_size is None
+            or accepted_source is None
+        ):
             return None
 
-        left = offset_x + best_location[0]
-        top = offset_y + best_location[1]
-        width, height = best_size
+        left = offset_x + accepted_location[0]
+        top = offset_y + accepted_location[1]
+        width, height = accepted_size
         return LeaderMatchV2(
-            score=best_score,
+            score=accepted_score,
             bbox=(left, top, width, height),
             foot=(left + width * 0.50, top + height * 0.88),
             source="visual",
-            scale=best_scale,
+            scale=accepted_scale,
         )
 
 

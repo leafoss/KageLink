@@ -10,11 +10,11 @@ set "PYTHON_EXE="
 set "ISCC="
 
  echo ================================================================
- echo KAGELINK 3.4.2 - CRIADOR DO INSTALADOR FINAL
+ echo KAGELINK 3.5.0 - CRIADOR DO INSTALADOR COM DOJO TRAINER
  echo ================================================================
  echo.
- echo Este processo gera um unico programa KageLink.exe e depois cria
- echo o instalador para os usuarios finais.
+ echo Este processo gera KageLink.exe e os dois motores isolados do
+ echo Dojo Trainer, depois cria o instalador para os usuarios finais.
  echo.
 
 call :FindPython
@@ -56,12 +56,23 @@ if exist "%~dp0payload\cloudflared.download.exe" del /q "%~dp0payload\cloudflare
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\prepare_cloudflared.ps1"
 if errorlevel 1 goto :error
 
-echo [5/6] Gerando KageLink.exe com Python incorporado...
+echo [5/6] Gerando KageLink e motores do Dojo com Python incorporado...
 if exist "%~dp0build" rmdir /s /q "%~dp0build"
-if exist "%~dp0build_output\KageLink.exe" del /q "%~dp0build_output\KageLink.exe"
-"%BUILD_VENV%\Scripts\pyinstaller.exe" --noconfirm --clean --distpath "%~dp0build_output" --workpath "%~dp0build" "%~dp0KageLink.spec"
+if not exist "%~dp0build_output" mkdir "%~dp0build_output"
+for %%F in (KageLink.exe KagePilotDojo.exe KagePilotRound.exe) do if exist "%~dp0build_output\%%F" del /q "%~dp0build_output\%%F"
+
+"%BUILD_VENV%\Scripts\pyinstaller.exe" --noconfirm --clean --distpath "%~dp0build_output" --workpath "%~dp0build\KageLink" "%~dp0KageLink.spec"
 if errorlevel 1 goto :error
-if not exist "%~dp0build_output\KageLink.exe" goto :error
+"%BUILD_VENV%\Scripts\pyinstaller.exe" --noconfirm --clean --distpath "%~dp0build_output" --workpath "%~dp0build\KagePilotDojo" "%~dp0KagePilotDojo.spec"
+if errorlevel 1 goto :error
+"%BUILD_VENV%\Scripts\pyinstaller.exe" --noconfirm --clean --distpath "%~dp0build_output" --workpath "%~dp0build\KagePilotRound" "%~dp0KagePilotRound.spec"
+if errorlevel 1 goto :error
+
+for %%F in (KageLink.exe KagePilotDojo.exe KagePilotRound.exe) do if not exist "%~dp0build_output\%%F" goto :error
+"%~dp0build_output\KagePilotDojo.exe" --help >nul
+if errorlevel 1 goto :error
+"%~dp0build_output\KagePilotRound.exe" --help >nul
+if errorlevel 1 goto :error
 
 call :FindISCC
 if not defined ISCC (
@@ -84,7 +95,7 @@ echo [6/6] Compilando o instalador final...
 "!ISCC!" "%~dp0KageLink_PC_Agent.iss"
 if errorlevel 1 goto :error
 
-set "OUTPUT=%~dp0output\KageLink-PC-Agent-Setup-v3.4.2.exe"
+set "OUTPUT=%~dp0output\KageLink-PC-Agent-Setup-v3.5.0.exe"
 if not exist "%OUTPUT%" goto :error
 
 echo.

@@ -13,8 +13,10 @@ import unified_launcher
 class KageLinkDojoApiV35Tests(unittest.TestCase):
     def test_v35_backend_exposes_authenticated_dojo_routes_in_clean_process(self):
         project_dir = Path(__file__).resolve().parents[1]
-        probe = r'''
+        probe = f'''\
 import json
+import sys
+sys.path.insert(0, {str(project_dir)!r})
 import unified_app
 import unified_app_v35
 
@@ -22,16 +24,16 @@ payload = []
 for route in unified_app_v35.app.routes:
     path = getattr(route, "path", "")
     if path.startswith("/api/dojo/"):
-        payload.append({
+        payload.append({{
             "path": path,
             "methods": sorted(getattr(route, "methods", set())),
             "dependencies": len(getattr(route, "dependant").dependencies),
-        })
+        }})
 print("DOJO_V35_ROUTES=" + json.dumps(payload, sort_keys=True))
 print("DOJO_V35_VERSION=" + unified_app_v35.app.version)
 '''
         result = subprocess.run(
-            [sys.executable, "-c", probe],
+            [sys.executable, "-I", "-c", probe],
             cwd=str(project_dir),
             capture_output=True,
             text=True,
@@ -65,13 +67,13 @@ print("DOJO_V35_VERSION=" + unified_app_v35.app.version)
             ("POST", "/api/dojo/start"),
             ("POST", "/api/dojo/stop"),
         ):
-            self.assertIn(key, by_key)
+            self.assertIn(key, by_key, result.stdout)
             self.assertGreaterEqual(
                 int(by_key[key]["dependencies"]),
                 1,
                 f"{key} must require the KageLink authorization dependency",
             )
-        self.assertEqual(len(routes), 3)
+        self.assertEqual(len(routes), 3, result.stdout)
         self.assertEqual(version_line, "DOJO_V35_VERSION=3.5.0")
 
     def test_desktop_dojo_catalog_has_pt_br_en_us_parity(self):

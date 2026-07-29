@@ -1,0 +1,141 @@
+name: Temporary KageLink 3.5 README updater
+
+on:
+  push:
+    branches: [release/3.5.0-dojo]
+    paths: [".github/workflows/_temp_update_35_readmes.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release/3.5.0-dojo
+          fetch-depth: 0
+      - name: Preserve and synchronize the long bilingual READMEs
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def one(text, old, new, label):
+              if old not in text:
+                  raise SystemExit(f"Missing README anchor: {label}")
+              return text.replace(old, new, 1)
+
+          pt_path = Path("README.pt-BR.md")
+          pt = pt_path.read_text(encoding="utf-8")
+          pt = pt.replace("3.4.1+21", "3.5.0+23")
+          pt = pt.replace("KageLink 3.4.1", "KageLink 3.5.0")
+          pt = one(
+              pt,
+              "[English](README.md) · [Bíblia de desenvolvimento](AGENTS.md) · [Development Bible](AGENTS.en.md)",
+              "[English](README.md) · [Dojo Trainer 3.5](KAGELINK_3_5_DOJO.md) · [Bíblia do Dojo](AGENTS_DOJO.md) · [Bíblia de desenvolvimento](AGENTS.md)",
+              "pt links",
+          )
+          pt = one(
+              pt,
+              "- mantém GAME, STATS, chat e LeafOS isolados para que uma falha local não derrube todo o Agent.",
+              "- mantém GAME, STATS, chat e LeafOS isolados para que uma falha local não derrube todo o Agent;\n- executa o Dojo Trainer em processos isolados instalados junto do KageLink;\n- bloqueia controles GAME manuais enquanto o treinamento autônomo está ativo;\n- expõe status, início e parada do Dojo por API autenticada.",
+              "pt pc capabilities",
+          )
+          pt = one(
+              pt,
+              "- aba **STATS**;",
+              "- aba **STATS**;\n- área **DOJO** para iniciar, parar e acompanhar o treinamento no Windows;",
+              "pt apk capabilities",
+          )
+          pt = one(
+              pt,
+              "---\n\n## 2. Instalação para o usuário final",
+              """---
+
+## Dojo Trainer 3.5
+
+O Dojo Trainer executa visão, decisões e comandos de teclado somente no computador Windows. Desktop e APK controlam o mesmo serviço autenticado; o APK não executa o jogo nem o motor de visão.
+
+O Setup instala automaticamente:
+
+```text
+KageLink.exe
+KagePilotDojo.exe
+KagePilotRound.exe
+```
+
+Na página **Dojo Trainer** do Desktop ou na área **DOJO** do Android é possível escolher o número de rodadas, iniciar, parar e acompanhar fase, rodada e último evento. Use `0` para executar continuamente até **Parar** ou F12.
+
+Durante o treino, os controles manuais da aba GAME ficam bloqueados no próprio PC Agent para impedir comandos concorrentes. Chat e STATUS permanecem independentes. F12 continua sendo a parada de emergência local.
+
+Consulte [KAGELINK_3_5_DOJO.md](KAGELINK_3_5_DOJO.md) para arquitetura, API, instalação e gate de segurança.
+
+---
+
+## 2. Instalação para o usuário final""",
+              "pt dojo section",
+          )
+          pt_path.write_text(pt, encoding="utf-8")
+
+          en_path = Path("README.md")
+          en = en_path.read_text(encoding="utf-8")
+          en = en.replace("3.4.1+21", "3.5.0+23")
+          en = en.replace("KageLink 3.4.1", "KageLink 3.5.0")
+          en = one(
+              en,
+              "[Português (Brasil)](README.pt-BR.md) · [Development Bible](AGENTS.en.md) · [Bíblia de desenvolvimento](AGENTS.md)",
+              "[Português (Brasil)](README.pt-BR.md) · [Dojo Trainer 3.5](KAGELINK_3_5_DOJO.en.md) · [Dojo Bible](AGENTS_DOJO.en.md) · [Development Bible](AGENTS.en.md)",
+              "en links",
+          )
+          en = one(
+              en,
+              "- isolates chat, GAME, STATS and LeafOS so a local failure should not take down the whole Agent.",
+              "- isolates chat, GAME, STATS and LeafOS so a local failure should not take down the whole Agent;\n- runs the Dojo Trainer through isolated helpers installed beside KageLink;\n- blocks manual GAME controls while autonomous training is active;\n- exposes authenticated Dojo status, start, and stop operations.",
+              "en pc capabilities",
+          )
+          en = one(
+              en,
+              "- **STATS** tab;",
+              "- **STATS** tab;\n- **DOJO** area to start, stop, and follow training on Windows;",
+              "en apk capabilities",
+          )
+          en = one(
+              en,
+              "---\n\n## 2. End-user installation",
+              """---
+
+## Dojo Trainer 3.5
+
+The Dojo Trainer runs vision, decisions, and keyboard commands only on the Windows computer. Desktop and APK control the same authenticated service; the APK does not run the game or the vision engine.
+
+The Setup automatically installs:
+
+```text
+KageLink.exe
+KagePilotDojo.exe
+KagePilotRound.exe
+```
+
+The Desktop **Dojo Trainer** page and Android **DOJO** area can choose a round count, start, stop, and follow phase, current round, and the latest event. Use `0` to run continuously until **Stop** or F12.
+
+While training is active, manual GAME controls are blocked authoritatively by the PC Agent to prevent competing commands. Chat and STATS remain independent. F12 remains the local emergency stop.
+
+See [KAGELINK_3_5_DOJO.en.md](KAGELINK_3_5_DOJO.en.md) for architecture, API, installation, and the safety gate.
+
+---
+
+## 2. End-user installation""",
+              "en dojo section",
+          )
+          en_path.write_text(en, encoding="utf-8")
+      - name: Commit synchronization
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md README.pt-BR.md
+          git diff --cached --check
+          git commit -m "Update bilingual READMEs for KageLink 3.5 Dojo"
+          git push origin HEAD:release/3.5.0-dojo

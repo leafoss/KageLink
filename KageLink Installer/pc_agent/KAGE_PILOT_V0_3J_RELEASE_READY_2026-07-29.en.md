@@ -150,6 +150,30 @@ TRAINER_SEARCH ... ring=3/29 completed=2 cells=19
 
 Dedicated regression tests protect this contract.
 
+## Final automated validation
+
+Dedicated workflow on Windows Server 2025 / Python 3.11:
+
+```text
+67 targeted tests: OK
+190 Kage Pilot tests: OK
+318 complete PC Agent tests: OK
+compilation: OK
+canonical configuration: OK
+```
+
+Unified workflow:
+
+```text
+PC Agent Python: OK
+KageLink.exe build and verification: OK
+unified desktop smoke test: OK
+Windows Setup: OK
+Flutter analyze: OK
+Flutter tests: OK
+Android release APK: OK
+```
+
 ## Documentation and traceability
 
 - equivalent PT-BR and EN-US documentation;
@@ -170,4 +194,6 @@ Dedicated regression tests protect this contract.
 - [x] local artifacts protected by `.gitignore`;
 - [x] round telemetry hardened;
 - [x] PT-BR/EN-US documentation updated;
+- [x] dedicated workflow completed successfully;
+- [x] unified workflow completed successfully;
 - [ ] merge only after Rafael's explicit approval.

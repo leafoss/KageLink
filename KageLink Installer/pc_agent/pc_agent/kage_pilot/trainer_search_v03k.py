@@ -70,6 +70,33 @@ class TrainerSearchMotionGate:
         return max(0.0, float(self.hold_until) - float(now))
 
 
+def _detector_description(detector) -> str:
+    describe = getattr(detector, "describe", None)
+    if callable(describe):
+        try:
+            return str(describe())
+        except Exception:
+            pass
+    return (
+        f"source={getattr(detector, 'template_source', '-')} "
+        f"threshold={float(getattr(detector, 'threshold', 0.0)):.3f}"
+    )
+
+
+def _detector_diagnostics(detector) -> str:
+    diagnostics = getattr(detector, "diagnostics_text", None)
+    if callable(diagnostics):
+        try:
+            return str(diagnostics(limit=8))
+        except Exception:
+            pass
+    return (
+        f"raw={float(getattr(detector, 'last_raw_score', -1.0)):.3f} "
+        f"need={float(getattr(detector, 'threshold', 0.0)):.3f} "
+        f"scale={float(getattr(detector, 'last_raw_scale', 1.0)):.3f}"
+    )
+
+
 def search_trainer_until_visible_safe(
     controller,
     *,
@@ -131,6 +158,8 @@ def search_trainer_until_visible_safe(
     previous_center: tuple[float, float] | None = None
     required_hits = max(1, int(confirm_frames))
 
+    print(f"TRAINER_DETECTOR {_detector_description(detector)}")
+
     try:
         while time.monotonic() < deadline:
             loop_started = time.monotonic()
@@ -160,19 +189,23 @@ def search_trainer_until_visible_safe(
                     visual_hits = 1
                 previous_center = center
                 controller.apply_keys(())
+                mode = getattr(detector, "last_accepted_template_mode", "-") or "-"
+                template = getattr(detector, "last_accepted_template_source", "-") or "-"
                 if visual_hits >= required_hits:
                     target = _click_target_from_match(match, frame, state, observer)
                     print(
                         f"TRAINER_VISUAL_CONFIRMED score={target.score:.3f} "
-                        f"d={target.grid_distance} bbox={target.bbox}"
+                        f"d={target.grid_distance} bbox={target.bbox} "
+                        f"mode={mode} template={template}"
                     )
                     return target
 
                 if now >= next_telemetry:
                     print(
                         f"TRAINER_VISUAL_CONFIRM hits={visual_hits}/{required_hits} "
-                        f"score={match.score:.3f}"
+                        f"score={match.score:.3f} mode={mode} template={template}"
                     )
+                    print(f"TRAINER_VISION_RAW {_detector_diagnostics(detector)}")
                     next_telemetry = now + max(0.10, float(telemetry_seconds))
                 elapsed = time.monotonic() - loop_started
                 if elapsed < interval:
@@ -200,6 +233,7 @@ def search_trainer_until_visible_safe(
                         f"TRAINER_SCAN_HOLD phase={action} "
                         f"remaining={gate.remaining(now=now):.2f}s move=-"
                     )
+                    print(f"TRAINER_VISION_RAW {_detector_diagnostics(detector)}")
                     next_telemetry = now + max(0.10, float(telemetry_seconds))
             else:
                 decision = engine._search_decision(now=now)
@@ -217,6 +251,7 @@ def search_trainer_until_visible_safe(
                         f"TRAINER_SEARCH state={decision.state} move={decision.move_pulse or '-'} "
                         f"motion={motion_text} reason={decision.reason}"
                     )
+                    print(f"TRAINER_VISION_RAW {_detector_diagnostics(detector)}")
                     next_telemetry = now + max(0.10, float(telemetry_seconds))
 
             elapsed = time.monotonic() - loop_started

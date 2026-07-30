@@ -1,12 +1,36 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from pc_agent.kage_pilot import DojoTrainingConfig, DojoTrainingService
+
+
+DebugLevel = Literal["basic", "detections", "processed"]
+
+
+class DojoDebugRequest(BaseModel):
+    enabled: bool = False
+    level: DebugLevel = "detections"
+    opacity: float = Field(default=0.82, ge=0.25, le=1.0)
+    fps: float = Field(default=15.0, ge=5.0, le=30.0)
+    meditation_enter_delay_seconds: float = Field(default=5.5, ge=5.0, le=30.0)
+    meditation_exit_delay_seconds: float = Field(default=5.5, ge=5.0, le=30.0)
+    meditation_timeout_seconds: float = Field(default=120.0, ge=15.0, le=1800.0)
+
+    def apply(self, service: DojoTrainingService):
+        return service.configure_debug(
+            enabled=self.enabled,
+            level=self.level,
+            opacity=self.opacity,
+            fps=self.fps,
+            meditation_enter_delay_seconds=self.meditation_enter_delay_seconds,
+            meditation_exit_delay_seconds=self.meditation_exit_delay_seconds,
+            meditation_timeout_seconds=self.meditation_timeout_seconds,
+        )
 
 
 class DojoStartRequest(BaseModel):
@@ -23,6 +47,13 @@ class DojoStartRequest(BaseModel):
     round_startup_delay: float = Field(default=1.0, ge=0.0, le=30.0)
     chat_poll_seconds: float = Field(default=0.15, ge=0.10, le=2.0)
     h_enabled: bool = True
+    debug_visual: bool = False
+    debug_level: DebugLevel = "detections"
+    debug_overlay_opacity: float = Field(default=0.82, ge=0.25, le=1.0)
+    debug_overlay_fps: float = Field(default=15.0, ge=5.0, le=30.0)
+    meditation_enter_delay_seconds: float = Field(default=5.5, ge=5.0, le=30.0)
+    meditation_exit_delay_seconds: float = Field(default=5.5, ge=5.0, le=30.0)
+    meditation_timeout_seconds: float = Field(default=120.0, ge=15.0, le=1800.0)
 
     def to_config(self) -> DojoTrainingConfig:
         return DojoTrainingConfig(
@@ -41,10 +72,26 @@ class DojoStartRequest(BaseModel):
             disable_h=not self.h_enabled,
         ).normalized()
 
+    def apply_debug(self, service: DojoTrainingService):
+        return service.configure_debug(
+            enabled=self.debug_visual,
+            level=self.debug_level,
+            opacity=self.debug_overlay_opacity,
+            fps=self.debug_overlay_fps,
+            meditation_enter_delay_seconds=self.meditation_enter_delay_seconds,
+            meditation_exit_delay_seconds=self.meditation_exit_delay_seconds,
+            meditation_timeout_seconds=self.meditation_timeout_seconds,
+        )
+
 
 def dojo_status_payload(service: DojoTrainingService) -> dict[str, Any]:
     snapshot = service.snapshot()
     log_status = service.log_status() if hasattr(service, "log_status") else {}
+    if hasattr(service, "current_debug_settings"):
+        debug = service.current_debug_settings()
+    else:
+        debug = getattr(service, "debug_settings", None)
+    debug_payload = debug.to_dict() if debug is not None else {}
     return {
         "available": service.runtime_available(),
         "running": snapshot.running,
@@ -58,6 +105,17 @@ def dojo_status_payload(service: DojoTrainingService) -> dict[str, Any]:
         "position_x": float(getattr(service, "position_x", 0.0) or 0.0),
         "position_y": float(getattr(service, "position_y", 0.0) or 0.0),
         "position_confidence": float(getattr(service, "position_confidence", 0.0) or 0.0),
+        "meditation_state": str(getattr(service, "meditation_state", "IDLE")),
+        "meditation_elapsed": float(getattr(service, "meditation_elapsed", 0.0) or 0.0),
+        "meditation_hp": getattr(service, "meditation_hp", None),
+        "meditation_chakra": getattr(service, "meditation_chakra", None),
+        "v_cooldown_remaining": float(
+            getattr(service, "v_cooldown_remaining", 0.0) or 0.0
+        ),
+        "combat_start_blocked": bool(
+            getattr(service, "combat_start_blocked", False)
+        ),
+        "debug": debug_payload,
         "recent_actions": list(getattr(service, "recent_actions", ()) or ()),
         "last_log": log_status,
         "defaults": DojoTrainingConfig(rounds=10).to_public_dict(),
@@ -114,6 +172,11 @@ def create_dojo_router(
     async def get_latest_dojo_log() -> dict[str, Any]:
         return service.log_status() if hasattr(service, "log_status") else {"exists": False}
 
+    @router.post("/debug", dependencies=authorization)
+    async def configure_dojo_debug(request: DojoDebugRequest) -> dict[str, Any]:
+        await asyncio.to_thread(request.apply, service)
+        return dojo_status_payload(service)
+
     @router.post("/start", dependencies=authorization)
     async def start_dojo(request: DojoStartRequest) -> dict[str, Any]:
         if service.is_running:
@@ -121,6 +184,7 @@ def create_dojo_router(
         if not service.runtime_available():
             raise HTTPException(status_code=503, detail="DOJO_RUNTIME_NOT_INSTALLED")
 
+        await asyncio.to_thread(request.apply_debug, service)
         await asyncio.to_thread(game_runtime.deactivate_control)
         await asyncio.to_thread(game_runtime.release_all)
         started = await asyncio.to_thread(service.start, request.to_config())
@@ -143,6 +207,7 @@ def create_dojo_router(
 
 
 __all__ = [
+    "DojoDebugRequest",
     "DojoStartRequest",
     "create_dojo_router",
     "dojo_status_payload",

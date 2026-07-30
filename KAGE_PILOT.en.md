@@ -1,6 +1,6 @@
 # Kage Pilot — canonical documentation
 
-[Português](KAGE_PILOT.md) · [KageLink Bible](AGENTS.en.md) · [3.5 Addendum](AGENTS_3_5.en.md) · [Runtime](AGENTS_RUNTIME.en.md) · [Dojo](AGENTS_DOJO.en.md)
+[Português](KAGE_PILOT.md) · [KageLink Bible](AGENTS.en.md) · [3.5 Addendum](AGENTS_3_5.en.md) · [Runtime](AGENTS_RUNTIME.en.md) · [Dojo](AGENTS_DOJO.en.md) · [Internal migration](KAGE_PILOT_MIGRATION.en.md)
 
 **Kage Pilot** is the KageLink 3.5.0 subsystem responsible for visual perception, safe control, and repeated Dojo training in **Shinobi Story Online**.
 
@@ -12,6 +12,7 @@ This is the only active Kage Pilot document in EN-US. Documents named after vers
 Public source: KageLink Installer/pc_agent/kage_pilot.py
 Dojo command: python kage_pilot.py dojo
 Public loop: KageLink Installer/pc_agent/kage_pilot_loop.py
+Isolated round: KageLink Installer/pc_agent/kage_pilot_round.py
 Configuration: KageLink Installer/pc_agent/config/kage_pilot_dojo.json
 Service: pc_agent.kage_pilot.DojoTrainingService
 ```
@@ -25,6 +26,20 @@ KageLink 3.5.0 installs `KageLink.exe`, `KagePilotDojo.exe`, and `KagePilotRound
 - do not create new `v03x`, `final2`, `new`, `hotfix`, or equivalent files;
 - versioned internal modules still used by the validated engine remain temporarily as compatibility layers;
 - removing those modules requires migrated imports/specs/tests, green CI, and renewed real-game validation.
+
+### Canonical modules by responsibility
+
+```text
+pc_agent.kage_pilot.dojo_training_service
+pc_agent.kage_pilot.dojo_request
+pc_agent.kage_pilot.dojo_templates
+pc_agent.kage_pilot.trainer_search
+pc_agent.kage_pilot.ko_identity
+pc_agent.kage_pilot.combat_control
+pc_agent.kage_pilot.post_combat
+```
+
+New integrations must import these modules. The remaining `v03*` chain is a temporary provider of the physically validated implementation, not a new public surface. Migration status and the validation matrix are recorded in `KAGE_PILOT_MIGRATION.en.md`.
 
 ## Run
 
@@ -108,10 +123,11 @@ A round without a dialog consumes its number and does not create a silent compen
 ## Minimum tests
 
 ```powershell
-python -m py_compile kage_pilot.py kage_pilot_dojo.py kage_pilot_loop.py
+python -m py_compile kage_pilot.py kage_pilot_dojo.py kage_pilot_loop.py kage_pilot_round.py
+python tools/verify_kage_pilot_canonical_refs.py
 python -m unittest discover -s tests -p "test_kage_pilot*.py" -v
 python -m unittest discover -s tests -v
 python kage_pilot.py dojo --show-config
 ```
 
-Also validate build and smoke checks for `KageLink.exe`, `KagePilotDojo.exe`, `KagePilotRound.exe`, Setup, and APK. Changes to capture, detection, focus, input, KO, return, or recovery require real Windows + BYOND validation before functional merge.
+Also validate build and smoke checks for `KageLink.exe`, `KagePilotDojo.exe`, `KagePilotRound.exe`, Setup, and APK. Changes to capture, detection, focus, input, KO, return, or recovery require real Windows + BYOND validation before functional merge or wrapper removal.

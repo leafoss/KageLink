@@ -4,7 +4,8 @@ import unittest
 
 import unified_app
 import unified_app_v35
-import unified_dojo_ui  # noqa: F401 - installs the bilingual catalog additions
+import unified_dojo_templates_ui_v35  # noqa: F401 - installs template catalog additions
+import unified_dojo_ui  # noqa: F401 - installs the base bilingual Dojo catalog
 import unified_launcher
 
 
@@ -27,6 +28,10 @@ class KageLinkDojoApiV35Tests(unittest.TestCase):
             ("GET", "/api/dojo/status"),
             ("POST", "/api/dojo/start"),
             ("POST", "/api/dojo/stop"),
+            ("GET", "/api/dojo/templates"),
+            ("GET", "/api/dojo/templates/{mode}/image"),
+            ("POST", "/api/dojo/templates/{mode}"),
+            ("DELETE", "/api/dojo/templates/{mode}"),
         ):
             self.assertIn(key, by_key)
             self.assertGreaterEqual(
@@ -34,7 +39,7 @@ class KageLinkDojoApiV35Tests(unittest.TestCase):
                 1,
                 f"{key} must require the KageLink authorization dependency",
             )
-        self.assertEqual(len(routes), 3)
+        self.assertEqual(len(routes), 7)
         self.assertEqual(unified_app.APP_VERSION, "3.5.0")
         self.assertEqual(unified_app.app.version, "3.5.0")
 
@@ -51,6 +56,12 @@ class KageLinkDojoApiV35Tests(unittest.TestCase):
             "dojo_runtime",
             "dojo_last_event",
             "dojo_f12",
+            "dojo_templates",
+            "dojo_templates_help",
+            "dojo_template_mode",
+            "dojo_template_upload",
+            "dojo_template_remove",
+            "dojo_template_required",
         }
         pt = unified_launcher.TEXT["pt-BR"]
         en = unified_launcher.TEXT["en-US"]

@@ -40,6 +40,10 @@ class DojoDebugV351Tests(unittest.TestCase):
         self.assertEqual(loaded.meditation_exit_delay_seconds, 5.0)
         self.assertEqual(loaded.meditation_timeout_seconds, 15.0)
 
+    def test_opacity_accepts_ten_percent_and_clamps_lower_values(self):
+        self.assertEqual(DojoDebugSettings(opacity=0.10).normalized().opacity, 0.10)
+        self.assertEqual(DojoDebugSettings(opacity=0.01).normalized().opacity, 0.10)
+
     def test_malformed_settings_fail_closed_to_defaults(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "debug.json"
@@ -49,7 +53,7 @@ class DojoDebugV351Tests(unittest.TestCase):
             )
             loaded = read_debug_settings(path)
         self.assertFalse(loaded.enabled)
-        self.assertEqual(loaded.opacity, 0.82)
+        self.assertEqual(loaded.opacity, 0.85)
         self.assertEqual(loaded.fps, 15.0)
 
     def test_overlay_is_noop_off_windows(self):

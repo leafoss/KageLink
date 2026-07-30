@@ -5,11 +5,11 @@ import os
 import subprocess
 import sys
 
-import kage_pilot_loop_v03g as loop_v03g
+import kage_pilot_loop_v03g as legacy_loop
 
-from pc_agent.kage_pilot.dojo_fight_v03i import request_taijutsu_dojo_spar_single_click
-from pc_agent.kage_pilot.dojo_templates_v35 import install_user_dojo_leader_detector
-from pc_agent.kage_pilot.ko_identity_v03k import extract_ko_identity
+from pc_agent.kage_pilot.dojo_request import request_taijutsu_dojo_spar_single_click
+from pc_agent.kage_pilot.dojo_templates import install_user_dojo_leader_detector
+from pc_agent.kage_pilot.ko_identity import extract_ko_identity
 
 
 _LAST_ACCEPTED_KO_NAME = ""
@@ -24,11 +24,11 @@ def _round_command(args, *, round_number: int) -> tuple[list[str], Path]:
         command = [str(executable)]
         cwd = executable.parent
     else:
-        script = Path(__file__).with_name("kage_pilot_live_v03k_round.py")
+        script = Path(__file__).with_name("kage_pilot_round.py")
         command = [sys.executable, str(script)]
         cwd = Path(__file__).resolve().parent
 
-    recovery_hp_percent, recovery_chakra_percent = loop_v03g._validate_recovery_targets(args)
+    recovery_hp_percent, recovery_chakra_percent = legacy_loop._validate_recovery_targets(args)
     command.extend(
         [
             "--seconds",
@@ -128,7 +128,7 @@ def main() -> int:
     _LAST_ACCEPTED_KO_NAME = ""
 
     install_user_dojo_leader_detector()
-    print("Kage Pilot v0.3j: OPPONENT-AWARE KO BUFFER HOTFIX")
+    print("Kage Pilot: CANONICAL DOJO LOOP OVER VALIDATED COMPATIBILITY ENGINE")
     print("TRAINER: external user templates for game modes 32x32 and 64x64")
     print("TRAINER: exactly one click; dialog retries never re-click or re-search the trainer")
     print("DIALOG: one initial check + configured retries; failed dialog round does not stop loop")
@@ -136,11 +136,11 @@ def main() -> int:
     print("KO: remember accepted opponent; repeated previous name is rejected")
     print("KO REJECT: release all, invalidate target memory, reacquire, continue combat")
 
-    loop_v03g.REQUEST_DOJO_FIGHT = request_taijutsu_dojo_spar_single_click
-    loop_v03g.DIALOG_RETRY_POLICY_ENABLED = True
-    loop_v03g.ROUND_SCRIPT_NAME = "kage_pilot_live_v03k_round.py"
-    loop_v03g._run_round = _run_round_with_ko_buffer
-    return loop_v03g.main()
+    legacy_loop.REQUEST_DOJO_FIGHT = request_taijutsu_dojo_spar_single_click
+    legacy_loop.DIALOG_RETRY_POLICY_ENABLED = True
+    legacy_loop.ROUND_SCRIPT_NAME = "kage_pilot_round.py"
+    legacy_loop._run_round = _run_round_with_ko_buffer
+    return legacy_loop.main()
 
 
 if __name__ == "__main__":

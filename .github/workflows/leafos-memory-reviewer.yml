@@ -14,6 +14,8 @@ on:
       - "LEAFOS_DESKTOP.en.md"
       - "KAGELINK_3_5_DOJO.md"
       - "KAGELINK_3_5_DOJO.en.md"
+      - "KAGELINK_3_5_1_DOJO_RELIABILITY.md"
+      - "KAGELINK_3_5_1_DOJO_RELIABILITY.en.md"
       - "AGENTS_DOJO.md"
       - "AGENTS_DOJO.en.md"
       - "RELEASE_VERSION"
@@ -132,19 +134,19 @@ jobs:
           if (-not $iscc) { throw "ISCC.exe was not found" }
           & $iscc "installer\KageLink_PC_Agent.iss"
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed" }
-          $setup = "installer\output\KageLink-PC-Agent-Setup-v3.5.0.exe"
+          $setup = "installer\output\KageLink-PC-Agent-Setup-v3.5.1.exe"
           if (-not (Test-Path -LiteralPath $setup)) { throw "Final Setup was not created" }
           $item = Get-Item -LiteralPath $setup
           if ($item.Length -lt 1MB) { throw "Final Setup is unexpectedly small" }
           Write-Host ("Final Setup: {0:N2} MB" -f ($item.Length / 1MB))
       - uses: actions/upload-artifact@v4
         with:
-          name: KageLink-3.5.0-Windows-preview
+          name: KageLink-3.5.1-Windows-preview
           path: |
             KageLink Installer/dist/KageLink.exe
             KageLink Installer/dist/KagePilotDojo.exe
             KageLink Installer/dist/KagePilotRound.exe
-            KageLink Installer/installer/output/KageLink-PC-Agent-Setup-v3.5.0.exe
+            KageLink Installer/installer/output/KageLink-PC-Agent-Setup-v3.5.1.exe
           if-no-files-found: error
 
   flutter-regression:
@@ -201,6 +203,6 @@ jobs:
           flutter build apk --release
       - uses: actions/upload-artifact@v4
         with:
-          name: KageLink-3.5.0-Android-preview
+          name: KageLink-3.5.1-Android-preview
           path: KageLink Installer/_ci_android_build/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error

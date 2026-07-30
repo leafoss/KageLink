@@ -157,7 +157,7 @@
   "calibrationSection": "Agent calibration",
   "openCalibration": "Open input scan",
   "aboutSection": "About",
-  "versionLabel": "KageLink 3.4.1 — Chat + Game + Stats",
+  "versionLabel": "KageLink 3.5.0 — Chat + Game + Stats + Dojo",
   "changeRoute": "Change connection route",
   "secureChannel": "Secure chakra channel",
   "insecureChannel": "Unencrypted local channel",
@@ -289,6 +289,60 @@
   "statsRetryDescription": "The Stats connection will retry without interrupting chat or Game.",
   "statsWaitingAgent": "Waiting for the PC Agent...",
   "tryAgain": "Try again",
+  "kageLinkSection": "KageLink",
+  "dojoTab": "DOJO",
+  "dojoTitle": "Dojo Trainer",
+  "dojoDescription": "Start and follow autonomous training running on the Windows computer. The APK only sends authenticated commands and displays the runtime state.",
+  "dojoRounds": "Rounds",
+  "dojoRoundsHelp": "Use 0 to continue until F12 or until you tap Stop. Maximum: 999.",
+  "dojoStart": "Start training",
+  "dojoStop": "Stop safely",
+  "dojoRuntime": "Runtime",
+  "dojoInstalled": "Installed",
+  "dojoNotInstalled": "Not installed",
+  "dojoPhase": "Phase",
+  "dojoProgress": "Progress",
+  "dojoLastEvent": "Last event",
+  "dojoEmergencyStop": "F12 on the computer keyboard remains the emergency stop.",
+  "dojoManualControlsBlocked": "While the Dojo Trainer is active, manual GAME controls are blocked to prevent competing commands.",
+  "dojoInvalidRounds": "Enter a number of rounds from 0 to 999.",
+  "dojoStartFailed": "The Dojo Trainer could not start: {error}",
+  "@dojoStartFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "dojoStopFailed": "The Dojo Trainer could not stop: {error}",
+  "@dojoStopFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "dojoPhaseIdle": "Idle",
+  "dojoPhaseStarting": "Starting",
+  "dojoPhaseRequesting": "Requesting fight",
+  "dojoPhaseCombat": "In combat",
+  "dojoPhaseVictory": "Victory confirmed",
+  "dojoPhaseRecovery": "Recovering",
+  "dojoPhaseReady": "Ready",
+  "dojoPhaseStopping": "Stopping",
+  "dojoPhaseStopped": "Finished",
+  "dojoPhaseError": "Error",
+  "dojoRoundProgress": "{completed} completed · current round {current}",
+  "@dojoRoundProgress": {
+    "placeholders": {
+      "completed": {
+        "type": "int"
+      },
+      "current": {
+        "type": "int"
+      }
+    }
+  },
   "@gameButtonLabel": {
     "placeholders": {
       "button": {

@@ -12,6 +12,10 @@ on:
       - "LEAFOS_MEMORY_REVIEWER.md"
       - "LEAFOS_DESKTOP.md"
       - "LEAFOS_DESKTOP.en.md"
+      - "KAGELINK_3_5_DOJO.md"
+      - "KAGELINK_3_5_DOJO.en.md"
+      - "AGENTS_DOJO.md"
+      - "AGENTS_DOJO.en.md"
       - "RELEASE_VERSION"
       - "DOWNLOAD.md"
       - "README.md"
@@ -54,18 +58,36 @@ jobs:
       - name: Install package dependencies
         run: python -m pip install -r pc_agent/requirements.txt "pyinstaller>=6.10,<7"
       - name: Build unified KageLink.exe
-        run: pyinstaller --noconfirm --clean installer/KageLink.spec
-      - name: Verify packaged executable
+        run: pyinstaller --noconfirm --clean --workpath build/KageLink installer/KageLink.spec
+      - name: Build isolated Dojo loop helper
+        run: pyinstaller --noconfirm --clean --workpath build/KagePilotDojo installer/KagePilotDojo.spec
+      - name: Build isolated Dojo round helper
+        run: pyinstaller --noconfirm --clean --workpath build/KagePilotRound installer/KagePilotRound.spec
+      - name: Verify packaged executables
         shell: pwsh
         run: |
-          if (-not (Test-Path -LiteralPath "dist\KageLink.exe")) {
-            throw "dist\\KageLink.exe was not created"
+          $files = @(
+            "dist\KageLink.exe",
+            "dist\KagePilotDojo.exe",
+            "dist\KagePilotRound.exe"
+          )
+          foreach ($path in $files) {
+            if (-not (Test-Path -LiteralPath $path)) {
+              throw "$path was not created"
+            }
+            $item = Get-Item -LiteralPath $path
+            if ($item.Length -lt 1MB) {
+              throw "$path is unexpectedly small"
+            }
+            Write-Host ("{0}: {1:N2} MB" -f $path, ($item.Length / 1MB))
           }
-          $item = Get-Item -LiteralPath "dist\KageLink.exe"
-          if ($item.Length -lt 1MB) {
-            throw "Packaged KageLink.exe is unexpectedly small"
-          }
-          Write-Host ("KageLink.exe: {0:N2} MB" -f ($item.Length / 1MB))
+      - name: Smoke-test packaged Dojo helpers
+        shell: pwsh
+        run: |
+          & ".\dist\KagePilotDojo.exe" --help | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "KagePilotDojo.exe --help failed" }
+          & ".\dist\KagePilotRound.exe" --help | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "KagePilotRound.exe --help failed" }
       - name: Smoke-launch unified desktop
         shell: pwsh
         run: |
@@ -83,6 +105,8 @@ jobs:
         run: |
           New-Item -ItemType Directory -Path "installer\build_output" -Force | Out-Null
           Copy-Item -LiteralPath "dist\KageLink.exe" -Destination "installer\build_output\KageLink.exe" -Force
+          Copy-Item -LiteralPath "dist\KagePilotDojo.exe" -Destination "installer\build_output\KagePilotDojo.exe" -Force
+          Copy-Item -LiteralPath "dist\KagePilotRound.exe" -Destination "installer\build_output\KagePilotRound.exe" -Force
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "installer\tools\prepare_cloudflared.ps1"
           if ($LASTEXITCODE -ne 0) { throw "prepare_cloudflared.ps1 failed" }
       - name: Install Inno Setup
@@ -108,17 +132,19 @@ jobs:
           if (-not $iscc) { throw "ISCC.exe was not found" }
           & $iscc "installer\KageLink_PC_Agent.iss"
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed" }
-          $setup = "installer\output\KageLink-PC-Agent-Setup-v3.4.2.exe"
+          $setup = "installer\output\KageLink-PC-Agent-Setup-v3.5.0.exe"
           if (-not (Test-Path -LiteralPath $setup)) { throw "Final Setup was not created" }
           $item = Get-Item -LiteralPath $setup
           if ($item.Length -lt 1MB) { throw "Final Setup is unexpectedly small" }
           Write-Host ("Final Setup: {0:N2} MB" -f ($item.Length / 1MB))
       - uses: actions/upload-artifact@v4
         with:
-          name: KageLink-unified-preview
+          name: KageLink-3.5.0-Windows-preview
           path: |
             KageLink Installer/dist/KageLink.exe
-            KageLink Installer/installer/output/KageLink-PC-Agent-Setup-v3.4.2.exe
+            KageLink Installer/dist/KagePilotDojo.exe
+            KageLink Installer/dist/KagePilotRound.exe
+            KageLink Installer/installer/output/KageLink-PC-Agent-Setup-v3.5.0.exe
           if-no-files-found: error
 
   flutter-regression:
@@ -134,6 +160,8 @@ jobs:
           cache: true
       - name: Flutter pub get
         run: flutter pub get
+      - name: Generate bilingual localizations
+        run: flutter gen-l10n
       - name: Flutter analyze
         run: flutter analyze
       - name: Flutter tests
@@ -173,6 +201,6 @@ jobs:
           flutter build apk --release
       - uses: actions/upload-artifact@v4
         with:
-          name: KageLink-Android-chat-sync-preview
+          name: KageLink-3.5.0-Android-preview
           path: KageLink Installer/_ci_android_build/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error

@@ -4,38 +4,24 @@ from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 root = os.path.abspath(os.path.join(SPECPATH, '..'))
 agent = os.path.join(root, 'pc_agent')
-datas = [
-    (os.path.join(agent, 'web'), 'web'),
-    (os.path.join(agent, 'pc_agent', 'assets'), os.path.join('pc_agent', 'assets')),
-]
+datas = []
 binaries = []
-hiddenimports = [
-    'app',
-    'unified_app',
-    'unified_app_v35',
-    'unified_dojo_ui',
-    'unified_launcher',
-] + collect_submodules('pc_agent') + [
+hiddenimports = collect_submodules('pc_agent') + [
     'win32timezone',
     'win32ui',
     'win32gui',
     'win32api',
     'win32con',
     'win32process',
-    'uvicorn.logging',
-    'uvicorn.loops.auto',
-    'uvicorn.protocols.http.auto',
-    'uvicorn.protocols.websockets.auto',
-    'uvicorn.lifespan.on',
 ]
-for package in ['uvicorn', 'fastapi', 'starlette', 'pydantic', 'pydantic_core', 'websockets', 'anyio', 'mss', 'PIL']:
+for package in ['numpy', 'cv2', 'mss', 'PIL']:
     d, b, h = collect_all(package)
     datas += d
     binaries += b
     hiddenimports += h
 
 a = Analysis(
-    [os.path.join(agent, 'unified_entry.py')],
+    [os.path.join(agent, 'kage_pilot_live_v03k_round.py')],
     pathex=[agent],
     binaries=binaries,
     datas=datas,
@@ -53,14 +39,14 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='KageLink',
+    name='KagePilotRound',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False,
+    console=True,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

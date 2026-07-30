@@ -102,7 +102,7 @@
   "calibrationSection": "Calibração do agente",
   "openCalibration": "Abrir varredura de entrada",
   "aboutSection": "Sobre",
-  "versionLabel": "KageLink 3.4.1 — Chat + Game + STATUS",
+  "versionLabel": "KageLink 3.5.0 — Chat + Game + STATUS + Dojo",
   "changeRoute": "Trocar rota de conexão",
   "secureChannel": "Canal de chakra protegido",
   "insecureChannel": "Canal local sem criptografia",
@@ -234,6 +234,36 @@
   "statsRetryDescription": "A conexão do STATUS será tentada novamente sem interromper o chat ou a aba Game.",
   "statsWaitingAgent": "Aguardando o PC Agent...",
   "tryAgain": "Tentar novamente",
+  "kageLinkSection": "KageLink",
+  "dojoTab": "DOJO",
+  "dojoTitle": "Dojo Trainer",
+  "dojoDescription": "Inicie e acompanhe o treinamento autônomo executado no computador Windows. O APK apenas envia comandos autenticados e exibe o estado do motor.",
+  "dojoRounds": "Rodadas",
+  "dojoRoundsHelp": "Use 0 para continuar até F12 ou até tocar em Parar. Máximo: 999.",
+  "dojoStart": "Iniciar treino",
+  "dojoStop": "Parar com segurança",
+  "dojoRuntime": "Motor",
+  "dojoInstalled": "Instalado",
+  "dojoNotInstalled": "Não instalado",
+  "dojoPhase": "Fase",
+  "dojoProgress": "Progresso",
+  "dojoLastEvent": "Último evento",
+  "dojoEmergencyStop": "F12 no teclado do computador permanece como parada de emergência.",
+  "dojoManualControlsBlocked": "Enquanto o Dojo Trainer está ativo, os controles manuais da aba GAME ficam bloqueados para evitar comandos concorrentes.",
+  "dojoInvalidRounds": "Informe um número de rodadas entre 0 e 999.",
+  "dojoStartFailed": "Não foi possível iniciar o Dojo Trainer: {error}",
+  "dojoStopFailed": "Não foi possível parar o Dojo Trainer: {error}",
+  "dojoPhaseIdle": "Parado",
+  "dojoPhaseStarting": "Iniciando",
+  "dojoPhaseRequesting": "Solicitando luta",
+  "dojoPhaseCombat": "Em combate",
+  "dojoPhaseVictory": "Vitória confirmada",
+  "dojoPhaseRecovery": "Recuperando",
+  "dojoPhaseReady": "Pronto",
+  "dojoPhaseStopping": "Parando",
+  "dojoPhaseStopped": "Finalizado",
+  "dojoPhaseError": "Erro",
+  "dojoRoundProgress": "{completed} concluída(s) · rodada atual {current}",
   "@gameButtonLabel": {
     "placeholders": {
       "button": {
@@ -245,6 +275,30 @@
     "placeholders": {
       "key": {
         "type": "String"
+      }
+    }
+  },
+  "@dojoStartFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "@dojoStopFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "@dojoRoundProgress": {
+    "placeholders": {
+      "completed": {
+        "type": "int"
+      },
+      "current": {
+        "type": "int"
       }
     }
   }

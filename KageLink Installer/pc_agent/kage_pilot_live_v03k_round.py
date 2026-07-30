@@ -4,6 +4,15 @@ import argparse
 import json
 import sys
 
+# The user-template detector must be installed before the validated v0.3j patch
+# chain imports PersistentDojoLeaderDetector by value. Limit that global patch to
+# an actual source/frozen runtime execution so importing this module in regression
+# suites does not change legacy engine classes in the same Python process.
+from pc_agent.kage_pilot.dojo_templates_v35 import install_user_dojo_leader_detector
+
+if __name__ == "__main__" or bool(getattr(sys, "frozen", False)):
+    install_user_dojo_leader_detector()
+
 import kage_pilot_live_v03 as live_v03
 import kage_pilot_live_v03j_round as round_v03j  # installs validated v0.3j patches first
 
@@ -175,6 +184,7 @@ def main() -> int:
     _configure_round(previous_name)
 
     print("Kage Pilot v0.3j HOTFIX: OPPONENT-AWARE KO IDENTITY BUFFER")
+    print("TRAINER: external user templates for game modes 32x32 and 64x64")
     print(
         f"KO BUFFER previous={_quoted(previous_name or None)}; "
         "same opponent KO is rejected and combat continues"

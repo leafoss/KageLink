@@ -1,9 +1,11 @@
-name: Kage Pilot v0.3j
+name: Kage Pilot v0.3j / KageLink 3.5
 
 on:
   pull_request:
     paths:
       - "KageLink Installer/pc_agent/**"
+      - "KageLink Installer/installer/KagePilotDojo.spec"
+      - "KageLink Installer/installer/KagePilotRound.spec"
       - ".github/workflows/kage-pilot-v03.yml"
   workflow_dispatch:
 
@@ -37,19 +39,25 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
 
-      - name: Compile Kage Pilot
+      - name: Compile Kage Pilot and 3.5 integration
         run: |
-          python -m compileall -q pc_agent/kage_pilot
+          python -m compileall -q pc_agent/kage_pilot pc_agent/dojo_api.py pc_agent/dojo_templates_api_v35.py
           python -m py_compile `
             kage_pilot_dojo.py `
             kage_pilot_loop_v03g.py `
             kage_pilot_loop_v03j.py `
             kage_pilot_live_v03j_round.py `
-            kage_pilot_live_v03k_round.py
+            kage_pilot_live_v03k_round.py `
+            unified_app_v35.py `
+            unified_dojo_ui.py `
+            unified_dojo_templates_ui_v35.py `
+            unified_entry.py
 
       - name: Targeted release-candidate tests
         run: |
           python -m unittest `
+            tests.test_dojo_api_v35 `
+            tests.test_dojo_templates_v35 `
             tests.test_kage_pilot_dojo_service `
             tests.test_kage_pilot_dojo_config `
             tests.test_kage_pilot_dojo_dialog_retry `
@@ -59,6 +67,7 @@ jobs:
             tests.test_kage_pilot_v03k_ko_identity `
             tests.test_kage_pilot_v03k_trainer_search_gate `
             tests.test_kage_pilot_v03k_service_telemetry `
+            tests.test_kage_pilot_v35_packaging `
             tests.test_kage_pilot_v03i_runtime `
             tests.test_kage_pilot_v03g_victory `
             -v

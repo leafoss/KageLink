@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 import threading
 from pathlib import Path
 from tkinter import messagebox
@@ -11,6 +12,8 @@ from pc_agent.history import HistoryStore
 from pc_agent.leafos_interpreter_v321 import LeafOSInterpreter, OllamaInterpreterProvider
 from pc_agent.leafos_ollama import OllamaManager
 from pc_agent.primary_character import resolve_primary_character
+from unified_dojo_templates_ui_v35 import install_dojo_templates_desktop
+from unified_dojo_ui import install_dojo_desktop
 
 
 # unified_launcher remains source-compatible, but every Interpreter path reached
@@ -187,11 +190,20 @@ class UnifiedKageLinkAgentUI(launcher.UnifiedKageLinkAgentUI):
             self.ui(self.open_reviewer)
 
 
-# unified_launcher.main() resolves this global when it creates the Desktop window.
-launcher.UnifiedKageLinkAgentUI = UnifiedKageLinkAgentUI
+# Layer the template UI over the validated Dojo page. The outer layer also
+# enforces the canonical sidebar rule that Settings is always the final item.
+launcher.UnifiedKageLinkAgentUI = install_dojo_templates_desktop(
+    install_dojo_desktop(UnifiedKageLinkAgentUI)
+)
 
 
 def main() -> int:
+    # Import the existing backend first, then install the v3.5 wrapper under the
+    # canonical module name resolved by unified_launcher.main().
+    import unified_app  # noqa: F401
+    import unified_app_v35
+
+    sys.modules["unified_app"] = unified_app_v35
     return launcher.main()
 
 

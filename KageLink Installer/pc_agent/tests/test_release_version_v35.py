@@ -54,6 +54,18 @@ class KageLinkReleaseVersionV35Tests(unittest.TestCase):
             setup_builder,
         )
 
+    def test_ci_builds_matching_windows_and_android_preview_artifacts(self):
+        workflow = (
+            self.repository_root / ".github" / "workflows" / "leafos-memory-reviewer.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn(f"KageLink-{self.expected}-Windows-preview", workflow)
+        self.assertIn(f"KageLink-{self.expected}-Android-preview", workflow)
+        self.assertIn(
+            f"KageLink-PC-Agent-Setup-v{self.expected}.exe",
+            workflow,
+        )
+        self.assertIn("flutter build apk --release", workflow)
+
 
 if __name__ == "__main__":
     unittest.main()

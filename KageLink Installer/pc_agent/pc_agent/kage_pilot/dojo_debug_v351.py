@@ -132,9 +132,15 @@ class DojoDebugSnapshot:
 
 
 class DojoDebugOverlay:
-    """Windows click-through overlay fed only by immutable debug snapshots."""
+    """Windows click-through overlay fed only by immutable debug snapshots.
+
+    The overlay is diagnostic-only. It must never become the foreground window
+    because the combat controller intentionally releases held keys whenever the
+    BYOND game loses foreground ownership.
+    """
 
     _TRANSPARENT = "#010101"
+    _TARGET_REFRESH_SECONDS = 0.25
 
     def __init__(self, *, control_path: str | Path | None = None) -> None:
         self.control_path = (
@@ -145,11 +151,17 @@ class DojoDebugOverlay:
         self._lock = threading.Lock()
         self._snapshot: DojoDebugSnapshot | None = None
         self._stop = threading.Event()
+        self._ready = threading.Event()
         self._thread: threading.Thread | None = None
         self._last_settings_read = -1e9
         self._settings = read_debug_settings(self.control_path)
         self._f10_down = False
+        self._last_target_refresh = -1e9
+        self._last_target = None
+        self._visible = False
+        self._last_opacity: float | None = None
         self.capture_exclusion_enabled = False
+        self.last_error = ""
 
     @classmethod
     def from_environment(cls) -> "DojoDebugOverlay":
@@ -160,15 +172,22 @@ class DojoDebugOverlay:
         if os.name != "nt":
             return False
         if self._thread is not None and self._thread.is_alive():
-            return True
+            return not bool(self.last_error)
         self._stop.clear()
+        self._ready.clear()
+        self.last_error = ""
         self._thread = threading.Thread(
             target=self._run,
             name="dojo-debug-overlay-v351",
             daemon=True,
         )
         self._thread.start()
-        return True
+        self._ready.wait(timeout=1.5)
+        return bool(
+            self._thread is not None
+            and self._thread.is_alive()
+            and not self.last_error
+        )
 
     def publish(self, snapshot: DojoDebugSnapshot) -> None:
         with self._lock:
@@ -200,7 +219,7 @@ class DojoDebugOverlay:
             self._last_settings_read = time.monotonic()
         self._f10_down = down
 
-    def _apply_window_style(self, root) -> None:
+    def _apply_window_style(self, root) -> int:
         import ctypes
         from ctypes import wintypes
 
@@ -214,6 +233,18 @@ class DojoDebugOverlay:
         ex_style |= int(win32con.WS_EX_TOOLWINDOW)
         ex_style |= 0x08000000  # WS_EX_NOACTIVATE
         win32gui.SetWindowLong(hwnd, win32con.GWL_EXSTYLE, ex_style)
+        win32gui.SetWindowPos(
+            hwnd,
+            win32con.HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            int(win32con.SWP_NOMOVE)
+            | int(win32con.SWP_NOSIZE)
+            | int(win32con.SWP_NOACTIVATE)
+            | int(win32con.SWP_FRAMECHANGED),
+        )
 
         try:
             set_affinity = ctypes.windll.user32.SetWindowDisplayAffinity
@@ -224,6 +255,45 @@ class DojoDebugOverlay:
             )
         except Exception:
             self.capture_exclusion_enabled = False
+        return hwnd
+
+    def _locate_target(self, now: float):
+        if now - self._last_target_refresh < self._TARGET_REFRESH_SECONDS:
+            return self._last_target
+        self._last_target_refresh = now
+        try:
+            from pc_agent.game_window import locate_capture_target
+
+            self._last_target = locate_capture_target()
+        except Exception:
+            self._last_target = None
+        return self._last_target
+
+    def _hide_window(self, hwnd: int) -> None:
+        if not self._visible:
+            return
+        import win32con
+        import win32gui
+
+        win32gui.ShowWindow(hwnd, win32con.SW_HIDE)
+        self._visible = False
+
+    def _show_window_no_activate(self, hwnd: int, target) -> None:
+        import win32con
+        import win32gui
+
+        flags = int(win32con.SWP_NOACTIVATE) | int(win32con.SWP_SHOWWINDOW)
+        win32gui.SetWindowPos(
+            hwnd,
+            win32con.HWND_TOPMOST,
+            int(target.left),
+            int(target.top),
+            max(1, int(target.width)),
+            max(1, int(target.height)),
+            flags,
+        )
+        win32gui.ShowWindow(hwnd, win32con.SW_SHOWNOACTIVATE)
+        self._visible = True
 
     @staticmethod
     def _scaled_rect(
@@ -303,55 +373,94 @@ class DojoDebugOverlay:
             font=("Consolas", 10),
         )
 
-    def _run(self) -> None:
-        import tkinter as tk
-
-        root = tk.Tk()
-        root.withdraw()
-        root.overrideredirect(True)
-        root.configure(bg=self._TRANSPARENT)
-        root.attributes("-topmost", True)
-        root.attributes("-transparentcolor", self._TRANSPARENT)
-        canvas = tk.Canvas(
-            root,
-            bg=self._TRANSPARENT,
-            highlightthickness=0,
-            borderwidth=0,
+    def _record_fatal_error(self, error: BaseException) -> None:
+        self.last_error = f"{type(error).__name__}:{error}"
+        print(
+            f"DOJO_DEBUG_OVERLAY_ERROR error={self.last_error}",
+            flush=True,
         )
-        canvas.pack(fill="both", expand=True)
-        root.update_idletasks()
-        self._apply_window_style(root)
 
-        def tick() -> None:
-            if self._stop.is_set():
-                root.destroy()
-                return
-            now = time.monotonic()
-            self._toggle_from_f10()
-            settings = self._refresh_settings(now)
-            snapshot = self._current_snapshot()
+    def _run(self) -> None:
+        root = None
+        try:
+            import tkinter as tk
+
+            root = tk.Tk()
+            root.withdraw()
+            root.overrideredirect(True)
+            root.configure(bg=self._TRANSPARENT)
+            root.attributes("-transparentcolor", self._TRANSPARENT)
             try:
-                from pc_agent.game_window import locate_capture_target
-
-                target = locate_capture_target()
+                root.attributes("-disabled", True)
             except Exception:
-                target = None
-            if not settings.enabled or snapshot is None or target is None or target.minimized:
-                root.withdraw()
-            else:
-                root.geometry(f"{target.width}x{target.height}+{target.left}+{target.top}")
-                root.attributes("-alpha", settings.opacity)
-                root.deiconify()
-                root.lift()
-                self._draw(
-                    canvas,
-                    snapshot,
-                    target.width,
-                    target.height,
-                    settings.level,
-                )
-            delay_ms = max(33, int(round(1000.0 / settings.fps)))
-            root.after(delay_ms, tick)
+                pass
+            canvas = tk.Canvas(
+                root,
+                bg=self._TRANSPARENT,
+                highlightthickness=0,
+                borderwidth=0,
+            )
+            canvas.pack(fill="both", expand=True)
+            root.update_idletasks()
+            hwnd = self._apply_window_style(root)
+            self._ready.set()
 
-        root.after(0, tick)
-        root.mainloop()
+            def tick() -> None:
+                if self._stop.is_set():
+                    self._hide_window(hwnd)
+                    root.destroy()
+                    return
+
+                now = time.monotonic()
+                self._toggle_from_f10()
+                settings = self._refresh_settings(now)
+                snapshot = self._current_snapshot()
+                target = self._locate_target(now)
+
+                game_has_focus = False
+                if target is not None:
+                    try:
+                        from pc_agent.windows import is_game_window_foreground
+
+                        game_has_focus = bool(is_game_window_foreground(target.game_hwnd))
+                    except Exception:
+                        game_has_focus = False
+
+                should_show = bool(
+                    settings.enabled
+                    and snapshot is not None
+                    and target is not None
+                    and not target.minimized
+                    and game_has_focus
+                )
+                if not should_show:
+                    self._hide_window(hwnd)
+                else:
+                    if self._last_opacity != settings.opacity:
+                        root.attributes("-alpha", settings.opacity)
+                        self._last_opacity = settings.opacity
+                    self._draw(
+                        canvas,
+                        snapshot,
+                        target.width,
+                        target.height,
+                        settings.level,
+                    )
+                    root.update_idletasks()
+                    self._show_window_no_activate(hwnd, target)
+
+                delay_ms = max(33, int(round(1000.0 / settings.fps)))
+                root.after(delay_ms, tick)
+
+            root.after(0, tick)
+            root.mainloop()
+        except BaseException as error:
+            self._record_fatal_error(error)
+            self._ready.set()
+        finally:
+            self._visible = False
+            if root is not None:
+                try:
+                    root.destroy()
+                except Exception:
+                    pass

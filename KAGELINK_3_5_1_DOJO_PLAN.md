@@ -38,6 +38,8 @@ The overlay is optional and defaults to disabled. It:
 - can be toggled by the Desktop setting or F10 while the round process is active;
 - supports PT-BR and EN-US controls in the responsive Dojo page.
 
+The initial `processed` level currently exposes the complete detection/decision layer over the live game view. A separate thumbnail of intermediate OpenCV buffers remains a physical-test follow-up; the overlay must not duplicate image processing merely to render debug chrome.
+
 ## Non-goals
 
 Do not change Trainer matching, templates, thresholds, click behavior, dialog handling, combat targeting, KO identity, abilities, F12, GAME interlock, APK protocol, Memory Reviewer, LeafOS, chat, connection or template storage.
@@ -68,6 +70,7 @@ Automated coverage must include:
 - combat remains blocked until the protected exit interval completes;
 - configured delays cannot fall below five seconds;
 - timeout recovery never releases the next round;
+- the authenticated debug route and start-route bridge are installed;
 - debug settings persist, normalize unsafe values and fail closed on malformed input;
 - the existing journal, visual-position, relocalization, closed-loop return and responsive UI tests remain green.
 

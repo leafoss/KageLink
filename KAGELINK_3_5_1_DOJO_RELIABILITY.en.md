@@ -49,11 +49,30 @@ UNCERTAIN   evidence is insufficient for a long return
 LOST        continuity was lost; coordinates must not be invented
 ```
 
+## Bridge between the loop and isolated round
+
+Origin `(0,0)` is created in the persistent process that finds and clicks the Trainer, before combat:
+
+```text
+visual monitor starts
+→ validated routine finds and clicks the Trainer
+→ the matching click frame defines origin
+→ dialog and spawn frames update position
+→ position and keyframes are saved to temporary state
+→ KagePilotRound imports that state
+→ the round updates the map
+→ the map returns to the loop for the next round
+```
+
+The temporary position file exists only during the Dojo session and is removed when the loop finishes. It does not replace the error journal.
+
+Non-origin keyframes may survive across rounds in the same session. When the Trainer is confirmed again, origin is refreshed with current visual evidence while the learned map is preserved within its configured bound.
+
 ## Keyframes and relocalization
 
 The engine keeps a bounded set of visual references associated with X/Y. When continuity is lost, the character stops, releases keys and tries to recognize the current region. Restoration requires a minimum score and margin over the second candidate.
 
-A teleport with no shared scenery and no known keyframe remains `LOST`; the system does not fabricate a return vector.
+A teleport with no shared scenery and no known keyframe remains `LOST`; the system does not fabricate a return vector. Later local motion may be observed and logged, but it does not restore absolute coordinates while position remains lost.
 
 ## Closed-loop return
 
@@ -71,7 +90,7 @@ stop and stabilize
 → existing ring search
 ```
 
-Pushes during return trigger replanning. Loops have timeout, step limits and F12/Stop interruption.
+Pushes during return trigger replanning. Loops have timeout, step limits, no-progress detection and F12/Stop interruption.
 
 ## Desktop
 
@@ -95,9 +114,10 @@ The layout uses responsive grid containers, immediate construction, `after_idle`
 7. observe X/Y while walking;
 8. observe external displacement from push/jutsu;
 9. test loss and relocalization in a mapped region;
-10. test return while compensating another displacement;
-11. validate local search and ring fallback;
-12. validate F12, Stop and GAME interlock;
-13. validate the APK against the same build.
+10. confirm the visual map remains available in the next round;
+11. test return while compensating another displacement;
+12. validate local search and ring fallback;
+13. validate F12, Stop and GAME interlock;
+14. validate the APK against the same build.
 
 The PR remains Draft and must not be merged without Rafael's explicit authorization.

@@ -12,6 +12,7 @@ from pc_agent.history import HistoryStore
 from pc_agent.leafos_interpreter_v321 import LeafOSInterpreter, OllamaInterpreterProvider
 from pc_agent.leafos_ollama import OllamaManager
 from pc_agent.primary_character import resolve_primary_character
+from unified_dojo_templates_ui_v35 import install_dojo_templates_desktop
 from unified_dojo_ui import install_dojo_desktop
 
 
@@ -189,8 +190,11 @@ class UnifiedKageLinkAgentUI(launcher.UnifiedKageLinkAgentUI):
             self.ui(self.open_reviewer)
 
 
-# Add the bilingual Dojo page without changing the validated base Desktop class.
-launcher.UnifiedKageLinkAgentUI = install_dojo_desktop(UnifiedKageLinkAgentUI)
+# Layer the template UI over the validated Dojo page. The outer layer also
+# enforces the canonical sidebar rule that Settings is always the final item.
+launcher.UnifiedKageLinkAgentUI = install_dojo_templates_desktop(
+    install_dojo_desktop(UnifiedKageLinkAgentUI)
+)
 
 
 def main() -> int:

@@ -4,6 +4,7 @@ import unittest
 
 import unified_app
 import unified_app_v35
+import unified_dojo_debug_v351  # noqa: F401
 import unified_dojo_templates_ui_v35  # noqa: F401
 import unified_dojo_ui  # noqa: F401
 import unified_dojo_ui_v351  # noqa: F401
@@ -29,6 +30,7 @@ class KageLinkDojoApiV351Tests(unittest.TestCase):
             ("GET", "/api/dojo/status"),
             ("POST", "/api/dojo/start"),
             ("POST", "/api/dojo/stop"),
+            ("POST", "/api/dojo/debug"),
             ("GET", "/api/dojo/logs/latest"),
             ("GET", "/api/dojo/templates"),
             ("GET", "/api/dojo/templates/{mode}/image"),
@@ -41,7 +43,7 @@ class KageLinkDojoApiV351Tests(unittest.TestCase):
                 1,
                 f"{key} must require the KageLink authorization dependency",
             )
-        self.assertEqual(len(routes), 8)
+        self.assertEqual(len(routes), 9)
         self.assertEqual(unified_app.APP_VERSION, "3.5.1")
         self.assertEqual(unified_app.app.version, "3.5.1")
 
@@ -73,6 +75,12 @@ class KageLinkDojoApiV351Tests(unittest.TestCase):
             "dojo_location_lost",
             "dojo_log_open",
             "dojo_log_open_folder",
+            "dojo_debug_title",
+            "dojo_debug_enabled",
+            "dojo_meditation_title",
+            "dojo_meditation_enter_delay",
+            "dojo_meditation_exit_delay",
+            "dojo_combat_gate",
         }
         pt = unified_launcher.TEXT["pt-BR"]
         en = unified_launcher.TEXT["en-US"]

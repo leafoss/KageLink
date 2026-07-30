@@ -36,6 +36,10 @@ def _extract_position_state_argument(argv: list[str]) -> Path | None:
 def main() -> int:
     position_path = _extract_position_state_argument(sys.argv)
 
+    from pc_agent.kage_pilot.visual_position_guard import install_visual_position_guard
+
+    install_visual_position_guard()
+
     import kage_pilot_live_v0351_round as runtime
     from pc_agent.kage_pilot.dojo_position_bridge import restore_tracker_state
 

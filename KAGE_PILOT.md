@@ -1,199 +1,158 @@
-# Kage Pilot v0.1
+# Kage Pilot — documentação canônica
 
-[English](KAGE_PILOT.en.md)
+[English](KAGE_PILOT.en.md) · [Bíblia do KageLink](AGENTS.md) · [Runtime](AGENTS_RUNTIME.md) · [Dojo](AGENTS_DOJO.md)
 
-O **Kage Pilot** é um subsistema experimental e local do KageLink para aprender ações de combate demonstradas pelo jogador e reproduzi-las no Dojo de `Shinobi Story Online`.
+O **Kage Pilot** é o subsistema do KageLink 3.5.0 responsável por percepção visual, controle seguro e treinamento repetido no Dojo de **Shinobi Story Online**.
 
-> Status v0.1: pipeline funcional para gravação → dataset → treino → Pilot → ciclo do Dojo. O modelo inicial é deliberadamente simples e deve ser refinado com dados reais do Dojo.
+Este é o único documento ativo do Kage Pilot em PT-BR. Documentos com nomes de versões, datas, hotfixes ou marcos permanecem apenas como histórico Git e não devem voltar a competir como documentação operacional.
 
-## Arquitetura
-
-```text
-KAGE PILOT v0.1
-│
-├── Recorder
-│   ├── captura HWND existente do KageLink
-│   ├── teclado físico
-│   ├── mouse
-│   └── timestamp
-│
-├── Dataset
-│   ├── frames JPEG
-│   ├── snapshots de ações
-│   ├── blocos de ação + duração
-│   └── vitória / derrota
-│
-├── Combat Learner
-│   └── clone comportamental por protótipos visuais
-│
-├── Pilot
-│   └── prevê e aplica o estado do teclado
-│
-└── Dojo Manager
-    ├── sequência para iniciar
-    ├── Pilot durante o combate
-    ├── detector visual de vitória/derrota
-    ├── sequência de descanso
-    └── repetição
-```
-
-O Dojo Manager é determinístico. A IA controla somente a parte que deve ser aprendida: **o combate**.
-
-## Segurança e isolamento
-
-- O Pilot usa a captura específica da janela `Shinobi Story Online` já existente no KageLink.
-- O controle reutiliza `GameInputController`, incluindo foco da janela e proteção contra teclas presas.
-- Cliques automáticos usam coordenadas normalizadas dentro da janela do jogo.
-- O Pilot não executa programas nem comandos genéricos do sistema.
-- Nenhuma mudança é necessária no Interpreter, chat, RAW, Memory Reviewer, Android ou protocolo atual.
-
-## 1. Gravar demonstrações
-
-No diretório `KageLink Installer/pc_agent`:
-
-```powershell
-python kage_pilot.py record
-```
-
-Durante a gravação:
+## Superfície canônica
 
 ```text
-F11 = encerra a luta como vitória
-F12 = encerra a luta como derrota
-F10 = encerra o Recorder
+Fonte pública: KageLink Installer/pc_agent/kage_pilot.py
+Comando Dojo: python kage_pilot.py dojo
+Loop público: KageLink Installer/pc_agent/kage_pilot_loop.py
+Configuração: KageLink Installer/pc_agent/config/kage_pilot_dojo.json
+Serviço: pc_agent.kage_pilot.DojoTrainingService
 ```
 
-Depois de F11/F12, uma nova sessão começa automaticamente. Assim é possível jogar várias lutas seguidas.
-
-Por padrão, os dados ficam em:
+O instalador 3.5.0 distribui:
 
 ```text
-%LOCALAPPDATA%\KageLink PC Agent\data\kage_pilot\sessions\
+KageLink.exe
+KagePilotDojo.exe
+KagePilotRound.exe
 ```
 
-Cada luta contém:
+Os executáveis auxiliares são fronteiras de isolamento e compatibilidade. Eles não constituem implementações concorrentes: devem encaminhar para a superfície canônica.
+
+## Organização do código
+
+- Uma responsabilidade possui um nome canônico sem versão.
+- Versões pertencem a commits, tags, releases e changelog.
+- Não criar novos arquivos `v03x`, `final2`, `new`, `hotfix` ou equivalentes.
+- Módulos internos históricos ainda usados pelo motor validado permanecem temporariamente como compatibilidade.
+- A remoção desses módulos exige extração semântica, suíte verde e nova validação real no jogo.
+
+## Executar
+
+Na pasta `KageLink Installer/pc_agent`:
+
+```powershell
+python kage_pilot.py dojo `
+  --rounds 10 `
+  --combat-seconds 120 `
+  --post-combat-timeout 240 `
+  --dialog-delay 5 `
+  --spawn-delay 5 `
+  --trainer-search-timeout 90
+```
+
+Mostrar configuração:
+
+```powershell
+python kage_pilot.py dojo --show-config
+```
+
+## Templates do treinador no 3.5.0
+
+O KageLink aceita templates independentes para os modos 32×32 e 64×64. Eles pertencem à instalação do usuário e ficam fora de `Program Files`:
 
 ```text
-<session>/
-├── manifest.json
-├── samples.jsonl
-├── actions.jsonl
-└── frames/
-    ├── 000000.jpg
-    ├── 000001.jpg
-    └── ...
+%LOCALAPPDATA%\KageLink\data\kage_pilot\templates
 ```
 
-`samples.jsonl` mantém o estado do teclado/mouse junto ao frame e timestamp. `actions.jsonl` consolida estados consecutivos e registra `duration_ms`.
+Regras:
 
-## 2. Treinar o primeiro Combat Learner
+- atualização normal deve preservar os templates;
+- o treinamento falha fechado sem template válido;
+- cada modo possui arquivo e metadados independentes;
+- a detecção escolhe apenas uma correspondência visual estável;
+- template antigo, coordenada antiga ou memória isolada não autorizam clique.
 
-```powershell
-python kage_pilot.py train --model kage_pilot_model.json
-```
-
-Por padrão, apenas sessões marcadas como `victory` treinam o modelo. Isso evita ensinar derrotas como comportamento desejado.
-
-Para incluir derrotas experimentalmente:
-
-```powershell
-python kage_pilot.py train --model kage_pilot_model.json --include-defeats
-```
-
-A v0.1 aprende **estados do teclado** a partir de uma representação visual compacta do frame. O mouse é gravado no dataset, mas ainda não faz parte da política de combate aprendida.
-
-## 3. Testar somente o combate
-
-```powershell
-python kage_pilot.py pilot --model kage_pilot_model.json --seconds 60
-```
-
-O Pilot captura a janela, escolhe uma ação e passa apenas as teclas previstas ao controlador seguro do KageLink.
-
-## 4. Calibrar o Dojo Manager
-
-Primeiro crie a configuração:
-
-```powershell
-python kage_pilot.py init-config --output dojo_config.json
-```
-
-O arquivo contém:
-
-- `start_sequence`: clique/teclas usados para falar com o NPC e iniciar;
-- `rest_sequence`: ações usadas após o combate;
-- `victory`: template visual obrigatório;
-- `defeat`: template visual opcional;
-- `rested`: template visual opcional;
-- tempos máximos e atrasos de segurança.
-
-### Capturar um template
-
-Com a tela desejada visível:
-
-```powershell
-python kage_pilot.py capture-template --output templates/victory.png --region 0.35 0.15 0.30 0.15
-```
-
-A região é normalizada:
+## State machine protegida
 
 ```text
-X Y LARGURA ALTURA
-0.0 ───────────── 1.0
+ROUND_START
+→ SEARCH_TRAINER
+→ CONFIRM_TRAINER
+→ CLICK_TRAINER_ONCE
+→ WAIT_DIALOG
+→ CHECK_DIALOG
+→ CLICK_DIALOG_OK
+→ WAIT_SPAWN
+→ COMBAT_ACTIVE
+→ KO_CONFIRMED
+→ RETURN_TO_TRAINER
+→ RECOVERY
+→ ROUND_COMPLETE
 ```
 
-Escolha uma região pequena e estável que diferencie claramente vitória, derrota ou personagem recuperado.
-
-**Não use as coordenadas do arquivo exemplo sem calibrar no seu Dojo.** Elas são somente placeholders seguros.
-
-## 5. Rodar o ciclo completo
-
-```powershell
-python kage_pilot.py dojo --model kage_pilot_model.json --config dojo_config.json --cycles 10
-```
-
-Fluxo:
+### Clique único
 
 ```text
-iniciar treino
-    ↓
-aguardar arena
-    ↓
-Pilot luta
-    ↓
-vitória detectada
-    ↓
-soltar todas as teclas
-    ↓
-descansar
-    ↓
-recuperado / tempo concluído
-    ↓
-próxima luta
+trainer_clicks_per_round <= 1
 ```
 
-Se o combate exceder `combat_timeout_seconds`, o Manager solta as teclas e encerra a sequência em `timeout` em vez de continuar indefinidamente.
+Depois de `TRAINER_CLICK_ONCE`, retries de diálogo nunca podem procurar, mover até ou clicar novamente no treinador.
 
-## Testes da v0.1
+O fluxo padrão é:
 
-O teste automatizado cobre:
+```text
+1 clique
+→ 1 espera/verificação inicial
+→ até 3 esperas/verificações adicionais
+→ falha final encerra somente a rodada
+```
 
-1. criação e finalização de sessão;
-2. frames, teclado, mouse e timestamps;
-3. geração de blocos de ação com duração;
-4. treino e persistência do modelo;
-5. previsão de ações distintas em imagens sintéticas;
-6. detector visual por template;
-7. ciclo `iniciar → Pilot → vitória → descanso` com componentes simulados.
+Uma rodada sem diálogo consome seu número e não cria compensação silenciosa.
 
-Comando:
+## Segurança
+
+- F12 é parada global imediata.
+- Toda falha, timeout ou transição libera inputs.
+- `R` é a única tecla normalmente mantida em combate.
+- Setas e `H` são pulsos curtos.
+- `V` e `Y` são proibidos durante combate.
+- Manual GAME input fica bloqueado enquanto o treinamento autônomo está ativo.
+- Perda de foco, HWND, PID ou autoridade visual reduz ação e nunca aumenta agressividade.
+- A autoridade de vitória continua sendo a linha real `has been Knocked-Out` com os gates de identidade atuais.
+- Recuperação não pode ser declarada antes de HP ≥ 90% e Chakra ≥ 50%.
+
+## Resultados
+
+```text
+SUCCESS
+RETRYABLE_OPERATION_FAILURE
+OPERATION_ABORTED
+MODULE_UNAVAILABLE
+PROCESS_FATAL
+EMERGENCY_STOP
+```
+
+`NOT_FOUND`, `TIMEOUT` ou `FAILED` não são automaticamente fatais. A política da etapa deve declarar se encerra tentativa, rodada, módulo ou processo.
+
+## Testes mínimos
 
 ```powershell
-python -m unittest tests.test_kage_pilot -v
+python -m py_compile kage_pilot.py kage_pilot_dojo.py kage_pilot_loop.py
+python -m unittest discover -s tests -p "test_kage_pilot*.py" -v
+python -m unittest discover -s tests -v
+python kage_pilot.py dojo --show-config
 ```
 
-## Limite de validação
+Também validar build e smoke de `KageLink.exe`, `KagePilotDojo.exe`, `KagePilotRound.exe`, Setup e APK.
 
-Os testes automatizados validam o software e o ciclo de controle, mas não substituem a validação no BYOND. O ambiente de desenvolvimento automatizado não possui Windows + `Shinobi Story Online`, portanto a captura HWND real, o `SendInput` e os templates do Dojo precisam de uma rodada curta de calibração no seu PC antes de considerar o Pilot validado em jogo.
+Mudanças em captura, detecção, foco, input, KO, retorno ou recuperação exigem validação real em Windows + BYOND antes do merge funcional.
 
-Essa separação é intencional: a v0.1 não inventa sprites, coordenadas ou telas que ainda não foram observadas.
+## Definição de pronto
+
+- uma superfície pública canônica;
+- compatibilidade externa preservada;
+- nenhum novo nome versionado ativo;
+- contratos de segurança preservados;
+- testes e limitações registrados honestamente;
+- PT-BR e EN-US equivalentes;
+- arquivos pessoais e templates fora do Git;
+- branch e PR rastreáveis;
+- nenhuma versão correta somente em ZIP ou Desktop.

@@ -15,7 +15,7 @@ DebugLevel = Literal["basic", "detections", "processed"]
 class DojoDebugRequest(BaseModel):
     enabled: bool = False
     level: DebugLevel = "detections"
-    opacity: float = Field(default=0.82, ge=0.25, le=1.0)
+    opacity: float = Field(default=0.85, ge=0.10, le=1.0)
     fps: float = Field(default=15.0, ge=5.0, le=30.0)
     meditation_enter_delay_seconds: float = Field(default=5.5, ge=5.0, le=30.0)
     meditation_exit_delay_seconds: float = Field(default=5.5, ge=5.0, le=30.0)
@@ -42,14 +42,14 @@ class DojoStartRequest(BaseModel):
     spawn_delay: float = Field(default=5.0, ge=0.0, le=30.0)
     trainer_search_timeout: float = Field(default=90.0, ge=5.0, le=600.0)
     recovery_hp_percent: float = Field(default=90.0, ge=90.0, le=100.0)
-    recovery_chakra_percent: float = Field(default=50.0, ge=50.0, le=100.0)
+    recovery_chakra_percent: float = Field(default=40.0, ge=40.0, le=100.0)
     leader_threshold: float = Field(default=0.88, ge=0.50, le=0.999)
     round_startup_delay: float = Field(default=1.0, ge=0.0, le=30.0)
     chat_poll_seconds: float = Field(default=0.15, ge=0.10, le=2.0)
     h_enabled: bool = True
     debug_visual: bool = False
     debug_level: DebugLevel = "detections"
-    debug_overlay_opacity: float = Field(default=0.82, ge=0.25, le=1.0)
+    debug_overlay_opacity: float = Field(default=0.85, ge=0.10, le=1.0)
     debug_overlay_fps: float = Field(default=15.0, ge=5.0, le=30.0)
     meditation_enter_delay_seconds: float = Field(default=5.5, ge=5.0, le=30.0)
     meditation_exit_delay_seconds: float = Field(default=5.5, ge=5.0, le=30.0)
@@ -92,6 +92,7 @@ def dojo_status_payload(service: DojoTrainingService) -> dict[str, Any]:
     else:
         debug = getattr(service, "debug_settings", None)
     debug_payload = debug.to_dict() if debug is not None else {}
+    defaults = DojoTrainingConfig(rounds=10)
     return {
         "available": service.runtime_available(),
         "running": snapshot.running,
@@ -115,10 +116,16 @@ def dojo_status_payload(service: DojoTrainingService) -> dict[str, Any]:
         "combat_start_blocked": bool(
             getattr(service, "combat_start_blocked", False)
         ),
+        "recovery_hp_percent": float(
+            getattr(service, "recovery_hp_percent", defaults.recovery_hp_percent)
+        ),
+        "recovery_chakra_percent": float(
+            getattr(service, "recovery_chakra_percent", defaults.recovery_chakra_percent)
+        ),
         "debug": debug_payload,
         "recent_actions": list(getattr(service, "recent_actions", ()) or ()),
         "last_log": log_status,
-        "defaults": DojoTrainingConfig(rounds=10).to_public_dict(),
+        "defaults": defaults.to_public_dict(),
     }
 
 
@@ -184,10 +191,13 @@ def create_dojo_router(
         if not service.runtime_available():
             raise HTTPException(status_code=503, detail="DOJO_RUNTIME_NOT_INSTALLED")
 
+        config = request.to_config()
         await asyncio.to_thread(request.apply_debug, service)
+        service.recovery_hp_percent = config.recovery_hp_percent
+        service.recovery_chakra_percent = config.recovery_chakra_percent
         await asyncio.to_thread(game_runtime.deactivate_control)
         await asyncio.to_thread(game_runtime.release_all)
-        started = await asyncio.to_thread(service.start, request.to_config())
+        started = await asyncio.to_thread(service.start, config)
         if not started:
             snapshot = service.snapshot()
             raise HTTPException(

@@ -4,10 +4,10 @@ chcp 65001 >nul
 
 set "ROOT=%~dp0"
 set "WORK=%ROOT%_build_workspace"
-set "OUTPUT=%ROOT%KageLink-v3.5.0.apk"
+set "OUTPUT=%ROOT%KageLink-v3.5.1.apk"
 
 echo ================================================================
-echo KAGELINK 3.5.0 - CHAT, GAME, STATUS E DOJO TRAINER
+echo KAGELINK 3.5.1 - CHAT, GAME, STATUS E DOJO TRAINER
 echo ================================================================
 echo.
 

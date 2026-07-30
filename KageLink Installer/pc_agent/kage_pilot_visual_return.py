@@ -84,32 +84,31 @@ def main() -> int:
         result = int(runtime.main())
         return result
     finally:
-        if position_path is None:
-            return
-        try:
-            import kage_pilot_live_v03e_round as round_runtime
+        if position_path is not None:
+            try:
+                import kage_pilot_live_v03e_round as round_runtime
 
-            engine = getattr(round_runtime, "_ACTIVE_RECOVERY_ENGINE", None)
-            position = getattr(engine, "position", None)
-            if position is not None:
-                save_tracker_state(position, position_path)
-                snapshot = position.snapshot()
+                engine = getattr(round_runtime, "_ACTIVE_RECOVERY_ENGINE", None)
+                position = getattr(engine, "position", None)
+                if position is not None:
+                    save_tracker_state(position, position_path)
+                    snapshot = position.snapshot()
+                    runtime._telemetry(
+                        "DOJO_SESSION_MAP_SAVED",
+                        {
+                            "path": str(position_path),
+                            "x": f"{snapshot.x:.4f}",
+                            "y": f"{snapshot.y:.4f}",
+                            "state": snapshot.state.value,
+                            "keyframes": snapshot.keyframes,
+                            "return_code": result,
+                        },
+                    )
+            except Exception as error:
                 runtime._telemetry(
-                    "DOJO_SESSION_MAP_SAVED",
-                    {
-                        "path": str(position_path),
-                        "x": f"{snapshot.x:.4f}",
-                        "y": f"{snapshot.y:.4f}",
-                        "state": snapshot.state.value,
-                        "keyframes": snapshot.keyframes,
-                        "return_code": result,
-                    },
+                    "DOJO_SESSION_MAP_SAVE_FAILED",
+                    {"error": f"{type(error).__name__}:{error}"},
                 )
-        except Exception as error:
-            runtime._telemetry(
-                "DOJO_SESSION_MAP_SAVE_FAILED",
-                {"error": f"{type(error).__name__}:{error}"},
-            )
 
 
 __all__ = ["main"]

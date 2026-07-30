@@ -1,6 +1,6 @@
 # Kage Pilot — documentação canônica
 
-[English](KAGE_PILOT.en.md) · [Bíblia do KageLink](AGENTS.md) · [Addendum 3.5](AGENTS_3_5.md) · [Runtime](AGENTS_RUNTIME.md) · [Dojo](AGENTS_DOJO.md)
+[English](KAGE_PILOT.en.md) · [Bíblia do KageLink](AGENTS.md) · [Addendum 3.5](AGENTS_3_5.md) · [Runtime](AGENTS_RUNTIME.md) · [Dojo](AGENTS_DOJO.md) · [Migração interna](KAGE_PILOT_MIGRATION.md)
 
 O **Kage Pilot** é o subsistema do KageLink 3.5.0 responsável por percepção visual, controle seguro e treinamento repetido no Dojo de **Shinobi Story Online**.
 
@@ -12,6 +12,7 @@ Este é o único documento ativo do Kage Pilot em PT-BR. Documentos com nomes de
 Fonte pública: KageLink Installer/pc_agent/kage_pilot.py
 Comando Dojo: python kage_pilot.py dojo
 Loop público: KageLink Installer/pc_agent/kage_pilot_loop.py
+Rodada isolada: KageLink Installer/pc_agent/kage_pilot_round.py
 Configuração: KageLink Installer/pc_agent/config/kage_pilot_dojo.json
 Serviço: pc_agent.kage_pilot.DojoTrainingService
 ```
@@ -25,6 +26,20 @@ O instalador 3.5.0 distribui `KageLink.exe`, `KagePilotDojo.exe` e `KagePilotRou
 - não criar novos arquivos `v03x`, `final2`, `new`, `hotfix` ou equivalentes;
 - módulos internos versionados ainda usados pelo motor validado permanecem temporariamente como compatibilidade;
 - remover esses módulos exige migração de imports/specs/testes, CI verde e nova validação real.
+
+### Módulos canônicos por responsabilidade
+
+```text
+pc_agent.kage_pilot.dojo_training_service
+pc_agent.kage_pilot.dojo_request
+pc_agent.kage_pilot.dojo_templates
+pc_agent.kage_pilot.trainer_search
+pc_agent.kage_pilot.ko_identity
+pc_agent.kage_pilot.combat_control
+pc_agent.kage_pilot.post_combat
+```
+
+Novas integrações devem importar esses módulos. A cadeia `v03*` remanescente é fornecedora temporária da implementação fisicamente validada e não é uma superfície nova. O estado e a matriz de validação estão em `KAGE_PILOT_MIGRATION.md`.
 
 ## Executar
 
@@ -108,10 +123,11 @@ Uma rodada sem diálogo consome seu número e não cria compensação silenciosa
 ## Testes mínimos
 
 ```powershell
-python -m py_compile kage_pilot.py kage_pilot_dojo.py kage_pilot_loop.py
+python -m py_compile kage_pilot.py kage_pilot_dojo.py kage_pilot_loop.py kage_pilot_round.py
+python tools/verify_kage_pilot_canonical_refs.py
 python -m unittest discover -s tests -p "test_kage_pilot*.py" -v
 python -m unittest discover -s tests -v
 python kage_pilot.py dojo --show-config
 ```
 
-Também validar build e smoke de `KageLink.exe`, `KagePilotDojo.exe`, `KagePilotRound.exe`, Setup e APK. Mudanças em captura, detecção, foco, input, KO, retorno ou recuperação exigem Windows + BYOND real antes do merge funcional.
+Também validar build e smoke de `KageLink.exe`, `KagePilotDojo.exe`, `KagePilotRound.exe`, Setup e APK. Mudanças em captura, detecção, foco, input, KO, retorno ou recuperação exigem Windows + BYOND real antes do merge funcional ou da remoção de wrappers.

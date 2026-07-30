@@ -23,26 +23,29 @@ class _Reader:
         return self.levels
 
 
-class _Engine:
-    def __init__(self, levels):
-        self.resource_reader = _Reader(levels)
-        self.health_target = 0.90
-        self.chakra_target = 0.40
-        self._v351_last_health = None
-        self._v351_last_chakra = None
+def _engine_type():
+    class Engine:
+        def __init__(self, levels):
+            self.resource_reader = _Reader(levels)
+            self.health_target = 0.90
+            self.chakra_target = 0.40
+            self._v351_last_health = None
+            self._v351_last_chakra = None
 
-    def _read_levels(self, frame):
-        levels = self.resource_reader.read(frame)
-        self._v351_last_health = levels.health
-        self._v351_last_chakra = levels.chakra
-        return levels
+        def _read_levels(self, frame):
+            levels = self.resource_reader.read(frame)
+            self._v351_last_health = levels.health
+            self._v351_last_chakra = levels.chakra
+            return levels
 
-    def _levels_ready(self, levels):
-        return bool(
-            levels.valid
-            and float(levels.health or 0.0) >= self.health_target
-            and float(levels.chakra or 0.0) >= self.chakra_target
-        )
+        def _levels_ready(self, levels):
+            return bool(
+                levels.valid
+                and float(levels.health or 0.0) >= self.health_target
+                and float(levels.chakra or 0.0) >= self.chakra_target
+            )
+
+    return Engine
 
 
 class ResourceQuantizationV351Tests(unittest.TestCase):
@@ -53,7 +56,7 @@ class ResourceQuantizationV351Tests(unittest.TestCase):
     def _install(self):
         events = []
         runtime = SimpleNamespace(
-            ClosedLoopVisualRecoveryEngine=_Engine,
+            ClosedLoopVisualRecoveryEngine=_engine_type(),
             _telemetry=lambda event, fields: events.append((event, fields)),
         )
         return install_resource_quantization_bridge(runtime), events

@@ -39,6 +39,7 @@ class FakeProcess:
 class KagePilotDojoServiceTests(unittest.TestCase):
     def test_config_has_safe_one_round_default_and_continuous_zero(self):
         self.assertEqual(DojoTrainingConfig().normalized().rounds, 1)
+        self.assertEqual(DojoTrainingConfig().normalized().recovery_chakra_percent, 40.0)
         self.assertEqual(DojoTrainingConfig(rounds=0).normalized().rounds, 0)
         self.assertEqual(DojoTrainingConfig(rounds=-5).normalized().rounds, 0)
 
@@ -60,9 +61,13 @@ class KagePilotDojoServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "RECOVERY_HP_PERCENT_OUT_OF_RANGE"):
             DojoTrainingConfig(recovery_hp_percent=89).normalized()
         with self.assertRaisesRegex(ValueError, "RECOVERY_CHAKRA_PERCENT_OUT_OF_RANGE"):
-            DojoTrainingConfig(recovery_chakra_percent=49).normalized()
+            DojoTrainingConfig(recovery_chakra_percent=39).normalized()
         with self.assertRaisesRegex(ValueError, "RECOVERY_HP_PERCENT_OUT_OF_RANGE"):
             DojoTrainingConfig(recovery_hp_percent=101).normalized()
+        self.assertEqual(
+            DojoTrainingConfig(recovery_chakra_percent=40).normalized().recovery_chakra_percent,
+            40.0,
+        )
 
     def test_json_contract_loads_human_editable_timing_and_recovery(self):
         payload = {
@@ -97,7 +102,7 @@ class KagePilotDojoServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "DOJO_CONFIG_EXPECTED_BOOLEAN"):
             DojoTrainingConfig.from_dict(
                 {
-                    "recovery": {"hp_percent": 90, "chakra_percent": 50},
+                    "recovery": {"hp_percent": 90, "chakra_percent": 40},
                     "combat": {"h_enabled": "false"},
                 }
             )
@@ -107,7 +112,7 @@ class KagePilotDojoServiceTests(unittest.TestCase):
             DojoTrainingConfig.from_dict(
                 {
                     "timing": {"unknown_wait": 5},
-                    "recovery": {"hp_percent": 90, "chakra_percent": 50},
+                    "recovery": {"hp_percent": 90, "chakra_percent": 40},
                 }
             )
 

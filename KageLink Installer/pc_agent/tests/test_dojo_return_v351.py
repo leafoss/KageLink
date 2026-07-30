@@ -37,14 +37,15 @@ class DojoClosedLoopReturnV351ContractTests(unittest.TestCase):
         self.assertLess(relocalize, vector_return)
         self.assertIn("DOJO_POSITION_UNKNOWN", self.source)
 
-    def test_fallback_order_is_static_scan_then_local_search_then_existing_rings(self):
+    def test_fallback_contract_is_static_scan_then_bounded_local_search_then_base(self):
         origin = self.source.index("DOJO_RETURN_ORIGIN_REACHED")
-        static_scan = self.source.index("DOJO_RETURN_STATIC_SCAN")
-        local_search = self.source.index("DOJO_SAFE_LOCAL_SEARCH_BEGIN", origin)
-        ring_fallback = self.source.index("DOJO_SEARCH_FALLBACK_BEGIN")
+        static_scan = self.source.index("DOJO_RETURN_STATIC_SCAN", origin)
+        local_search_call = self.source.index("return self._safe_local_search(base)", static_scan)
         self.assertLess(origin, static_scan)
-        self.assertLess(static_scan, local_search)
-        self.assertLess(local_search, ring_fallback)
+        self.assertLess(static_scan, local_search_call)
+        self.assertIn("if self._local_search_index >= len(self._local_search):", self.source)
+        self.assertIn("DOJO_SEARCH_FALLBACK_BEGIN", self.source)
+        self.assertIn("return base", self.source)
 
     def test_return_has_timeout_step_and_no_progress_limits(self):
         self.assertIn("return_timeout_seconds", self.source)

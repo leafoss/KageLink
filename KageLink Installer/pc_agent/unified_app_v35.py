@@ -36,7 +36,8 @@ if not any(getattr(route, "path", "") == "/api/dojo/debug" for route in app.rout
 
 
 # The canonical 3.5.0 route already owns GAME interlock and process startup.
-# Bridge only the new 3.5.1 debug settings into that route before it starts.
+# Bridge only the new 3.5.1 settings into that route before it starts. The
+# original route still receives the same request and remains process authority.
 for route in app.routes:
     if getattr(route, "path", "") != "/api/dojo/start":
         continue
@@ -47,7 +48,10 @@ for route in app.routes:
         break
 
     async def start_dojo_with_debug(request: DojoStartRequest, _original=original_start):
+        config = request.to_config()
         await asyncio.to_thread(request.apply_debug, dojo_service)
+        dojo_service.recovery_hp_percent = config.recovery_hp_percent
+        dojo_service.recovery_chakra_percent = config.recovery_chakra_percent
         return await _original(request)
 
     start_dojo_with_debug._kagelink_debug_bridge = True

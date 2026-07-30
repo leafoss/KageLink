@@ -12,6 +12,7 @@ from pc_agent.history import HistoryStore
 from pc_agent.leafos_interpreter_v321 import LeafOSInterpreter, OllamaInterpreterProvider
 from pc_agent.leafos_ollama import OllamaManager
 from pc_agent.primary_character import resolve_primary_character
+from unified_dojo_debug_v351 import install_dojo_debug_desktop
 from unified_dojo_responsive_v351 import install_dojo_responsive_order
 from unified_dojo_templates_ui_v35 import install_dojo_templates_desktop
 from unified_dojo_ui import install_dojo_desktop
@@ -185,12 +186,14 @@ class UnifiedKageLinkAgentUI(launcher.UnifiedKageLinkAgentUI):
 
 
 # The established Dojo and template layers remain intact. The reliability layer
-# replaces only the Dojo page, and the outer wrapper preserves 64×64 then 32×32
-# through every responsive reflow.
+# replaces only the Dojo page; the debug layer adds protected meditation controls
+# and snapshots; the outer wrapper preserves 64×64 then 32×32 during reflow.
 launcher.UnifiedKageLinkAgentUI = install_dojo_responsive_order(
-    install_dojo_reliability_desktop(
-        install_dojo_templates_desktop(
-            install_dojo_desktop(UnifiedKageLinkAgentUI)
+    install_dojo_debug_desktop(
+        install_dojo_reliability_desktop(
+            install_dojo_templates_desktop(
+                install_dojo_desktop(UnifiedKageLinkAgentUI)
+            )
         )
     )
 )

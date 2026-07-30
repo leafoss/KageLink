@@ -66,6 +66,23 @@ class DojoDebugV351Tests(unittest.TestCase):
         self.assertIn("set_affinity.argtypes", text)
         self.assertNotIn("GetWindowLongPtrW", text)
 
+    def test_overlay_never_activates_or_lifts_its_tk_window(self):
+        source = Path(__file__).resolve().parents[1] / "pc_agent" / "kage_pilot" / "dojo_debug_v351.py"
+        text = source.read_text(encoding="utf-8")
+        self.assertIn("SW_SHOWNOACTIVATE", text)
+        self.assertIn("SWP_NOACTIVATE", text)
+        self.assertIn("is_game_window_foreground", text)
+        self.assertNotIn("root.deiconify()", text)
+        self.assertNotIn("root.lift()", text)
+        self.assertNotIn('root.attributes("-topmost"', text)
+
+    def test_overlay_thread_failure_is_reported_without_touching_combat(self):
+        source = Path(__file__).resolve().parents[1] / "pc_agent" / "kage_pilot" / "dojo_debug_v351.py"
+        text = source.read_text(encoding="utf-8")
+        self.assertIn("DOJO_DEBUG_OVERLAY_ERROR", text)
+        self.assertIn("self.last_error", text)
+        self.assertNotIn("ensure_game_window_foreground", text)
+
 
 if __name__ == "__main__":
     unittest.main()

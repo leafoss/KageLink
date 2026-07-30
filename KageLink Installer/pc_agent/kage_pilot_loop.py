@@ -12,7 +12,10 @@ from pathlib import Path
 import kage_pilot_loop_v03j as _validated_engine
 
 from pc_agent.kage_pilot.dojo_position_bridge import DojoAnchorMonitor
+from pc_agent.kage_pilot.visual_position_guard import install_visual_position_guard
 
+
+install_visual_position_guard()
 
 _ORIGINAL_REQUEST = _validated_engine.request_taijutsu_dojo_spar_single_click
 _ORIGINAL_ROUND_COMMAND = _validated_engine._round_command

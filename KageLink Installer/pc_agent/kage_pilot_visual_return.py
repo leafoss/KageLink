@@ -41,6 +41,9 @@ def main() -> int:
     install_visual_position_guard()
 
     import kage_pilot_live_v0351_round as runtime
+    from pc_agent.kage_pilot.dojo_chakra_recovery_bridge_v351 import (
+        install_chakra_recovery_bridge,
+    )
     from pc_agent.kage_pilot.dojo_position_bridge import (
         restore_tracker_state,
         save_tracker_state,
@@ -50,6 +53,7 @@ def main() -> int:
 
     # Wrap the exact PR23 visual-return class. Legacy engines and main are never restored.
     install_runtime_guard(runtime)
+    install_chakra_recovery_bridge(runtime)
 
     if position_path is not None:
         original_init = runtime.ClosedLoopVisualRecoveryEngine.__init__

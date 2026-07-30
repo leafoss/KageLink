@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from pc_agent.kage_pilot.dojo_anchor_monitor_compat_v351 import (
     install_anchor_monitor_tracker_compat,
@@ -22,10 +24,14 @@ class AnchorMonitorCompatV351Tests(unittest.TestCase):
         install_anchor_monitor_tracker_compat()
         events = []
 
-        monitor = DojoAnchorMonitor(
-            source=_Source(),
-            telemetry=lambda event, fields: events.append((event, fields)),
-        )
+        with patch(
+            "pc_agent.kage_pilot.dojo_position_bridge.UserDojoLeaderDetector",
+            return_value=SimpleNamespace(),
+        ):
+            monitor = DojoAnchorMonitor(
+                source=_Source(),
+                telemetry=lambda event, fields: events.append((event, fields)),
+            )
 
         self.assertIsInstance(monitor.observer.tracker, MeleeAwareEntityTracker)
         self.assertTrue(hasattr(monitor.observer.tracker, "context_for"))

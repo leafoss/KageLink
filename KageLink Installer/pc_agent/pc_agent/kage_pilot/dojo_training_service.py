@@ -34,13 +34,13 @@ class DojoTrainingService(_BaseDojoTrainingService):
     def script_path(self) -> Path:
         if self.is_frozen_runtime:
             return self.packaged_helper_path
-        return super().script_path
+        return self.project_dir / "kage_pilot_loop.py"
 
     def build_command(self, config: DojoTrainingConfig) -> list[str]:
         value = config.normalized()
         if self.is_frozen_runtime:
             return [str(self.packaged_helper_path), *value.to_cli_args()]
-        return super().build_command(value)
+        return [self.python_executable, str(self.script_path), *value.to_cli_args()]
 
     def runtime_available(self) -> bool:
         return self.script_path.exists()

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import unittest
 
+import unified_dojo_debug_v351
 import unified_dojo_responsive_v351
 import unified_dojo_ui_v351
 import unified_launcher
@@ -15,6 +16,9 @@ class DojoDesktopV351ContractTests(unittest.TestCase):
         cls.source_path = Path(unified_dojo_ui_v351.__file__).resolve()
         cls.source = cls.source_path.read_text(encoding="utf-8")
         cls.responsive_source = Path(unified_dojo_responsive_v351.__file__).read_text(
+            encoding="utf-8"
+        )
+        cls.debug_source = Path(unified_dojo_debug_v351.__file__).read_text(
             encoding="utf-8"
         )
 
@@ -59,6 +63,17 @@ class DojoDesktopV351ContractTests(unittest.TestCase):
         }
         for language in ("pt-BR", "en-US"):
             self.assertTrue(forbidden_catalog_keys.isdisjoint(unified_launcher.TEXT[language]))
+
+    def test_editable_settings_are_backend_loaded_but_start_bound(self):
+        self.assertIn("self._dojo_setting_dirty", self.debug_source)
+        self.assertIn("_dojo_mark_setting_dirty", self.debug_source)
+        self.assertIn("field not in self._dojo_setting_dirty", self.debug_source)
+        self.assertIn("opacity_percent / 100.0", self.debug_source)
+        self.assertIn("10.0 <= opacity_percent <= 100.0", self.debug_source)
+        self.assertIn("40.0 <= chakra <= 100.0", self.debug_source)
+        self.assertIn("self._dojo_setting_dirty.clear()", self.debug_source)
+        self.assertNotIn("command=self._dojo_update_debug_live", self.debug_source)
+        self.assertNotIn("command=lambda _value: self._dojo_update_debug_live()", self.debug_source)
 
     def test_images_are_built_in_64_then_32_order_and_centered(self):
         self.assertIn('for column, mode in enumerate(("64", "32"))', self.source)

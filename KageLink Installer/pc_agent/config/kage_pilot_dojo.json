@@ -13,7 +13,7 @@
   },
   "recovery": {
     "hp_percent": 90.0,
-    "chakra_percent": 50.0
+    "chakra_percent": 40.0
   },
   "combat": {
     "h_enabled": true

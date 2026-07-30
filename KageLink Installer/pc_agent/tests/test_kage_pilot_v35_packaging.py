@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-import kage_pilot_loop_v03j as loop_v03j
+import kage_pilot_loop
 from pc_agent.dojo_api import DojoStartRequest, dojo_status_payload, install_game_control_interlock
 from pc_agent.kage_pilot import DojoTrainingConfig, DojoTrainingService
 
@@ -75,7 +75,7 @@ class KagePilotV35PackagingTests(unittest.TestCase):
         self.assertIn("7", command)
         self.assertNotIn("kage_pilot_loop_v03j.py", " ".join(command))
 
-    def test_source_service_keeps_python_script_runtime(self):
+    def test_source_service_uses_canonical_python_runtime(self):
         service = DojoTrainingService(
             project_dir=Path("C:/source/pc_agent"),
             python_executable="C:/Python/python.exe",
@@ -83,7 +83,8 @@ class KagePilotV35PackagingTests(unittest.TestCase):
         with mock.patch.object(sys, "frozen", False, create=True):
             command = service.build_command(DojoTrainingConfig(rounds=2))
         self.assertEqual(command[0], "C:/Python/python.exe")
-        self.assertTrue(command[1].endswith("kage_pilot_loop_v03j.py"))
+        self.assertTrue(command[1].endswith("kage_pilot_loop.py"))
+        self.assertNotIn("v03", Path(command[1]).name)
 
     def test_frozen_service_hides_helper_console(self):
         captured = {}
@@ -124,9 +125,9 @@ class KagePilotV35PackagingTests(unittest.TestCase):
         service._thread = thread
 
         with mock.patch.object(sys, "frozen", True, create=True), mock.patch(
-            "pc_agent.kage_pilot.dojo_training_v03k.os.name", "nt"
+            "pc_agent.kage_pilot.dojo_training_service.os.name", "nt"
         ), mock.patch(
-            "pc_agent.kage_pilot.dojo_training_v03k.subprocess.run"
+            "pc_agent.kage_pilot.dojo_training_service.subprocess.run"
         ) as run, mock.patch.object(
             __import__("subprocess"), "CREATE_NO_WINDOW", 0x8000000, create=True
         ):
@@ -153,10 +154,26 @@ class KagePilotV35PackagingTests(unittest.TestCase):
             "executable",
             "C:/Program Files/KageLink/KagePilotDojo.exe",
         ):
-            command, cwd = loop_v03j._round_command(args, round_number=3)
+            command, cwd = kage_pilot_loop._round_command(args, round_number=3)
         self.assertEqual(command[0], str(Path("C:/Program Files/KageLink/KagePilotRound.exe")))
         self.assertEqual(cwd, Path("C:/Program Files/KageLink"))
         self.assertIn(str(Path("logs/round_003.jsonl")), command)
+
+    def test_source_loop_uses_canonical_round_script(self):
+        args = Namespace(
+            log_dir=Path("logs"),
+            combat_seconds=120.0,
+            post_combat_timeout=240.0,
+            round_startup_delay=1.0,
+            chat_poll_seconds=0.15,
+            recovery_hp_percent=90.0,
+            recovery_chakra_percent=50.0,
+            leader_threshold=0.88,
+            disable_h=False,
+        )
+        with mock.patch.object(sys, "frozen", False, create=True):
+            command, _ = kage_pilot_loop._round_command(args, round_number=1)
+        self.assertEqual(Path(command[1]).name, "kage_pilot_round.py")
 
     def test_dojo_request_preserves_validated_safety_floors(self):
         config = DojoStartRequest(
@@ -188,7 +205,7 @@ class KagePilotV35PackagingTests(unittest.TestCase):
     def test_status_payload_exposes_installation_and_progress(self):
         with tempfile.TemporaryDirectory() as temporary:
             project = Path(temporary)
-            (project / "kage_pilot_loop_v03j.py").write_text("# test", encoding="utf-8")
+            (project / "kage_pilot_loop.py").write_text("# test", encoding="utf-8")
             service = DojoTrainingService(project_dir=project)
             payload = dojo_status_payload(service)
         self.assertTrue(payload["available"])

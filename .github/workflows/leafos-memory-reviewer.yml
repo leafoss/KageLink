@@ -12,8 +12,10 @@ on:
       - "LEAFOS_MEMORY_REVIEWER.md"
       - "LEAFOS_DESKTOP.md"
       - "LEAFOS_DESKTOP.en.md"
-      - "KAGELINK_3_5_DOJO.md"
-      - "KAGELINK_3_5_DOJO.en.md"
+      - "KAGE_PILOT.md"
+      - "KAGE_PILOT.en.md"
+      - "AGENTS.md"
+      - "AGENTS.en.md"
       - "AGENTS_DOJO.md"
       - "AGENTS_DOJO.en.md"
       - "RELEASE_VERSION"
@@ -22,6 +24,7 @@ on:
       - "README.pt-BR.md"
       - ".github/workflows/release.yml"
       - ".github/workflows/leafos-memory-reviewer.yml"
+      - ".github/workflows/kage-pilot.yml"
 
 jobs:
   pc-agent-python:

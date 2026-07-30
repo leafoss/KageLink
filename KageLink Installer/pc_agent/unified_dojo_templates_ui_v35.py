@@ -1,9 +1,21 @@
 from __future__ import annotations
 
 import base64
+import math
 from pathlib import Path
 import threading
-from tkinter import BOTH, LEFT, X, Button, Frame, Label, PhotoImage, StringVar, filedialog, messagebox
+from tkinter import (
+    BOTH,
+    LEFT,
+    X,
+    Button,
+    Frame,
+    Label,
+    PhotoImage,
+    StringVar,
+    filedialog,
+    messagebox,
+)
 
 import unified_launcher as launcher
 
@@ -11,6 +23,11 @@ import unified_launcher as launcher
 CANONICAL_SIDEBAR_ORDER = ("overview", "memory", "connection", "dojo", "settings")
 _TEMPLATE_MODES = ("64", "32")
 _MAX_DESKTOP_UPLOAD_BYTES = 5 * 1024 * 1024
+_PREVIEW_BOX_WIDTH = 240
+_PREVIEW_BOX_HEIGHT = 170
+_PREVIEW_MAX_WIDTH = 210
+_PREVIEW_MAX_HEIGHT = 145
+_PREVIEW_MAX_ZOOM = 4
 
 
 launcher.TEXT["pt-BR"].update(
@@ -64,6 +81,43 @@ launcher.TEXT["en-US"].update(
 def _detail_from_error(error: BaseException) -> str:
     text = str(error)
     return text or type(error).__name__
+
+
+def preview_scale_steps(width: int, height: int) -> tuple[int, int]:
+    """Return integer ``(subsample, zoom)`` steps for a crisp Tk preview.
+
+    Tk ``PhotoImage`` only offers integer nearest-neighbour scaling. Large images
+    are reduced first, then small sprite crops are enlarged as much as possible
+    inside the fixed preview box without changing their aspect ratio.
+    """
+
+    width = max(1, int(width))
+    height = max(1, int(height))
+    subsample = max(
+        1,
+        math.ceil(width / _PREVIEW_MAX_WIDTH),
+        math.ceil(height / _PREVIEW_MAX_HEIGHT),
+    )
+    fitted_width = max(1, width // subsample)
+    fitted_height = max(1, height // subsample)
+    zoom = max(
+        1,
+        min(
+            _PREVIEW_MAX_ZOOM,
+            _PREVIEW_MAX_WIDTH // fitted_width,
+            _PREVIEW_MAX_HEIGHT // fitted_height,
+        ),
+    )
+    return subsample, zoom
+
+
+def _fit_preview_image(image: PhotoImage) -> PhotoImage:
+    subsample, zoom = preview_scale_steps(image.width(), image.height())
+    if subsample > 1:
+        image = image.subsample(subsample, subsample)
+    if zoom > 1:
+        image = image.zoom(zoom, zoom)
+    return image
 
 
 def install_dojo_templates_desktop(base_class):
@@ -171,8 +225,8 @@ def install_dojo_templates_desktop(base_class):
                 bg=launcher.COLORS["surface_alt"],
                 highlightthickness=1,
                 highlightbackground=launcher.COLORS["border_soft"],
-                padx=12,
-                pady=10,
+                padx=14,
+                pady=12,
             )
             Label(
                 card,
@@ -181,17 +235,28 @@ def install_dojo_templates_desktop(base_class):
                 fg=launcher.COLORS["text"],
                 font=("Segoe UI Semibold", 10),
             ).pack(anchor="w")
-            preview = Label(
+
+            preview_box = Frame(
                 card,
+                width=_PREVIEW_BOX_WIDTH,
+                height=_PREVIEW_BOX_HEIGHT,
+                bg=launcher.COLORS["card"],
+                highlightthickness=1,
+                highlightbackground=launcher.COLORS["border"],
+            )
+            preview_box.pack(pady=(10, 10))
+            preview_box.pack_propagate(False)
+            preview = Label(
+                preview_box,
                 text=launcher._t(self.lang, "dojo_template_preview_unavailable"),
                 bg=launcher.COLORS["card"],
                 fg=launcher.COLORS["muted"],
-                width=22,
-                height=6,
-                relief="flat",
+                anchor="center",
+                justify="center",
             )
-            preview.pack(fill=X, pady=(8, 6))
+            preview.pack(fill=BOTH, expand=True, padx=8, pady=8)
             self._dojo_template_preview_labels[mode] = preview
+
             Label(
                 card,
                 textvariable=self.dojo_template_status_vars[mode],
@@ -236,6 +301,19 @@ def install_dojo_templates_desktop(base_class):
             for button in self._dojo_template_buttons:
                 button.configure(state=template_state)
 
+        def _reset_template_preview(self, mode: str) -> None:
+            self._dojo_template_hashes.pop(mode, None)
+            self._dojo_template_images.pop(mode, None)
+            label = self._dojo_template_preview_labels.get(mode)
+            if label is not None:
+                label.configure(
+                    image="",
+                    text=launcher._t(
+                        self.lang,
+                        "dojo_template_preview_unavailable",
+                    ),
+                )
+
         def _apply_template_status(self, payload: dict) -> None:
             templates = payload.get("templates")
             if not isinstance(templates, dict):
@@ -257,8 +335,7 @@ def install_dojo_templates_desktop(base_class):
                 record = templates.get(mode)
                 if not isinstance(record, dict):
                     record = {}
-                configured = bool(record.get("configured"))
-                if configured:
+                if bool(record.get("configured")):
                     self.dojo_template_status_vars[mode].set(
                         launcher._t(
                             self.lang,
@@ -274,17 +351,7 @@ def install_dojo_templates_desktop(base_class):
                     self.dojo_template_status_vars[mode].set(
                         launcher._t(self.lang, "dojo_template_missing")
                     )
-                    self._dojo_template_hashes.pop(mode, None)
-                    self._dojo_template_images.pop(mode, None)
-                    label = self._dojo_template_preview_labels.get(mode)
-                    if label is not None:
-                        label.configure(
-                            image="",
-                            text=launcher._t(
-                                self.lang,
-                                "dojo_template_preview_unavailable",
-                            ),
-                        )
+                    self._reset_template_preview(mode)
             self._update_dojo_buttons()
 
         def _refresh_template_preview(self, mode: str, digest: str) -> None:
@@ -295,18 +362,14 @@ def install_dojo_templates_desktop(base_class):
                     timeout=5,
                 )
                 image_base64 = str(payload.get("image_base64") or "")
-                image = PhotoImage(data=image_base64)
-                maximum = max(image.width(), image.height(), 1)
-                factor = max(1, (maximum + 139) // 140)
-                if factor > 1:
-                    image = image.subsample(factor, factor)
+                image = _fit_preview_image(PhotoImage(data=image_base64))
                 self._dojo_template_images[mode] = image
                 self._dojo_template_hashes[mode] = digest
                 label = self._dojo_template_preview_labels.get(mode)
                 if label is not None:
                     label.configure(image=image, text="")
             except Exception:
-                self._dojo_template_hashes.pop(mode, None)
+                self._reset_template_preview(mode)
 
         def _refresh_dojo_templates(self) -> None:
             if self.stopping:
@@ -444,4 +507,8 @@ def install_dojo_templates_desktop(base_class):
     return DojoTemplateEnabledUI
 
 
-__all__ = ["CANONICAL_SIDEBAR_ORDER", "install_dojo_templates_desktop"]
+__all__ = [
+    "CANONICAL_SIDEBAR_ORDER",
+    "install_dojo_templates_desktop",
+    "preview_scale_steps",
+]

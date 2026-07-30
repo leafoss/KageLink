@@ -5,7 +5,7 @@ import re
 import unittest
 
 
-class KageLinkReleaseVersionV35Tests(unittest.TestCase):
+class KageLinkReleaseVersionV351Tests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.repository_root = Path(__file__).resolve().parents[3]
@@ -14,8 +14,8 @@ class KageLinkReleaseVersionV35Tests(unittest.TestCase):
             encoding="utf-8"
         ).strip()
 
-    def test_canonical_release_version_is_350(self):
-        self.assertEqual(self.expected, "3.5.0")
+    def test_canonical_release_version_is_351(self):
+        self.assertEqual(self.expected, "3.5.1")
 
     def test_android_pubspec_matches_release_version(self):
         pubspec = (self.installer_root / "pubspec.yaml").read_text(encoding="utf-8")
@@ -23,12 +23,14 @@ class KageLinkReleaseVersionV35Tests(unittest.TestCase):
             pubspec,
             rf"(?m)^version:\s*{re.escape(self.expected)}\+\d+\s*$",
         )
+        self.assertIn("version: 3.5.1+24", pubspec)
 
-    def test_pc_agent_matches_release_version(self):
-        unified_app = (
-            self.installer_root / "pc_agent" / "unified_app.py"
+    def test_pc_agent_and_fastapi_wrapper_match_release_version(self):
+        wrapper = (
+            self.installer_root / "pc_agent" / "unified_app_v35.py"
         ).read_text(encoding="utf-8")
-        self.assertIn(f'APP_VERSION = "{self.expected}"', unified_app)
+        self.assertIn(f'APP_VERSION = "{self.expected}"', wrapper)
+        self.assertIn("_canonical.legacy.app.version = APP_VERSION", wrapper)
 
     def test_windows_setup_matches_release_version(self):
         iss = (

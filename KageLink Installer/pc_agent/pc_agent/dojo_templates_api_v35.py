@@ -69,6 +69,10 @@ def install_dojo_template_routes(
     authorization = [Depends(security.require_authorization)]
     install_template_start_guard(dojo_service, store)
 
+    def require_template_mutation_available() -> None:
+        if bool(getattr(dojo_service, "is_running", False)):
+            raise HTTPException(status_code=409, detail="DOJO_TRAINING_ACTIVE")
+
     if not _route_exists(app, "/api/dojo/templates", "GET"):
 
         @app.get("/api/dojo/templates", dependencies=authorization)
@@ -98,6 +102,7 @@ def install_dojo_template_routes(
 
         @app.post("/api/dojo/templates/{mode}", dependencies=authorization)
         async def upload_dojo_template(mode: str, request: DojoTemplateUploadRequest) -> dict:
+            require_template_mutation_available()
             try:
                 value = normalize_template_mode(mode)
                 record = store.save(
@@ -115,6 +120,7 @@ def install_dojo_template_routes(
 
         @app.delete("/api/dojo/templates/{mode}", dependencies=authorization)
         async def delete_dojo_template(mode: str) -> dict:
+            require_template_mutation_available()
             try:
                 value = normalize_template_mode(mode)
                 store.remove(value)

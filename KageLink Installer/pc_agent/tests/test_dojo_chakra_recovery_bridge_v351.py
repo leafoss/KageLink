@@ -97,6 +97,52 @@ class ChakraRecoveryBridgeV351Tests(unittest.TestCase):
             )
         )
 
+    def test_round_seven_hp_894_queues_y_on_with_quantization_checker(self):
+        engine_type, events = self._install()
+        stalled = PostCombatDecision(
+            state=MEDITATING,
+            health=0.894,
+            chakra=0.35,
+            reason="physical round seven plateau",
+        )
+        engine = engine_type([stalled, stalled])
+        engine._v351_level_ready = lambda value, target, resource: (
+            resource == "health" and float(value) + (0.5 / 46.0) >= float(target)
+        )
+
+        engine.step()
+        self.assertIsNone(engine.pending_y_action)
+        engine.step()
+
+        self.assertEqual(engine.pending_y_action, "on")
+        self.assertTrue(
+            any(event == "DOJO_FAST_CHAKRA_QUANTIZED_HP" for event, _ in events)
+        )
+        self.assertTrue(
+            any(
+                event == "DOJO_FAST_CHAKRA_ACTION_QUEUED"
+                and fields.get("action") == "on"
+                for event, fields in events
+            )
+        )
+
+    def test_hp_beyond_quantization_tolerance_does_not_queue_y(self):
+        engine_type, _events = self._install()
+        low_hp = PostCombatDecision(
+            state=MEDITATING,
+            health=0.87,
+            chakra=0.35,
+        )
+        engine = engine_type([low_hp, low_hp])
+        engine._v351_level_ready = lambda value, target, resource: (
+            resource == "health" and float(value) + (0.5 / 46.0) >= float(target)
+        )
+
+        engine.step()
+        engine.step()
+
+        self.assertIsNone(engine.pending_y_action)
+
     def test_exit_queues_y_off_before_the_guarded_v_tap(self):
         engine_type, events = self._install()
         exiting = PostCombatDecision(

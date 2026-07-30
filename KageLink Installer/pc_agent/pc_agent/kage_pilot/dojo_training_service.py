@@ -6,6 +6,12 @@ import re
 import subprocess
 import sys
 
+from .dojo_debug_v351 import (
+    DojoDebugSettings,
+    canonical_debug_control_path,
+    read_debug_settings,
+    write_debug_settings,
+)
 from .dojo_journal_v351 import (
     DojoSessionJournal,
     canonical_dojo_log_dir,
@@ -30,6 +36,8 @@ class DojoTrainingService(_BaseDojoTrainingService):
     _FLOAT_FIELD = re.compile(r"\b(?P<key>x|y|confidence|position_confidence)=(-?\d+(?:\.\d+)?)")
     _POSITION_STATE = re.compile(r"\bposition_state=(KNOWN|UNCERTAIN|LOST)\b", re.IGNORECASE)
     _DIRECT_STATE = re.compile(r"^DOJO_POSITION_STATE\b.*\bstate=(KNOWN|UNCERTAIN|LOST)\b", re.IGNORECASE)
+    _TELEMETRY_FIELD = re.compile(r"\b(?P<key>[a-z_]+)=(?P<value>\"[^\"]*\"|\S+)", re.IGNORECASE)
+    _POST_STATE = re.compile(r"^POST\s+(?P<state>[A-Z_]+)\b", re.IGNORECASE)
     _ACTION_MARKERS = (
         "ROUND ",
         "DOJO_ANCHOR_SET",
@@ -40,6 +48,10 @@ class DojoTrainingService(_BaseDojoTrainingService):
         "DOJO_RETURN_",
         "DOJO_SAFE_LOCAL_SEARCH_",
         "DOJO_SEARCH_FALLBACK_BEGIN",
+        "DOJO_MEDITATION_",
+        "DOJO_COMBAT_START_BLOCKED",
+        "DOJO_RECOVERY_ABORTED",
+        "DOJO_DEBUG_OVERLAY_",
         "VICTORY_CHAT",
         "POST_COMBAT",
         "READY / PRONTO",
@@ -54,6 +66,13 @@ class DojoTrainingService(_BaseDojoTrainingService):
         self.position_y = 0.0
         self.position_confidence = 0.0
         self.recent_actions: tuple[str, ...] = ()
+        self.debug_settings = read_debug_settings()
+        self.meditation_state = "IDLE"
+        self.meditation_elapsed = 0.0
+        self.meditation_hp: float | None = None
+        self.meditation_chakra: float | None = None
+        self.v_cooldown_remaining = 0.0
+        self.combat_start_blocked = False
         DojoSessionJournal.recover_abandoned()
         super().__init__(*args, **kwargs)
 
@@ -85,6 +104,57 @@ class DojoTrainingService(_BaseDojoTrainingService):
         payload["directory"] = str(canonical_dojo_log_dir())
         return payload
 
+    def current_debug_settings(self) -> DojoDebugSettings:
+        """Refresh settings written by the UI or the in-game F10 toggle."""
+
+        self.debug_settings = read_debug_settings()
+        return self.debug_settings
+
+    def configure_debug(
+        self,
+        *,
+        enabled: bool | None = None,
+        opacity: float | None = None,
+        fps: float | None = None,
+        level: str | None = None,
+        meditation_enter_delay_seconds: float | None = None,
+        meditation_exit_delay_seconds: float | None = None,
+        meditation_timeout_seconds: float | None = None,
+    ) -> DojoDebugSettings:
+        current = self.debug_settings
+        settings = DojoDebugSettings(
+            enabled=current.enabled if enabled is None else bool(enabled),
+            opacity=current.opacity if opacity is None else float(opacity),
+            fps=current.fps if fps is None else float(fps),
+            level=current.level if level is None else str(level),
+            meditation_enter_delay_seconds=(
+                current.meditation_enter_delay_seconds
+                if meditation_enter_delay_seconds is None
+                else float(meditation_enter_delay_seconds)
+            ),
+            meditation_exit_delay_seconds=(
+                current.meditation_exit_delay_seconds
+                if meditation_exit_delay_seconds is None
+                else float(meditation_exit_delay_seconds)
+            ),
+            meditation_timeout_seconds=(
+                current.meditation_timeout_seconds
+                if meditation_timeout_seconds is None
+                else float(meditation_timeout_seconds)
+            ),
+        ).normalized()
+        write_debug_settings(settings)
+        self.debug_settings = settings
+        action = (
+            f"DOJO_DEBUG_OVERLAY_SETTINGS enabled={str(settings.enabled).lower()} "
+            f"level={settings.level} opacity={settings.opacity:.2f} fps={settings.fps:.1f}"
+        )
+        self.recent_actions = tuple([*self.recent_actions, action][-8:])
+        journal = self._journal
+        if journal is not None:
+            journal.write("DEBUG_SETTINGS", action)
+        return settings
+
     def _journal_metadata(self, config: DojoTrainingConfig) -> dict:
         try:
             templates = DEFAULT_DOJO_TEMPLATE_STORE.public_status()
@@ -96,6 +166,7 @@ class DojoTrainingService(_BaseDojoTrainingService):
             "frozen_runtime": self.is_frozen_runtime,
             "command": self.build_command(config),
             "configuration": config.to_public_dict(),
+            "debug": self.debug_settings.to_dict(),
             "templates": templates,
         }
 
@@ -106,6 +177,13 @@ class DojoTrainingService(_BaseDojoTrainingService):
         self.position_y = 0.0
         self.position_confidence = 0.0
         self.recent_actions = ()
+        self.meditation_state = "IDLE"
+        self.meditation_elapsed = 0.0
+        self.meditation_hp = None
+        self.meditation_chakra = None
+        self.v_cooldown_remaining = 0.0
+        self.combat_start_blocked = False
+        write_debug_settings(self.debug_settings)
         journal = DojoSessionJournal(metadata=self._journal_metadata(value))
         self._journal = journal
         started = super().start(value, **kwargs)
@@ -133,6 +211,71 @@ class DojoTrainingService(_BaseDojoTrainingService):
         if "dojo_final" in text and "phase=stopped" in text:
             return DojoTrainingPhase.STOPPED
         return super().phase_for_line(line, current)
+
+    @staticmethod
+    def _float_value(fields: dict[str, str], key: str) -> float | None:
+        value = str(fields.get(key, "") or "").strip().strip('"')
+        if not value or value == "-":
+            return None
+        try:
+            return float(value)
+        except ValueError:
+            return None
+
+    def _update_meditation_telemetry(self, clean: str) -> None:
+        post_match = self._POST_STATE.search(clean)
+        fields = {
+            match.group("key").lower(): match.group("value").strip('"')
+            for match in self._TELEMETRY_FIELD.finditer(clean)
+        }
+        if clean.startswith("DOJO_MEDITATION_STATE"):
+            self.meditation_state = str(fields.get("state") or self.meditation_state).upper()
+        elif clean.startswith("DOJO_MEDITATION_ENTER_REQUESTED"):
+            self.meditation_state = "ENTERING_MEDITATION"
+        elif clean.startswith("DOJO_MEDITATION_ENTER_CONFIRMED"):
+            self.meditation_state = "MEDITATING"
+        elif clean.startswith("DOJO_MEDITATION_EXIT_REQUESTED"):
+            self.meditation_state = "EXITING_MEDITATION"
+        elif clean.startswith("DOJO_MEDITATION_EXIT_CONFIRMED"):
+            self.meditation_state = "READY"
+            self.combat_start_blocked = False
+        elif clean.startswith("DOJO_MEDITATION_SKIPPED"):
+            self.meditation_state = "READY"
+            self.combat_start_blocked = False
+        elif clean.startswith("DOJO_MEDITATION_TIMEOUT"):
+            self.meditation_state = "MEDITATION_TIMEOUT"
+            self.combat_start_blocked = True
+        elif clean.startswith("DOJO_RECOVERY_ABORTED"):
+            self.meditation_state = "ABORTED"
+            self.combat_start_blocked = True
+        elif post_match is not None:
+            state = post_match.group("state").upper()
+            if state in {
+                "ENTERING_MEDITATION",
+                "MEDITATING",
+                "EXITING_MEDITATION",
+                "MEDITATION_TIMEOUT",
+                "READY",
+            }:
+                self.meditation_state = state
+
+        if clean.startswith("DOJO_COMBAT_START_BLOCKED"):
+            self.combat_start_blocked = True
+        if self.meditation_state in {"ENTERING_MEDITATION", "MEDITATING", "EXITING_MEDITATION"}:
+            self.combat_start_blocked = True
+
+        elapsed = self._float_value(fields, "elapsed")
+        cooldown = self._float_value(fields, "cooldown")
+        hp = self._float_value(fields, "hp")
+        chakra = self._float_value(fields, "chakra")
+        if elapsed is not None:
+            self.meditation_elapsed = max(0.0, elapsed)
+        if cooldown is not None:
+            self.v_cooldown_remaining = max(0.0, cooldown)
+        if hp is not None:
+            self.meditation_hp = max(0.0, min(1.0, hp))
+        if chakra is not None:
+            self.meditation_chakra = max(0.0, min(1.0, chakra))
 
     def _update_reliability_telemetry(self, line: str) -> None:
         clean = str(line or "").strip()
@@ -167,6 +310,7 @@ class DojoTrainingService(_BaseDojoTrainingService):
             self.position_confidence = 1.0
         if clean.startswith("DOJO_VISUAL_ODOMETRY_LOST") or clean.startswith("DOJO_POSITION_UNKNOWN"):
             self.position_state = "LOST"
+        self._update_meditation_telemetry(clean)
         if any(clean.startswith(marker) for marker in self._ACTION_MARKERS):
             actions = [*self.recent_actions, clean]
             self.recent_actions = tuple(actions[-8:])
@@ -190,6 +334,10 @@ class DojoTrainingService(_BaseDojoTrainingService):
         command = self.build_command(config)
         cwd = self.packaged_helper_path.parent if self.is_frozen_runtime else self.project_dir
         caught: BaseException | None = None
+        control_path = canonical_debug_control_path()
+        write_debug_settings(self.debug_settings, control_path)
+        child_env = os.environ.copy()
+        child_env["KAGELINK_DOJO_DEBUG_CONTROL"] = str(control_path)
         try:
             process = self._popen_factory(
                 command,
@@ -201,6 +349,7 @@ class DojoTrainingService(_BaseDojoTrainingService):
                 errors="replace",
                 bufsize=1,
                 creationflags=self._creation_flags(),
+                env=child_env,
             )
             with self._lock:
                 self._process = process
@@ -260,6 +409,11 @@ class DojoTrainingService(_BaseDojoTrainingService):
                         "position_x": self.position_x,
                         "position_y": self.position_y,
                         "position_confidence": self.position_confidence,
+                        "meditation_state": self.meditation_state,
+                        "meditation_elapsed": self.meditation_elapsed,
+                        "v_cooldown_remaining": self.v_cooldown_remaining,
+                        "combat_start_blocked": self.combat_start_blocked,
+                        "debug": self.debug_settings.to_dict(),
                     },
                 )
                 self._last_journal_path = str(destination or "")

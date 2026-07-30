@@ -12,7 +12,7 @@ from typing import Any
 @dataclass(frozen=True, slots=True)
 class DojoDebugSettings:
     enabled: bool = False
-    opacity: float = 0.82
+    opacity: float = 0.85
     fps: float = 15.0
     level: str = "detections"
     meditation_enter_delay_seconds: float = 5.5
@@ -26,7 +26,7 @@ class DojoDebugSettings:
         return replace(
             self,
             enabled=bool(self.enabled),
-            opacity=max(0.25, min(1.0, float(self.opacity))),
+            opacity=max(0.10, min(1.0, float(self.opacity))),
             fps=max(5.0, min(30.0, float(self.fps))),
             level=level,
             meditation_enter_delay_seconds=max(

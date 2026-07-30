@@ -47,6 +47,16 @@ class KageLinkDojoApiV351Tests(unittest.TestCase):
         self.assertEqual(unified_app.APP_VERSION, "3.5.1")
         self.assertEqual(unified_app.app.version, "3.5.1")
 
+    def test_start_route_installs_the_351_debug_bridge(self):
+        route = next(
+            route
+            for route in unified_app.app.routes
+            if getattr(route, "path", "") == "/api/dojo/start"
+            and "POST" in set(getattr(route, "methods", set()))
+        )
+        self.assertTrue(getattr(route.endpoint, "_kagelink_debug_bridge", False))
+        self.assertIs(route.dependant.call, route.endpoint)
+
     def test_desktop_dojo_catalog_has_pt_br_en_us_parity(self):
         required = {
             "dojo",

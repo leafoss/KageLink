@@ -13,7 +13,10 @@ from pc_agent.kage_pilot.dojo_templates_v35 import (
     UserDojoLeaderDetector,
 )
 from pc_agent.kage_pilot.dojo_training import DojoTrainingPhase
-from unified_dojo_templates_ui_v35 import CANONICAL_SIDEBAR_ORDER
+from unified_dojo_templates_ui_v35 import (
+    CANONICAL_SIDEBAR_ORDER,
+    preview_scale_steps,
+)
 
 
 class _FakeService:
@@ -103,6 +106,13 @@ class DojoTemplatesV35Tests(unittest.TestCase):
             store.save("64", self._png(68, 77, 150))
             self.assertTrue(service.start("config"))
             self.assertEqual(service.calls, ["config"])
+
+    def test_small_templates_are_enlarged_crisply_without_distortion(self):
+        self.assertEqual(preview_scale_steps(53, 69), (1, 2))
+        self.assertEqual(preview_scale_steps(42, 39), (1, 3))
+
+    def test_large_preview_is_reduced_before_display(self):
+        self.assertEqual(preview_scale_steps(420, 300), (3, 1))
 
     def test_settings_is_the_canonical_last_sidebar_item(self):
         self.assertEqual(CANONICAL_SIDEBAR_ORDER[-1], "settings")

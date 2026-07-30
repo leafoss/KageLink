@@ -17,10 +17,10 @@ from .dojo_training import (
 class DojoTrainingService(_BaseDojoTrainingService):
     """Stable public facade for source-tree and installed Dojo runtimes.
 
-    Source development keeps the validated Python subprocess path. A frozen
-    KageLink.exe launches the sibling ``KagePilotDojo.exe`` helper instead, so
-    the same isolated runtime remains usable after installation without relying
-    on loose ``.py`` files or a system Python installation.
+    Source development uses the canonical ``kage_pilot.py dojo`` command. A
+    frozen KageLink.exe launches the sibling ``KagePilotDojo.exe`` helper, so
+    the same isolated runtime remains usable after installation without loose
+    ``.py`` files or a system Python installation.
 
     Installed helpers are console executables because their stdout is the
     authoritative telemetry stream. KageLink launches them with
@@ -49,13 +49,13 @@ class DojoTrainingService(_BaseDojoTrainingService):
     def script_path(self) -> Path:
         if self.is_frozen_runtime:
             return self.packaged_helper_path
-        return super().script_path
+        return self.project_dir / "kage_pilot.py"
 
     def build_command(self, config: DojoTrainingConfig) -> list[str]:
         value = config.normalized()
         if self.is_frozen_runtime:
             return [str(self.packaged_helper_path), *value.to_cli_args()]
-        return super().build_command(value)
+        return [self.python_executable, str(self.script_path), "dojo", *value.to_cli_args()]
 
     def runtime_available(self) -> bool:
         return self.script_path.exists()

@@ -1,0 +1,62 @@
+from __future__ import annotations
+
+from pathlib import Path
+import os
+import tempfile
+import unittest
+
+from pc_agent.kage_pilot.dojo_debug_v351 import (
+    DojoDebugOverlay,
+    DojoDebugSettings,
+    read_debug_settings,
+    write_debug_settings,
+)
+
+
+class DojoDebugV351Tests(unittest.TestCase):
+    def test_settings_round_trip_and_normalize_safety_limits(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "debug.json"
+            written = write_debug_settings(
+                DojoDebugSettings(
+                    enabled=True,
+                    opacity=4.0,
+                    fps=100.0,
+                    level="unknown",
+                    meditation_enter_delay_seconds=1.0,
+                    meditation_exit_delay_seconds=2.0,
+                    meditation_timeout_seconds=3.0,
+                ),
+                path,
+            )
+            self.assertEqual(written, path)
+            loaded = read_debug_settings(path)
+
+        self.assertTrue(loaded.enabled)
+        self.assertEqual(loaded.opacity, 1.0)
+        self.assertEqual(loaded.fps, 30.0)
+        self.assertEqual(loaded.level, "detections")
+        self.assertEqual(loaded.meditation_enter_delay_seconds, 5.0)
+        self.assertEqual(loaded.meditation_exit_delay_seconds, 5.0)
+        self.assertEqual(loaded.meditation_timeout_seconds, 15.0)
+
+    def test_malformed_settings_fail_closed_to_defaults(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "debug.json"
+            path.write_text(
+                '{"enabled":"yes","opacity":"bad","fps":null}',
+                encoding="utf-8",
+            )
+            loaded = read_debug_settings(path)
+        self.assertFalse(loaded.enabled)
+        self.assertEqual(loaded.opacity, 0.82)
+        self.assertEqual(loaded.fps, 15.0)
+
+    def test_overlay_is_noop_off_windows(self):
+        overlay = DojoDebugOverlay()
+        if os.name != "nt":
+            self.assertFalse(overlay.start())
+
+
+if __name__ == "__main__":
+    unittest.main()

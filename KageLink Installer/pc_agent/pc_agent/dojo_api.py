@@ -44,6 +44,7 @@ class DojoStartRequest(BaseModel):
 
 def dojo_status_payload(service: DojoTrainingService) -> dict[str, Any]:
     snapshot = service.snapshot()
+    log_status = service.log_status() if hasattr(service, "log_status") else {}
     return {
         "available": service.runtime_available(),
         "running": snapshot.running,
@@ -53,6 +54,12 @@ def dojo_status_payload(service: DojoTrainingService) -> dict[str, Any]:
         "last_line": snapshot.last_line,
         "last_error": snapshot.last_error,
         "return_code": snapshot.return_code,
+        "position_state": str(getattr(service, "position_state", "LOST")),
+        "position_x": float(getattr(service, "position_x", 0.0) or 0.0),
+        "position_y": float(getattr(service, "position_y", 0.0) or 0.0),
+        "position_confidence": float(getattr(service, "position_confidence", 0.0) or 0.0),
+        "recent_actions": list(getattr(service, "recent_actions", ()) or ()),
+        "last_log": log_status,
         "defaults": DojoTrainingConfig(rounds=10).to_public_dict(),
     }
 
@@ -102,6 +109,10 @@ def create_dojo_router(
     @router.get("/status", dependencies=authorization)
     async def get_dojo_status() -> dict[str, Any]:
         return dojo_status_payload(service)
+
+    @router.get("/logs/latest", dependencies=authorization)
+    async def get_latest_dojo_log() -> dict[str, Any]:
+        return service.log_status() if hasattr(service, "log_status") else {"exists": False}
 
     @router.post("/start", dependencies=authorization)
     async def start_dojo(request: DojoStartRequest) -> dict[str, Any]:

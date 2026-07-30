@@ -8,6 +8,7 @@ import sys
 import kage_pilot_loop_v03g as loop_v03g
 
 from pc_agent.kage_pilot.dojo_fight_v03i import request_taijutsu_dojo_spar_single_click
+from pc_agent.kage_pilot.dojo_templates_v35 import install_user_dojo_leader_detector
 from pc_agent.kage_pilot.ko_identity_v03k import extract_ko_identity
 
 
@@ -126,7 +127,9 @@ def main() -> int:
     global _LAST_ACCEPTED_KO_NAME
     _LAST_ACCEPTED_KO_NAME = ""
 
+    install_user_dojo_leader_detector()
     print("Kage Pilot v0.3j: OPPONENT-AWARE KO BUFFER HOTFIX")
+    print("TRAINER: external user templates for game modes 32x32 and 64x64")
     print("TRAINER: exactly one click; dialog retries never re-click or re-search the trainer")
     print("DIALOG: one initial check + configured retries; failed dialog round does not stop loop")
     print("BURST: only one confirmed adjacent facing pulse; movement and H remain blocked")

@@ -32,7 +32,7 @@ class KagePilotDojoConfigTests(unittest.TestCase):
         self.assertEqual(value.dialog_delay, 5.0)
         self.assertEqual(value.spawn_delay, 5.0)
         self.assertEqual(value.recovery_hp_percent, 90.0)
-        self.assertEqual(value.recovery_chakra_percent, 50.0)
+        self.assertEqual(value.recovery_chakra_percent, 40.0)
         self.assertFalse(value.disable_h)
 
     def test_cli_overrides_json_without_mutating_other_values(self):
@@ -43,7 +43,7 @@ class KagePilotDojoConfigTests(unittest.TestCase):
                 dialog_delay=5,
                 spawn_delay=5,
                 recovery_hp_percent=90,
-                recovery_chakra_percent=50,
+                recovery_chakra_percent=40,
             )
             path.write_text(
                 json.dumps(base.to_public_dict(), ensure_ascii=False),
@@ -66,7 +66,7 @@ class KagePilotDojoConfigTests(unittest.TestCase):
         self.assertEqual(value.dialog_delay, 3)
         self.assertEqual(value.spawn_delay, 5)
         self.assertEqual(value.recovery_hp_percent, 95)
-        self.assertEqual(value.recovery_chakra_percent, 50)
+        self.assertEqual(value.recovery_chakra_percent, 40)
         self.assertTrue(value.disable_h)
 
     def test_loop_forwards_percentages_as_runtime_fractions_and_uses_selected_script(self):
@@ -100,8 +100,18 @@ class KagePilotDojoConfigTests(unittest.TestCase):
         self.assertEqual(command[hp_index], "0.95")
         self.assertEqual(command[chakra_index], "0.6")
 
-    def test_direct_loop_rejects_recovery_below_safety_floor(self):
-        args = SimpleNamespace(recovery_hp_percent=80, recovery_chakra_percent=50)
+    def test_direct_loop_accepts_40_and_rejects_values_below_floor(self):
+        hp, chakra = loop_v03g._validate_recovery_targets(
+            SimpleNamespace(recovery_hp_percent=90, recovery_chakra_percent=40)
+        )
+        self.assertEqual((hp, chakra), (90.0, 40.0))
+        with self.assertRaisesRegex(ValueError, "RECOVERY_CHAKRA_PERCENT_OUT_OF_RANGE"):
+            loop_v03g._validate_recovery_targets(
+                SimpleNamespace(recovery_hp_percent=90, recovery_chakra_percent=39.9)
+            )
+
+    def test_direct_loop_rejects_hp_below_safety_floor(self):
+        args = SimpleNamespace(recovery_hp_percent=80, recovery_chakra_percent=40)
         with self.assertRaisesRegex(ValueError, "RECOVERY_HP_PERCENT_OUT_OF_RANGE"):
             loop_v03g._validate_recovery_targets(args)
 

@@ -1,13 +1,16 @@
 """Canonical Kage Pilot Dojo loop boundary.
 
-The physically validated engine is still implemented by the historical v0.3j
-compatibility chain. New integrations must import or execute this versionless
-boundary instead of depending on a versioned filename directly.
+The physically validated engine is still supplied by the historical compatibility
+chain. New integrations, specs and tests must use this versionless module.
 """
 
 from __future__ import annotations
 
-from kage_pilot_loop_v03j import main
+import kage_pilot_loop_v03j as _validated_engine
+
+main = _validated_engine.main
+_round_command = _validated_engine._round_command
+_run_round_with_ko_buffer = _validated_engine._run_round_with_ko_buffer
 
 
 if __name__ == "__main__":

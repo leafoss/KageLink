@@ -42,9 +42,13 @@ KagePilotRound.exe
 Endpoints oficiais:
 
 ```text
-GET  /api/dojo/status
-POST /api/dojo/start
-POST /api/dojo/stop
+GET    /api/dojo/status
+POST   /api/dojo/start
+POST   /api/dojo/stop
+GET    /api/dojo/templates
+GET    /api/dojo/templates/{mode}/image
+POST   /api/dojo/templates/{mode}
+DELETE /api/dojo/templates/{mode}
 ```
 
 Todos exigem o mesmo Bearer Token do KageLink. O status deve expor, no mínimo:
@@ -62,9 +66,51 @@ return_code
 
 - Iniciar quando já estiver ativo retorna conflito.
 - Iniciar sem runtime instalado opera fail-closed.
+- Iniciar sem ao menos um template personalizado válido opera fail-closed com `DOJO_TRAINER_TEMPLATE_REQUIRED`.
 - Parar precisa liberar inputs mesmo quando o motor já terminou.
 
-## 4. Interlock de controle
+## 4. Templates externos 32×32 e 64×64 — REGRA PROTEGIDA
+
+O KageLink não deve depender de uma imagem do Dojo Trainer incorporada ao executável ou ao Setup como fonte principal de visão.
+
+O usuário pode fornecer templates independentes para:
+
+```text
+modo do jogo 32×32
+modo do jogo 64×64
+```
+
+Regras permanentes:
+
+- as imagens são propriedade da instalação do usuário;
+- devem ser persistidas fora de `Program Files`, fora do executável e fora da pasta temporária do PyInstaller;
+- o local canônico é `%LOCALAPPDATA%\KageLink\data\kage_pilot\templates`;
+- atualização ou reinstalação normal deve preservar os templates;
+- cada modo possui arquivo e metadados independentes;
+- o detector pode carregar os dois modos simultaneamente e deve escolher somente uma correspondência visual estável;
+- o upload precisa validar decodificação, limites de tamanho e dimensões;
+- remover um template não pode remover o outro;
+- o treinamento instalado não pode iniciar sem pelo menos um template personalizado válido;
+- a calibração local do código-fonte pode permanecer como compatibilidade exclusiva de desenvolvimento;
+- nenhum fallback incompatível pode autorizar clique, `V` ou movimento de recuperação.
+
+## 5. Regra canônica de navegação Desktop
+
+A ordem canônica da barra lateral do KageLink Desktop é:
+
+```text
+Visão geral / Overview
+Memória / Memory
+Conexão / Connection
+Dojo Trainer
+Configurações / Settings
+```
+
+**Configurações / Settings deve ser sempre o último item do menu lateral.**
+
+Esta é uma regra permanente de produto, não apenas um detalhe da tela Dojo. Novas páginas devem ser inseridas antes de `Settings`. Testes de UI ou constantes canônicas devem impedir regressão dessa ordem.
+
+## 6. Interlock de controle
 
 Durante `running=true`:
 
@@ -76,7 +122,7 @@ Durante `running=true`:
 
 O objetivo é impedir que APK, Desktop e agente autônomo enviem comandos concorrentes.
 
-## 5. Contratos preservados do Kage Pilot v0.3j
+## 7. Contratos preservados do Kage Pilot v0.3j
 
 - `R` é a única tecla normalmente mantida durante combate.
 - setas e `H` são pulsos curtos e condicionados;
@@ -89,7 +135,7 @@ O objetivo é impedir que APK, Desktop e agente autônomo enviem comandos concor
 
 Alterações nesses contratos exigem branch própria, testes de regressão e validação física no jogo.
 
-## 6. Internacionalização
+## 8. Internacionalização
 
 Toda superfície nova deve existir em PT-BR e EN-US:
 
@@ -101,7 +147,7 @@ Toda superfície nova deve existir em PT-BR e EN-US:
 
 Identificadores técnicos de telemetria podem permanecer estáveis em inglês para diagnóstico.
 
-## 7. Gate obrigatório de distribuição
+## 9. Gate obrigatório de distribuição
 
 Antes de uma Release com Dojo:
 
@@ -111,11 +157,12 @@ Antes de uma Release com Dojo:
 4. `--help` funcional nos dois helpers;
 5. smoke launch do `KageLink.exe`;
 6. Setup contendo os três executáveis;
-7. `flutter gen-l10n`, analyze e testes;
-8. APK release;
-9. validação real do Setup instalado;
-10. validação real do APK conectado ao Setup;
-11. aprovação explícita de Rafael antes do merge.
+7. upload, persistência, remoção e recarga dos templates 32×32 e 64×64;
+8. `flutter gen-l10n`, analyze e testes;
+9. APK release;
+10. validação real do Setup instalado;
+11. validação real do APK conectado ao Setup;
+12. aprovação explícita de Rafael antes do merge.
 
 Artifacts temporários de PR não substituem a Release oficial. A Release é construída novamente da `main` e publicada pelos nomes estáveis:
 
@@ -125,14 +172,18 @@ KageLink-Android.apk
 SHA256SUMS.txt
 ```
 
-## 8. Validação física mínima 3.5.0
+## 10. Validação física mínima 3.5.0
 
 A versão não pode ser marcada pronta apenas porque os builds passaram. É obrigatório confirmar no Windows instalado:
 
 ```text
 Setup instala os 3 executáveis
 → Desktop mostra Motor: Instalado
-→ iniciar 1 rodada
+→ Settings aparece como último item do menu
+→ upload do template 32×32 persiste após reiniciar
+→ upload do template 64×64 persiste após reiniciar
+→ iniciar 1 rodada em modo 32×32
+→ iniciar 1 rodada em modo 64×64
 → diálogo, combate, KO, retorno e recuperação
 → parar pelo Desktop
 → iniciar pelo APK

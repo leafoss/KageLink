@@ -11,6 +11,9 @@ from pathlib import Path
 
 import kage_pilot_loop_v03j as _validated_engine
 
+from pc_agent.kage_pilot.dojo_anchor_monitor_compat_v351 import (
+    install_anchor_monitor_tracker_compat,
+)
 from pc_agent.kage_pilot.dojo_position_bridge import (
     DojoAnchorMonitor,
     restore_tracker_state,
@@ -20,6 +23,7 @@ from pc_agent.kage_pilot.visual_position_guard import install_visual_position_gu
 
 
 install_visual_position_guard()
+install_anchor_monitor_tracker_compat()
 
 # Compatibility handles retained for established packaged-runtime tests and callers.
 sys = _validated_engine.sys

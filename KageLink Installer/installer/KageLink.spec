@@ -16,6 +16,7 @@ hiddenimports = [
     'unified_dojo_ui',
     'unified_dojo_templates_ui_v35',
     'unified_dojo_ui_v351',
+    'unified_dojo_debug_v351',
     'unified_dojo_responsive_v351',
     'unified_launcher',
 ] + collect_submodules('pc_agent') + [

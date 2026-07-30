@@ -6,6 +6,12 @@ import unittest
 import kage_pilot_loop
 import kage_pilot_round
 from pc_agent.kage_pilot import DojoTrainingService
+from pc_agent.kage_pilot.combat_control import (
+    LiveCombatControlPlanner,
+    LiveControlCommand,
+    MotionBurstGuard,
+    MotionBurstState,
+)
 from pc_agent.kage_pilot.dojo_request import (
     DojoRoundWithoutCombatError,
     request_taijutsu_dojo_spar_single_click,
@@ -15,6 +21,10 @@ from pc_agent.kage_pilot.dojo_training_service import DojoTrainingService as Can
 from pc_agent.kage_pilot.dojo_training_v03k import DojoTrainingService as LegacyService
 from pc_agent.kage_pilot.ko_identity import RoundKOIdentityGate
 from pc_agent.kage_pilot.ko_identity_v03k import RoundKOIdentityGate as LegacyKOIdentityGate
+from pc_agent.kage_pilot.post_combat import (
+    PostCombatDecision,
+    VisualProgressPostCombatRecoveryEngine,
+)
 from pc_agent.kage_pilot.trainer_search import TrainerSearchMotionGate
 
 
@@ -36,6 +46,12 @@ class KagePilotCanonicalBoundaryTests(unittest.TestCase):
         self.assertTrue(issubclass(DojoRoundWithoutCombatError, Exception))
         self.assertTrue(callable(DojoTemplateStore))
         self.assertTrue(callable(TrainerSearchMotionGate))
+        self.assertTrue(callable(LiveCombatControlPlanner))
+        self.assertTrue(callable(LiveControlCommand))
+        self.assertTrue(callable(MotionBurstGuard))
+        self.assertTrue(callable(MotionBurstState))
+        self.assertTrue(callable(PostCombatDecision))
+        self.assertTrue(callable(VisualProgressPostCombatRecoveryEngine))
 
     def test_source_runtime_uses_versionless_entrypoints(self):
         service = CanonicalService(project_dir=AGENT, python_executable="python-test")

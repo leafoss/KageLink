@@ -21,7 +21,7 @@ for package in ['numpy', 'cv2', 'mss', 'PIL']:
     hiddenimports += h
 
 a = Analysis(
-    [os.path.join(agent, 'kage_pilot_loop_v03j.py')],
+    [os.path.join(agent, 'pc_agent', 'kage_pilot', 'dojo_entry.py')],
     pathex=[agent],
     binaries=binaries,
     datas=datas,

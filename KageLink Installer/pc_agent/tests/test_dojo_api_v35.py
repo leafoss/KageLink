@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
+import tempfile
 import unittest
+
+from pydantic import ValidationError
 
 import unified_app
 import unified_app_v35
@@ -9,6 +13,8 @@ import unified_dojo_templates_ui_v35  # noqa: F401
 import unified_dojo_ui  # noqa: F401
 import unified_dojo_ui_v351  # noqa: F401
 import unified_launcher
+from pc_agent.dojo_api import DojoDebugRequest, DojoStartRequest, dojo_status_payload
+from pc_agent.kage_pilot import DojoTrainingService
 
 
 class KageLinkDojoApiV351Tests(unittest.TestCase):
@@ -56,6 +62,38 @@ class KageLinkDojoApiV351Tests(unittest.TestCase):
         )
         self.assertTrue(getattr(route.endpoint, "_kagelink_debug_bridge", False))
         self.assertIs(route.dependant.call, route.endpoint)
+        source = Path(unified_app_v35.__file__).read_text(encoding="utf-8")
+        self.assertIn("dojo_service.recovery_hp_percent", source)
+        self.assertIn("dojo_service.recovery_chakra_percent", source)
+
+    def test_api_accepts_ten_percent_opacity_and_40_percent_chakra(self):
+        debug = DojoDebugRequest(opacity=0.10)
+        request = DojoStartRequest(
+            recovery_chakra_percent=40,
+            debug_overlay_opacity=0.10,
+        )
+        self.assertEqual(debug.opacity, 0.10)
+        self.assertEqual(request.recovery_chakra_percent, 40.0)
+        self.assertEqual(request.debug_overlay_opacity, 0.10)
+        self.assertEqual(request.to_config().recovery_chakra_percent, 40.0)
+
+    def test_api_rejects_values_below_new_floors(self):
+        with self.assertRaises(ValidationError):
+            DojoDebugRequest(opacity=0.09)
+        with self.assertRaises(ValidationError):
+            DojoStartRequest(recovery_chakra_percent=39.9)
+
+    def test_status_payload_exposes_backend_recovery_values(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "kage_pilot_loop.py").write_text("# test", encoding="utf-8")
+            service = DojoTrainingService(project_dir=root)
+            service.recovery_hp_percent = 94.0
+            service.recovery_chakra_percent = 40.0
+            payload = dojo_status_payload(service)
+        self.assertEqual(payload["recovery_hp_percent"], 94.0)
+        self.assertEqual(payload["recovery_chakra_percent"], 40.0)
+        self.assertEqual(payload["defaults"]["recovery"]["chakra_percent"], 40.0)
 
     def test_desktop_dojo_catalog_has_pt_br_en_us_parity(self):
         required = {

@@ -14,7 +14,7 @@ launcher.TEXT["pt-BR"].update(
         "dojo_debug_basic": "Básico",
         "dojo_debug_detections": "Detecções",
         "dojo_debug_processed": "Visão processada",
-        "dojo_debug_opacity": "Opacidade",
+        "dojo_debug_opacity": "Opacidade (%)",
         "dojo_debug_fps": "FPS do overlay",
         "dojo_meditation_title": "Recuperação e meditação",
         "dojo_meditation_state": "Estado da meditação",
@@ -35,7 +35,8 @@ launcher.TEXT["pt-BR"].update(
         "dojo_combat_blocked": "Bloqueado",
         "dojo_combat_allowed": "Liberado",
         "dojo_debug_help": (
-            "F10 também liga ou desliga o overlay. Os delays nunca podem ficar abaixo de 5 segundos."
+            "Os valores são carregados do backend e aplicados ao clicar em Iniciar. "
+            "A opacidade aceita 10 a 100. F10 liga ou desliga o overlay durante a execução."
         ),
         "dojo_debug_invalid": "Revise os valores de debug e recuperação.",
         "dojo_debug_update_failed": "Não foi possível atualizar o debug:\n\n{error}",
@@ -49,7 +50,7 @@ launcher.TEXT["en-US"].update(
         "dojo_debug_basic": "Basic",
         "dojo_debug_detections": "Detections",
         "dojo_debug_processed": "Processed view",
-        "dojo_debug_opacity": "Opacity",
+        "dojo_debug_opacity": "Opacity (%)",
         "dojo_debug_fps": "Overlay FPS",
         "dojo_meditation_title": "Recovery and meditation",
         "dojo_meditation_state": "Meditation state",
@@ -70,7 +71,8 @@ launcher.TEXT["en-US"].update(
         "dojo_combat_blocked": "Blocked",
         "dojo_combat_allowed": "Allowed",
         "dojo_debug_help": (
-            "F10 also toggles the overlay. Transition delays can never be lower than 5 seconds."
+            "Values are loaded from the backend and applied when Start is clicked. "
+            "Opacity accepts 10 to 100. F10 toggles the overlay while training is running."
         ),
         "dojo_debug_invalid": "Review the debug and recovery values.",
         "dojo_debug_update_failed": "The visual debug could not be updated:\n\n{error}",
@@ -95,24 +97,49 @@ _MEDITATION_LABELS = {
 
 
 def install_dojo_debug_desktop(base_class):
-    """Add PR23 meditation diagnostics and live overlay controls to the tabbed Dojo UI."""
+    """Add PR23 meditation diagnostics and backend-backed settings to the Dojo UI."""
 
     class DebugDojoDesktopUI(base_class):
         def __init__(self, root) -> None:
             self.dojo_debug_enabled_var = BooleanVar(value=False)
             self.dojo_debug_level_var = StringVar(value="detections")
-            self.dojo_debug_opacity_var = StringVar(value="0.82")
+            self.dojo_debug_opacity_var = StringVar(value="85")
             self.dojo_debug_fps_var = StringVar(value="15")
             self.dojo_meditation_enter_delay_var = StringVar(value="5.5")
             self.dojo_meditation_exit_delay_var = StringVar(value="5.5")
             self.dojo_meditation_timeout_var = StringVar(value="120")
             self.dojo_recovery_hp_var = StringVar(value="90")
-            self.dojo_recovery_chakra_var = StringVar(value="50")
+            self.dojo_recovery_chakra_var = StringVar(value="40")
             self.dojo_meditation_state_var = StringVar(value="—")
             self.dojo_meditation_detail_var = StringVar(value="—")
             self.dojo_combat_gate_var = StringVar(value="—")
             self._dojo_debug_syncing = False
+            self._dojo_setting_dirty: set[str] = set()
+            self._dojo_setting_vars = {
+                "enabled": self.dojo_debug_enabled_var,
+                "level": self.dojo_debug_level_var,
+                "opacity": self.dojo_debug_opacity_var,
+                "fps": self.dojo_debug_fps_var,
+                "recovery_hp_percent": self.dojo_recovery_hp_var,
+                "recovery_chakra_percent": self.dojo_recovery_chakra_var,
+                "meditation_enter_delay_seconds": self.dojo_meditation_enter_delay_var,
+                "meditation_exit_delay_seconds": self.dojo_meditation_exit_delay_var,
+                "meditation_timeout_seconds": self.dojo_meditation_timeout_var,
+            }
             super().__init__(root)
+            for field, variable in self._dojo_setting_vars.items():
+                variable.trace_add(
+                    "write",
+                    lambda *_args, name=field: self._dojo_mark_setting_dirty(name),
+                )
+
+        def _dojo_mark_setting_dirty(self, field: str) -> None:
+            if not self._dojo_debug_syncing:
+                self._dojo_setting_dirty.add(str(field))
+
+        def _dojo_set_backend_value(self, field: str, variable, value) -> None:
+            if field not in self._dojo_setting_dirty:
+                variable.set(value)
 
         def _build_dojo_summary_tab(self, parent: Frame) -> None:
             super()._build_dojo_summary_tab(parent)
@@ -191,7 +218,6 @@ def install_dojo_debug_desktop(base_class):
                 card,
                 text=launcher._t(self.lang, "dojo_debug_enabled"),
                 variable=self.dojo_debug_enabled_var,
-                command=self._dojo_update_debug_live,
                 bg=launcher.COLORS["card"],
                 fg=launcher.COLORS["text"],
                 activebackground=launcher.COLORS["card"],
@@ -218,7 +244,6 @@ def install_dojo_debug_desktop(base_class):
                 card,
                 self.dojo_debug_level_var,
                 *(level_labels[key] for key in ("basic", "detections", "processed")),
-                command=lambda _value: self._dojo_update_debug_live(),
             )
             level_menu.configure(
                 bg=launcher.COLORS["surface_alt"],
@@ -264,14 +289,14 @@ def install_dojo_debug_desktop(base_class):
 
         def _debug_request_payload(self) -> dict:
             try:
-                opacity = float(self.dojo_debug_opacity_var.get().strip())
+                opacity_percent = float(self.dojo_debug_opacity_var.get().strip())
                 fps = float(self.dojo_debug_fps_var.get().strip())
                 enter_delay = float(self.dojo_meditation_enter_delay_var.get().strip())
                 exit_delay = float(self.dojo_meditation_exit_delay_var.get().strip())
                 timeout = float(self.dojo_meditation_timeout_var.get().strip())
                 hp = float(self.dojo_recovery_hp_var.get().strip())
                 chakra = float(self.dojo_recovery_chakra_var.get().strip())
-                if not 0.25 <= opacity <= 1.0:
+                if not 10.0 <= opacity_percent <= 100.0:
                     raise ValueError
                 if not 5.0 <= fps <= 30.0:
                     raise ValueError
@@ -279,7 +304,7 @@ def install_dojo_debug_desktop(base_class):
                     raise ValueError
                 if not 15.0 <= timeout <= 1800.0:
                     raise ValueError
-                if not 90.0 <= hp <= 100.0 or not 50.0 <= chakra <= 100.0:
+                if not 90.0 <= hp <= 100.0 or not 40.0 <= chakra <= 100.0:
                     raise ValueError
             except (TypeError, ValueError):
                 raise ValueError(launcher._t(self.lang, "dojo_debug_invalid"))
@@ -294,7 +319,7 @@ def install_dojo_debug_desktop(base_class):
             return {
                 "enabled": bool(self.dojo_debug_enabled_var.get()),
                 "level": level,
-                "opacity": opacity,
+                "opacity": opacity_percent / 100.0,
                 "fps": fps,
                 "meditation_enter_delay_seconds": enter_delay,
                 "meditation_exit_delay_seconds": exit_delay,
@@ -304,6 +329,7 @@ def install_dojo_debug_desktop(base_class):
             }
 
         def _dojo_update_debug_live(self) -> None:
+            """Compatibility hook; numeric and selection edits are intentionally Start-bound."""
             if self._dojo_debug_syncing:
                 return
             try:
@@ -338,6 +364,10 @@ def install_dojo_debug_desktop(base_class):
 
             threading.Thread(target=worker, name="DojoDebugUpdate", daemon=True).start()
 
+        def _accept_started_dojo_status(self, payload: dict) -> None:
+            self._dojo_setting_dirty.clear()
+            self._apply_dojo_status(payload)
+
         def start_dojo(self) -> None:
             try:
                 rounds = int(self.dojo_rounds_var.get().strip())
@@ -371,7 +401,7 @@ def install_dojo_debug_desktop(base_class):
             def worker() -> None:
                 try:
                     response = self._api_json("POST", "/api/dojo/start", payload, timeout=15)
-                    self.ui(lambda value=response: self._apply_dojo_status(value))
+                    self.ui(lambda value=response: self._accept_started_dojo_status(value))
                     self.ui(lambda: self._show_page("dojo"))
                 except Exception as error:
                     self.ui(
@@ -390,26 +420,70 @@ def install_dojo_debug_desktop(base_class):
         def _apply_dojo_status(self, payload: dict) -> None:
             super()._apply_dojo_status(payload)
             debug = payload.get("debug")
+            defaults = payload.get("defaults")
+            recovery_defaults = (
+                defaults.get("recovery", {})
+                if isinstance(defaults, dict)
+                else {}
+            )
             if isinstance(debug, dict):
                 self._dojo_debug_syncing = True
                 try:
-                    self.dojo_debug_enabled_var.set(bool(debug.get("enabled", False)))
+                    self._dojo_set_backend_value(
+                        "enabled",
+                        self.dojo_debug_enabled_var,
+                        bool(debug.get("enabled", False)),
+                    )
                     level = str(debug.get("level") or "detections")
                     if level not in _LEVEL_LABELS:
                         level = "detections"
-                    self.dojo_debug_level_var.set(
-                        launcher._t(self.lang, _LEVEL_LABELS[level])
+                    self._dojo_set_backend_value(
+                        "level",
+                        self.dojo_debug_level_var,
+                        launcher._t(self.lang, _LEVEL_LABELS[level]),
                     )
-                    self.dojo_debug_opacity_var.set(f"{float(debug.get('opacity', 0.82)):.2f}")
-                    self.dojo_debug_fps_var.set(f"{float(debug.get('fps', 15.0)):.0f}")
-                    self.dojo_meditation_enter_delay_var.set(
-                        f"{float(debug.get('meditation_enter_delay_seconds', 5.5)):.1f}"
+                    self._dojo_set_backend_value(
+                        "opacity",
+                        self.dojo_debug_opacity_var,
+                        f"{float(debug.get('opacity', 0.85)) * 100:.0f}",
                     )
-                    self.dojo_meditation_exit_delay_var.set(
-                        f"{float(debug.get('meditation_exit_delay_seconds', 5.5)):.1f}"
+                    self._dojo_set_backend_value(
+                        "fps",
+                        self.dojo_debug_fps_var,
+                        f"{float(debug.get('fps', 15.0)):.0f}",
                     )
-                    self.dojo_meditation_timeout_var.set(
-                        f"{float(debug.get('meditation_timeout_seconds', 120.0)):.0f}"
+                    self._dojo_set_backend_value(
+                        "meditation_enter_delay_seconds",
+                        self.dojo_meditation_enter_delay_var,
+                        f"{float(debug.get('meditation_enter_delay_seconds', 5.5)):.1f}",
+                    )
+                    self._dojo_set_backend_value(
+                        "meditation_exit_delay_seconds",
+                        self.dojo_meditation_exit_delay_var,
+                        f"{float(debug.get('meditation_exit_delay_seconds', 5.5)):.1f}",
+                    )
+                    self._dojo_set_backend_value(
+                        "meditation_timeout_seconds",
+                        self.dojo_meditation_timeout_var,
+                        f"{float(debug.get('meditation_timeout_seconds', 120.0)):.0f}",
+                    )
+                    hp = payload.get(
+                        "recovery_hp_percent",
+                        recovery_defaults.get("hp_percent", 90.0),
+                    )
+                    chakra = payload.get(
+                        "recovery_chakra_percent",
+                        recovery_defaults.get("chakra_percent", 40.0),
+                    )
+                    self._dojo_set_backend_value(
+                        "recovery_hp_percent",
+                        self.dojo_recovery_hp_var,
+                        f"{float(hp):.0f}",
+                    )
+                    self._dojo_set_backend_value(
+                        "recovery_chakra_percent",
+                        self.dojo_recovery_chakra_var,
+                        f"{float(chakra):.0f}",
                     )
                 except (TypeError, ValueError):
                     pass

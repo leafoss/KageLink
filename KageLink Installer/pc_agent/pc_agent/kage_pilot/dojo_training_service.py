@@ -92,7 +92,7 @@ class DojoTrainingService(_BaseDojoTrainingService):
             templates = {"metadata_error": f"{type(exc).__name__}:{exc}"}
         return {
             "kagelink_version": "3.5.1",
-            "kage_pilot_version": "v0.3j+visual-position-3.5.1",
+            "kage_pilot_runtime": "canonical+visual-position-3.5.1",
             "frozen_runtime": self.is_frozen_runtime,
             "command": self.build_command(config),
             "configuration": config.to_public_dict(),

@@ -57,6 +57,15 @@ class DojoDebugV351Tests(unittest.TestCase):
         if os.name != "nt":
             self.assertFalse(overlay.start())
 
+    def test_windows_overlay_uses_64_bit_safe_win32_calls(self):
+        source = Path(__file__).resolve().parents[1] / "pc_agent" / "kage_pilot" / "dojo_debug_v351.py"
+        text = source.read_text(encoding="utf-8")
+        self.assertIn("win32gui.GetWindowLong", text)
+        self.assertIn("win32gui.SetWindowLong", text)
+        self.assertIn("SetWindowDisplayAffinity", text)
+        self.assertIn("set_affinity.argtypes", text)
+        self.assertNotIn("GetWindowLongPtrW", text)
+
 
 if __name__ == "__main__":
     unittest.main()

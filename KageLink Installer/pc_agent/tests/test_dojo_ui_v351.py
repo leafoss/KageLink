@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import unittest
 
+import unified_dojo_responsive_v351
 import unified_dojo_ui_v351
 import unified_launcher
 from unified_dojo_templates_ui_v35 import CANONICAL_SIDEBAR_ORDER
@@ -13,6 +14,9 @@ class DojoDesktopV351ContractTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.source_path = Path(unified_dojo_ui_v351.__file__).resolve()
         cls.source = cls.source_path.read_text(encoding="utf-8")
+        cls.responsive_source = Path(unified_dojo_responsive_v351.__file__).read_text(
+            encoding="utf-8"
+        )
 
     def test_four_canonical_tabs_exist_in_both_languages(self):
         required = {
@@ -58,10 +62,11 @@ class DojoDesktopV351ContractTests(unittest.TestCase):
 
     def test_images_are_built_in_64_then_32_order_and_centered(self):
         self.assertIn('for column, mode in enumerate(("64", "32"))', self.source)
-        self.assertIn("cards = list(image_grid.winfo_children())", self.source)
-        template_source = Path(
-            unified_dojo_ui_v351.__file__
-        ).with_name("unified_dojo_templates_ui_v35.py").read_text(encoding="utf-8")
+        self.assertIn("cards = list(image_grid.winfo_children())", self.responsive_source)
+        self.assertNotIn("reversed(image_grid.winfo_children())", self.responsive_source)
+        template_source = Path(unified_dojo_ui_v351.__file__).with_name(
+            "unified_dojo_templates_ui_v35.py"
+        ).read_text(encoding="utf-8")
         self.assertIn('anchor="center"', template_source)
         self.assertIn("_fit_preview_image", template_source)
 

@@ -33,6 +33,7 @@ class ClosedLoopVisualRecoveryEngine(_BASE_POST_ENGINE):
         return_tolerance_cells: float = 0.80,
         return_timeout_seconds: float = 75.0,
         return_max_steps: int = 320,
+        return_no_progress_limit: int = 12,
         static_scan_frames: int = 8,
         relocalize_interval_seconds: float = 0.75,
         **kwargs,
@@ -42,11 +43,14 @@ class ClosedLoopVisualRecoveryEngine(_BASE_POST_ENGINE):
         self.return_tolerance_cells = max(0.35, min(2.0, float(return_tolerance_cells)))
         self.return_timeout_seconds = max(8.0, min(180.0, float(return_timeout_seconds)))
         self.return_max_steps = max(20, min(2000, int(return_max_steps)))
+        self.return_no_progress_limit = max(3, min(100, int(return_no_progress_limit)))
         self.static_scan_frames = max(2, min(30, int(static_scan_frames)))
         self.relocalize_interval_seconds = max(0.25, min(3.0, float(relocalize_interval_seconds)))
         self._commanded_direction: str | None = None
         self._return_started_at: float | None = None
         self._return_steps = 0
+        self._return_no_progress = 0
+        self._return_last_distance: float | None = None
         self._static_scans = 0
         self._last_relocalize_at = -1e9
         self._local_search_index = 0
@@ -65,15 +69,38 @@ class ClosedLoopVisualRecoveryEngine(_BASE_POST_ENGINE):
             return None
         return match
 
+    def _accepted_mode(self) -> str:
+        value = str(getattr(self.leader_detector, "last_accepted_template_mode", "-") or "-")
+        return value if value in {"32", "64"} else "-"
+
+    def _sync_cell_mode(self) -> str:
+        mode = self._accepted_mode()
+        if mode in {"32", "64"}:
+            cell_size = float(mode)
+            if abs(self.position.cell_size - cell_size) > 0.1:
+                self.position.cell_size = cell_size
+                self.position.odometry.cell_size = cell_size
+                self.position.odometry.reset()
+                _telemetry("DOJO_CELL_MODE", {"mode": mode, "cell_size": int(cell_size)})
+        return mode
+
+    def _set_visual_anchor(self, frame_bgr, observer_state) -> None:
+        mode = self._sync_cell_mode()
+        self.position.set_anchor(frame_bgr, observer_state, mode=mode)
+        self._return_last_distance = 0.0
+        self._return_no_progress = 0
+
     def begin_post_combat(self) -> None:
         super().begin_post_combat()
         self._return_started_at = time.monotonic()
         self._return_steps = 0
+        self._return_no_progress = 0
+        snapshot = self.position.snapshot()
+        self._return_last_distance = math.hypot(snapshot.x, snapshot.y)
         self._static_scans = 0
         self._last_relocalize_at = -1e9
         self._local_search_index = 0
         self._fallback_allowed = False
-        snapshot = self.position.snapshot()
         _telemetry(
             "DOJO_RETURN_BEGIN",
             {
@@ -96,19 +123,38 @@ class ClosedLoopVisualRecoveryEngine(_BASE_POST_ENGINE):
             self.position.mark_blocked(direction, now=now)
 
     def observe_world(self, frame_bgr, observer_state, observer, *, now: float):
+        self._sync_cell_mode()
         self.position.observe(frame_bgr, observer_state)
         match = super().observe_world(frame_bgr, observer_state, observer, now=now)
         if match is not None and getattr(match, "source", "") == "visual" and not self.position.anchored:
-            mode = getattr(self.leader_detector, "last_accepted_template_mode", "-") or "-"
-            self.position.set_anchor(frame_bgr, observer_state, mode=str(mode))
+            self._set_visual_anchor(frame_bgr, observer_state)
         return match
 
     def observe_movement_frame(self, frame_bgr, observer_state, *, now: float) -> None:
+        self._sync_cell_mode()
+        commanded = self._commanded_direction
+        before_distance = math.hypot(self.position.x, self.position.y)
         self.position.observe(
             frame_bgr,
             observer_state,
-            commanded_direction=self._commanded_direction,
+            commanded_direction=commanded,
         )
+        after_distance = math.hypot(self.position.x, self.position.y)
+        if commanded and self._return_started_at is not None:
+            if after_distance <= before_distance - 0.08:
+                self._return_no_progress = 0
+            else:
+                self._return_no_progress += 1
+                _telemetry(
+                    "DOJO_RETURN_NO_PROGRESS",
+                    {
+                        "count": self._return_no_progress,
+                        "direction": commanded,
+                        "before": f"{before_distance:.4f}",
+                        "after": f"{after_distance:.4f}",
+                    },
+                )
+            self._return_last_distance = after_distance
         self._commanded_direction = None
         super().observe_movement_frame(frame_bgr, observer_state, now=now)
 
@@ -154,25 +200,22 @@ class ClosedLoopVisualRecoveryEngine(_BASE_POST_ENGINE):
 
     def step(self, frame_bgr, observer_state, observer, *, now: float):
         now = float(now)
+        self._sync_cell_mode()
         base = super().step(frame_bgr, observer_state, observer, now=now)
         current_visual = self._current_visual(self.leader_detector, now=now)
 
-        # The validated current visual/recovery authority always wins. This preserves the existing
-        # click/meditation/recovery contract and allows a newly confirmed Trainer to refresh origin.
+        # Existing visual/recovery authority always wins. The origin is refreshed only after
+        # a valid nearby Trainer confirmation, never from memory or from the macro start point.
         if current_visual is not None:
             if not self.position.anchored:
-                mode = getattr(self.leader_detector, "last_accepted_template_mode", "-") or "-"
-                self.position.set_anchor(frame_bgr, observer_state, mode=str(mode))
+                self._set_visual_anchor(frame_bgr, observer_state)
             if base.tap_v or base.state in {
                 "READY", "MEDITATING", "START_MEDITATION", "RECOVERY_CONFIRM",
                 "SEEK_LEADER", "SELF_OCCLUSION_ESCAPE", "SELF_OCCLUSION_WAIT",
             }:
-                if getattr(base, "leader_distance", None) is not None and int(base.leader_distance) <= 1:
-                    self.position.set_anchor(
-                        frame_bgr,
-                        observer_state,
-                        mode=str(getattr(self.leader_detector, "last_accepted_template_mode", "-") or "-"),
-                    )
+                distance = getattr(base, "leader_distance", None)
+                if distance is not None and int(distance) <= 1 and not self.position.near_origin(0.35):
+                    self._set_visual_anchor(frame_bgr, observer_state)
                 return base
 
         snapshot = self.position.snapshot()
@@ -182,13 +225,21 @@ class ClosedLoopVisualRecoveryEngine(_BASE_POST_ENGINE):
                 _telemetry("DOJO_SAFE_LOCAL_SEARCH_BEGIN", {"reason": "anchor_not_confirmed"})
             return self._safe_local_search(base)
 
-        if snapshot.state != PositionState.KNOWN:
+        if self._return_no_progress >= self.return_no_progress_limit:
+            self.position.state = PositionState.UNCERTAIN
+            _telemetry(
+                "DOJO_RETURN_STALLED",
+                {"count": self._return_no_progress, "x": self.position.x, "y": self.position.y},
+            )
+
+        if snapshot.state != PositionState.KNOWN or self.position.state != PositionState.KNOWN:
             if now - self._last_relocalize_at >= self.relocalize_interval_seconds:
                 self._last_relocalize_at = now
-                if self.position.relocalize(frame_bgr, observer_state):
-                    snapshot = self.position.snapshot()
-                else:
-                    snapshot = self.position.snapshot()
+                self.position.relocalize(frame_bgr, observer_state)
+                snapshot = self.position.snapshot()
+                if snapshot.state == PositionState.KNOWN:
+                    self._return_no_progress = 0
+                    self._return_last_distance = math.hypot(snapshot.x, snapshot.y)
             if snapshot.state != PositionState.KNOWN:
                 self._static_scans += 1
                 if self._static_scans <= self.static_scan_frames:

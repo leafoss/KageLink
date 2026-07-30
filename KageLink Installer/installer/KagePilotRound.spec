@@ -7,11 +7,7 @@ agent = os.path.join(root, 'pc_agent')
 datas = []
 binaries = []
 hiddenimports = collect_submodules('pc_agent') + [
-    'kage_pilot_live_v0351_round',
-    'kage_pilot_live_v03k_round',
-    'kage_pilot_live_v03j_round',
-    'kage_pilot_live_v03e_round',
-    'kage_pilot_live_v03',
+    'kage_pilot_visual_return',
     'win32timezone',
     'win32ui',
     'win32gui',

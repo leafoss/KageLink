@@ -41,7 +41,7 @@ jobs:
 
       - name: Compile Kage Pilot and 3.5 integration
         run: |
-          python -m compileall -q pc_agent/kage_pilot pc_agent/dojo_api.py
+          python -m compileall -q pc_agent/kage_pilot pc_agent/dojo_api.py pc_agent/dojo_templates_api_v35.py
           python -m py_compile `
             kage_pilot_dojo.py `
             kage_pilot_loop_v03g.py `
@@ -50,12 +50,14 @@ jobs:
             kage_pilot_live_v03k_round.py `
             unified_app_v35.py `
             unified_dojo_ui.py `
+            unified_dojo_templates_ui_v35.py `
             unified_entry.py
 
       - name: Targeted release-candidate tests
         run: |
           python -m unittest `
             tests.test_dojo_api_v35 `
+            tests.test_dojo_templates_v35 `
             tests.test_kage_pilot_dojo_service `
             tests.test_kage_pilot_dojo_config `
             tests.test_kage_pilot_dojo_dialog_retry `

@@ -2,34 +2,36 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
-import sys
 
 
-ROOT = Path(__file__).resolve().parents[1]
-REPOSITORY_ROOT = ROOT.parent.parent
+AGENT_ROOT = Path(__file__).resolve().parents[1]
+PRODUCT_ROOT = AGENT_ROOT.parent
+REPOSITORY_ROOT = PRODUCT_ROOT.parent
 
 PUBLIC_CONSUMERS = (
-    ROOT / "kage_pilot.py",
-    ROOT / "kage_pilot_dojo.py",
-    ROOT / "kage_pilot_loop.py",
-    ROOT / "kage_pilot_round.py",
-    ROOT / "pc_agent" / "dojo_api.py",
-    ROOT / "pc_agent" / "dojo_templates_api_v35.py",
-    ROOT / "pc_agent" / "kage_pilot" / "__init__.py",
-    ROOT / "pc_agent" / "kage_pilot" / "dojo_training_service.py",
-    REPOSITORY_ROOT / "installer" / "KagePilotDojo.spec",
-    REPOSITORY_ROOT / "installer" / "KagePilotRound.spec",
+    AGENT_ROOT / "kage_pilot.py",
+    AGENT_ROOT / "kage_pilot_dojo.py",
+    AGENT_ROOT / "kage_pilot_loop.py",
+    AGENT_ROOT / "kage_pilot_round.py",
+    AGENT_ROOT / "pc_agent" / "dojo_api.py",
+    AGENT_ROOT / "pc_agent" / "dojo_templates_api_v35.py",
+    AGENT_ROOT / "pc_agent" / "kage_pilot" / "__init__.py",
+    AGENT_ROOT / "pc_agent" / "kage_pilot" / "dojo_training_service.py",
+    PRODUCT_ROOT / "installer" / "KagePilotDojo.spec",
+    PRODUCT_ROOT / "installer" / "KagePilotRound.spec",
 )
 
 # These are deliberate compatibility boundaries. They may name the historical
 # implementation provider until real Windows/BYOND validation authorizes the
 # provider extraction and snapshot deletion.
 COMPATIBILITY_ADAPTERS = (
-    ROOT / "kage_pilot_loop.py",
-    ROOT / "kage_pilot_round.py",
+    AGENT_ROOT / "kage_pilot_loop.py",
+    AGENT_ROOT / "kage_pilot_round.py",
 )
 
-VERSIONED_REFERENCE = re.compile(r"(?:^|[^A-Za-z0-9])(?:[A-Za-z0-9_]*_v03[A-Za-z0-9_]*|v0\.3[A-Za-z0-9_]*)")
+VERSIONED_REFERENCE = re.compile(
+    r"(?:^|[^A-Za-z0-9])(?:[A-Za-z0-9_]*_v03[A-Za-z0-9_]*|v0\.3[A-Za-z0-9_]*)"
+)
 
 
 def relative(path: Path) -> str:

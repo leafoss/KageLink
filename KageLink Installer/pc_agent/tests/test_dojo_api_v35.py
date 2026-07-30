@@ -4,12 +4,13 @@ import unittest
 
 import unified_app
 import unified_app_v35
-import unified_dojo_templates_ui_v35  # noqa: F401 - installs template catalog additions
-import unified_dojo_ui  # noqa: F401 - installs the base bilingual Dojo catalog
+import unified_dojo_templates_ui_v35  # noqa: F401
+import unified_dojo_ui  # noqa: F401
+import unified_dojo_ui_v351  # noqa: F401
 import unified_launcher
 
 
-class KageLinkDojoApiV35Tests(unittest.TestCase):
+class KageLinkDojoApiV351Tests(unittest.TestCase):
     def test_canonical_backend_exposes_authenticated_dojo_routes(self):
         self.assertIs(unified_app_v35.app, unified_app.app)
         self.assertIs(unified_app_v35.dojo_service, unified_app.dojo_service)
@@ -28,6 +29,7 @@ class KageLinkDojoApiV35Tests(unittest.TestCase):
             ("GET", "/api/dojo/status"),
             ("POST", "/api/dojo/start"),
             ("POST", "/api/dojo/stop"),
+            ("GET", "/api/dojo/logs/latest"),
             ("GET", "/api/dojo/templates"),
             ("GET", "/api/dojo/templates/{mode}/image"),
             ("POST", "/api/dojo/templates/{mode}"),
@@ -39,9 +41,9 @@ class KageLinkDojoApiV35Tests(unittest.TestCase):
                 1,
                 f"{key} must require the KageLink authorization dependency",
             )
-        self.assertEqual(len(routes), 7)
-        self.assertEqual(unified_app.APP_VERSION, "3.5.0")
-        self.assertEqual(unified_app.app.version, "3.5.0")
+        self.assertEqual(len(routes), 8)
+        self.assertEqual(unified_app.APP_VERSION, "3.5.1")
+        self.assertEqual(unified_app.app.version, "3.5.1")
 
     def test_desktop_dojo_catalog_has_pt_br_en_us_parity(self):
         required = {
@@ -62,6 +64,15 @@ class KageLinkDojoApiV35Tests(unittest.TestCase):
             "dojo_template_upload",
             "dojo_template_remove",
             "dojo_template_required",
+            "dojo_tab_summary",
+            "dojo_tab_settings",
+            "dojo_tab_images",
+            "dojo_tab_logs",
+            "dojo_location_known",
+            "dojo_location_uncertain",
+            "dojo_location_lost",
+            "dojo_log_open",
+            "dojo_log_open_folder",
         }
         pt = unified_launcher.TEXT["pt-BR"]
         en = unified_launcher.TEXT["en-US"]

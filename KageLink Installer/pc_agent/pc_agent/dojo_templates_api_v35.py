@@ -73,6 +73,13 @@ def install_dojo_template_routes(
         if bool(getattr(dojo_service, "is_running", False)):
             raise HTTPException(status_code=409, detail="DOJO_TRAINING_ACTIVE")
 
+    if not _route_exists(app, "/api/dojo/logs/latest", "GET"):
+
+        @app.get("/api/dojo/logs/latest", dependencies=authorization)
+        async def get_latest_dojo_log() -> dict:
+            status = getattr(dojo_service, "log_status", None)
+            return status() if callable(status) else {"exists": False}
+
     if not _route_exists(app, "/api/dojo/templates", "GET"):
 
         @app.get("/api/dojo/templates", dependencies=authorization)

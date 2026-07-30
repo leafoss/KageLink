@@ -6,6 +6,8 @@ import re
 import subprocess
 import sys
 
+from .dojo_journal_v351 import DojoSessionJournal, latest_dojo_error
+from .dojo_templates import DEFAULT_DOJO_TEMPLATE_STORE
 from .dojo_training import (
     DojoTrainingConfig,
     DojoTrainingPhase,
@@ -15,12 +17,18 @@ from .dojo_training import (
 
 
 class DojoTrainingService(_BaseDojoTrainingService):
-    """Stable public facade for source-tree and installed Dojo runtimes."""
+    """Stable public facade with crash-safe 3.5.1 Dojo diagnostics."""
 
     _COMPLETED_RE = re.compile(
         r"^\s*(?:DOJO_LOOP_(?:FINISHED|STOPPED)|DOJO_FINAL)\b.*\bcompleted=(\d+)\b",
         re.IGNORECASE,
     )
+
+    def __init__(self, *args, **kwargs) -> None:
+        self._journal: DojoSessionJournal | None = None
+        self._last_journal_path = ""
+        DojoSessionJournal.recover_abandoned()
+        super().__init__(*args, **kwargs)
 
     @property
     def is_frozen_runtime(self) -> bool:
@@ -45,6 +53,46 @@ class DojoTrainingService(_BaseDojoTrainingService):
     def runtime_available(self) -> bool:
         return self.script_path.exists()
 
+    def log_status(self) -> dict:
+        payload = latest_dojo_error().to_dict()
+        payload["directory"] = str(latest_dojo_error.__globals__["canonical_dojo_log_dir"]())
+        return payload
+
+    def _journal_metadata(self, config: DojoTrainingConfig) -> dict:
+        try:
+            templates = DEFAULT_DOJO_TEMPLATE_STORE.public_status()
+        except Exception as exc:
+            templates = {"metadata_error": f"{type(exc).__name__}:{exc}"}
+        return {
+            "kagelink_version": "3.5.1",
+            "kage_pilot_version": "v0.3j+visual-position-3.5.1",
+            "frozen_runtime": self.is_frozen_runtime,
+            "command": self.build_command(config),
+            "configuration": config.to_public_dict(),
+            "templates": templates,
+        }
+
+    def start(self, config: DojoTrainingConfig | None = None, **kwargs) -> bool:
+        value = (config or DojoTrainingConfig()).normalized()
+        journal = DojoSessionJournal(metadata=self._journal_metadata(value))
+        self._journal = journal
+        started = super().start(value, **kwargs)
+        if not started:
+            snapshot = self.snapshot()
+            destination = journal.finalize(
+                success=False,
+                error=snapshot.last_error or "DOJO_START_REJECTED",
+                return_code=snapshot.return_code,
+                summary={
+                    "phase": snapshot.phase.value,
+                    "current_round": snapshot.current_round,
+                    "completed_rounds": snapshot.completed_rounds,
+                },
+            )
+            self._last_journal_path = str(destination or "")
+            self._journal = None
+        return started
+
     @classmethod
     def phase_for_line(cls, line: str, current: DojoTrainingPhase) -> DojoTrainingPhase:
         text = str(line or "").casefold()
@@ -54,25 +102,36 @@ class DojoTrainingService(_BaseDojoTrainingService):
             return DojoTrainingPhase.STOPPED
         return super().phase_for_line(line, current)
 
-    def _run(self, config: DojoTrainingConfig) -> None:
-        if not self.is_frozen_runtime:
-            super()._run(config)
-            return
+    def _consume_output_line(self, line: str) -> None:
+        journal = self._journal
+        if journal is not None:
+            journal.write_output(line)
+        super()._consume_output_line(line)
 
+    def _creation_flags(self) -> int:
+        if os.name != "nt":
+            return 0
+        flags = int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+        if self.is_frozen_runtime:
+            flags |= int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return flags
+
+    def _run(self, config: DojoTrainingConfig) -> None:
         command = self.build_command(config)
-        creationflags = int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
-        creationflags |= int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        cwd = self.packaged_helper_path.parent if self.is_frozen_runtime else self.project_dir
+        process = None
+        caught: BaseException | None = None
         try:
             process = self._popen_factory(
                 command,
-                cwd=str(self.packaged_helper_path.parent),
+                cwd=str(cwd),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
                 bufsize=1,
-                creationflags=creationflags,
+                creationflags=self._creation_flags(),
             )
             with self._lock:
                 self._process = process
@@ -97,6 +156,10 @@ class DojoTrainingService(_BaseDojoTrainingService):
                 return_code=return_code,
             )
         except Exception as exc:
+            caught = exc
+            journal = self._journal
+            if journal is not None:
+                journal.write_exception(exc)
             self._set_phase(
                 DojoTrainingPhase.ERROR,
                 running=False,
@@ -105,6 +168,29 @@ class DojoTrainingService(_BaseDojoTrainingService):
         finally:
             with self._lock:
                 self._process = None
+            snapshot = self.snapshot()
+            success = snapshot.phase != DojoTrainingPhase.ERROR and (
+                snapshot.return_code in (None, 0) or self._stop_requested
+            )
+            journal = self._journal
+            if journal is not None:
+                destination = journal.finalize(
+                    success=success,
+                    error=(
+                        snapshot.last_error
+                        or (f"{type(caught).__name__}:{caught}" if caught is not None else "")
+                    ),
+                    return_code=snapshot.return_code,
+                    summary={
+                        "phase": snapshot.phase.value,
+                        "current_round": snapshot.current_round,
+                        "completed_rounds": snapshot.completed_rounds,
+                        "stop_requested": self._stop_requested,
+                        "last_line": snapshot.last_line,
+                    },
+                )
+                self._last_journal_path = str(destination or "")
+                self._journal = None
 
     def stop(self, *, timeout: float = 8.0) -> bool:
         if not self.is_frozen_runtime or os.name != "nt":
@@ -116,6 +202,9 @@ class DojoTrainingService(_BaseDojoTrainingService):
             if thread is None or not thread.is_alive():
                 return False
             self._stop_requested = True
+        journal = self._journal
+        if journal is not None:
+            journal.write("STOP", "requested_by_desktop")
         self._set_phase(DojoTrainingPhase.STOPPING, running=True)
 
         if process is not None and process.poll() is None:

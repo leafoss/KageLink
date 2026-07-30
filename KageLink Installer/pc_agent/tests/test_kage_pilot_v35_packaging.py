@@ -75,7 +75,7 @@ class KagePilotV35PackagingTests(unittest.TestCase):
         self.assertIn("7", command)
         self.assertNotIn("kage_pilot_loop_v03j.py", " ".join(command))
 
-    def test_source_service_keeps_python_script_runtime(self):
+    def test_source_service_uses_canonical_public_runtime(self):
         service = DojoTrainingService(
             project_dir=Path("C:/source/pc_agent"),
             python_executable="C:/Python/python.exe",
@@ -83,7 +83,9 @@ class KagePilotV35PackagingTests(unittest.TestCase):
         with mock.patch.object(sys, "frozen", False, create=True):
             command = service.build_command(DojoTrainingConfig(rounds=2))
         self.assertEqual(command[0], "C:/Python/python.exe")
-        self.assertTrue(command[1].endswith("kage_pilot_loop_v03j.py"))
+        self.assertTrue(command[1].endswith("kage_pilot.py"))
+        self.assertEqual(command[2], "dojo")
+        self.assertNotIn("kage_pilot_loop_v03j.py", " ".join(command))
 
     def test_frozen_service_hides_helper_console(self):
         captured = {}
@@ -188,7 +190,7 @@ class KagePilotV35PackagingTests(unittest.TestCase):
     def test_status_payload_exposes_installation_and_progress(self):
         with tempfile.TemporaryDirectory() as temporary:
             project = Path(temporary)
-            (project / "kage_pilot_loop_v03j.py").write_text("# test", encoding="utf-8")
+            (project / "kage_pilot.py").write_text("# test", encoding="utf-8")
             service = DojoTrainingService(project_dir=project)
             payload = dojo_status_payload(service)
         self.assertTrue(payload["available"])

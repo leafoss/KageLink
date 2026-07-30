@@ -42,9 +42,13 @@ KagePilotRound.exe
 Official endpoints:
 
 ```text
-GET  /api/dojo/status
-POST /api/dojo/start
-POST /api/dojo/stop
+GET    /api/dojo/status
+POST   /api/dojo/start
+POST   /api/dojo/stop
+GET    /api/dojo/templates
+GET    /api/dojo/templates/{mode}/image
+POST   /api/dojo/templates/{mode}
+DELETE /api/dojo/templates/{mode}
 ```
 
 All require the same KageLink Bearer Token. Status must expose at least:
@@ -62,9 +66,51 @@ return_code
 
 - Starting an already running trainer returns a conflict.
 - Starting without an installed runtime fails closed.
+- Starting without at least one valid user template fails closed with `DOJO_TRAINER_TEMPLATE_REQUIRED`.
 - Stop must release inputs even when the engine has already finished.
 
-## 4. Control interlock
+## 4. External 32×32 and 64×64 templates — PROTECTED RULE
+
+KageLink must not depend on a Dojo Trainer image embedded in the executable or Setup as its primary vision source.
+
+The user may provide independent templates for:
+
+```text
+32×32 game mode
+64×64 game mode
+```
+
+Permanent rules:
+
+- images belong to the user's installation;
+- they must be persisted outside `Program Files`, outside the executable and outside the PyInstaller temporary directory;
+- the canonical location is `%LOCALAPPDATA%\KageLink\data\kage_pilot\templates`;
+- normal update or reinstall must preserve templates;
+- each mode has an independent file and metadata record;
+- the detector may load both modes simultaneously and must choose only a stable visual match;
+- upload must validate decoding, size limits and dimensions;
+- removing one template must not remove the other;
+- the installed trainer must not start without at least one valid user template;
+- source-local calibration may remain only as development compatibility;
+- no incompatible fallback may authorize clicking, `V`, or recovery movement.
+
+## 5. Canonical Desktop navigation rule
+
+The canonical KageLink Desktop sidebar order is:
+
+```text
+Overview
+Memory
+Connection
+Dojo Trainer
+Settings
+```
+
+**Settings must always be the final sidebar item.**
+
+This is a permanent product rule, not a Dojo-screen detail. New pages must be inserted before `Settings`. UI tests or canonical constants must prevent regressions in this order.
+
+## 6. Control interlock
 
 While `running=true`:
 
@@ -76,7 +122,7 @@ While `running=true`:
 
 This prevents the APK, Desktop and autonomous agent from issuing competing commands.
 
-## 5. Preserved Kage Pilot v0.3j contracts
+## 7. Preserved Kage Pilot v0.3j contracts
 
 - `R` is the only normally held combat key.
 - arrow keys and `H` are short conditional pulses;
@@ -89,7 +135,7 @@ This prevents the APK, Desktop and autonomous agent from issuing competing comma
 
 Changes to these contracts require a dedicated branch, regression coverage and physical in-game validation.
 
-## 6. Localization
+## 8. Localization
 
 Every new user-facing surface must exist in PT-BR and EN-US:
 
@@ -101,7 +147,7 @@ Every new user-facing surface must exist in PT-BR and EN-US:
 
 Stable technical telemetry identifiers may remain in English for diagnostics.
 
-## 7. Mandatory distribution gate
+## 9. Mandatory distribution gate
 
 Before a Dojo-capable Release:
 
@@ -111,11 +157,12 @@ Before a Dojo-capable Release:
 4. functional `--help` for both helpers;
 5. `KageLink.exe` startup smoke test;
 6. Setup containing all three executables;
-7. `flutter gen-l10n`, analyze and tests;
-8. release APK;
-9. real installed-Setup validation;
-10. real APK-to-Setup validation;
-11. Rafael's explicit approval before merge.
+7. upload, persistence, deletion and reload of 32×32 and 64×64 templates;
+8. `flutter gen-l10n`, analyze and tests;
+9. release APK;
+10. real installed-Setup validation;
+11. real APK-to-Setup validation;
+12. Rafael's explicit approval before merge.
 
 Temporary PR artifacts do not replace the official Release. The Release is rebuilt from `main` and published under stable names:
 
@@ -125,14 +172,18 @@ KageLink-Android.apk
 SHA256SUMS.txt
 ```
 
-## 8. Minimum 3.5.0 physical validation
+## 10. Minimum 3.5.0 physical validation
 
 The version cannot be marked ready only because builds passed. The installed Windows product must prove:
 
 ```text
 Setup installs all 3 executables
 → Desktop reports Runtime: Installed
-→ start 1 round
+→ Settings is the final sidebar item
+→ 32×32 template upload survives restart
+→ 64×64 template upload survives restart
+→ start 1 round in 32×32 mode
+→ start 1 round in 64×64 mode
 → dialog, combat, KO, return and recovery
 → stop from Desktop
 → start from APK

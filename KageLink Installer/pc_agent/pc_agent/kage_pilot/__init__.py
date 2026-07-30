@@ -6,7 +6,7 @@ from .dojo_training import (
     DojoTrainingPhase,
     DojoTrainingSnapshot,
 )
-from .dojo_training_v03k import DojoTrainingService
+from .dojo_training_service import DojoTrainingService
 from .learning import BehaviorCloner, Prediction
 from .learning_v2 import CombatPrediction, PolicyPrediction, TemporalCombatModel
 

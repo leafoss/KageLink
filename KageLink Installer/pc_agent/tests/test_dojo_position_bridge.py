@@ -95,21 +95,25 @@ class DojoPositionBridgeTests(unittest.TestCase):
         self.assertIn("descriptor_png_base64", payload["keyframes"][0])
         self.assertNotIn("frame", payload["keyframes"][0])
 
-    def test_canonical_loop_starts_monitor_confirms_click_and_passes_state_file(self):
+    def test_canonical_loop_starts_monitor_confirms_click_and_passes_session_state(self):
         root = Path(__file__).resolve().parents[1]
         source = (root / "kage_pilot_loop.py").read_text(encoding="utf-8")
         self.assertIn("DojoAnchorMonitor", source)
         self.assertIn("monitor.confirm_click(click)", source)
-        self.assertIn("monitor.stop_and_save(path)", source)
+        self.assertIn("monitor.stop_and_save(_SESSION_STATE_PATH)", source)
         self.assertIn('command.extend(["--position-state", str(saved)])', source)
+        self.assertIn("DOJO_SESSION_MAP_RESTORED", source)
+        self.assertIn("_SESSION_STATE_PATH.unlink", source)
 
-    def test_round_adapter_consumes_bridge_argument_before_validated_parser(self):
+    def test_round_adapter_keeps_state_until_updated_map_is_saved(self):
         root = Path(__file__).resolve().parents[1]
         source = (root / "kage_pilot_visual_return.py").read_text(encoding="utf-8")
         self.assertIn("_extract_position_state_argument(sys.argv)", source)
         self.assertIn("restore_tracker_state", source)
-        self.assertIn("delete_after_load=True", source)
+        self.assertIn("delete_after_load=False", source)
         self.assertIn("DOJO_POSITION_BRIDGE_RESTORED", source)
+        self.assertIn("save_tracker_state(position, position_path)", source)
+        self.assertIn("DOJO_SESSION_MAP_SAVED", source)
 
 
 if __name__ == "__main__":

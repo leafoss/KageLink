@@ -188,9 +188,9 @@ class DojoDebugOverlay:
         return self._settings
 
     def _toggle_from_f10(self) -> None:
-        import ctypes
+        import win32api
 
-        down = bool(ctypes.windll.user32.GetAsyncKeyState(0x79) & 0x8000)
+        down = bool(win32api.GetAsyncKeyState(0x79) & 0x8000)
         if down and not self._f10_down:
             self._settings = replace(
                 self._settings,
@@ -202,20 +202,25 @@ class DojoDebugOverlay:
 
     def _apply_window_style(self, root) -> None:
         import ctypes
+        from ctypes import wintypes
+
+        import win32con
+        import win32gui
 
         hwnd = int(root.winfo_id())
-        user32 = ctypes.windll.user32
-        get_long = getattr(user32, "GetWindowLongPtrW", user32.GetWindowLongW)
-        set_long = getattr(user32, "SetWindowLongPtrW", user32.SetWindowLongW)
-        ex_style = int(get_long(hwnd, -20))
-        ex_style |= 0x00080000  # WS_EX_LAYERED
-        ex_style |= 0x00000020  # WS_EX_TRANSPARENT
-        ex_style |= 0x00000080  # WS_EX_TOOLWINDOW
+        ex_style = int(win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE))
+        ex_style |= int(win32con.WS_EX_LAYERED)
+        ex_style |= int(win32con.WS_EX_TRANSPARENT)
+        ex_style |= int(win32con.WS_EX_TOOLWINDOW)
         ex_style |= 0x08000000  # WS_EX_NOACTIVATE
-        set_long(hwnd, -20, ex_style)
+        win32gui.SetWindowLong(hwnd, win32con.GWL_EXSTYLE, ex_style)
+
         try:
+            set_affinity = ctypes.windll.user32.SetWindowDisplayAffinity
+            set_affinity.argtypes = (wintypes.HWND, wintypes.DWORD)
+            set_affinity.restype = wintypes.BOOL
             self.capture_exclusion_enabled = bool(
-                user32.SetWindowDisplayAffinity(hwnd, 0x00000011)
+                set_affinity(wintypes.HWND(hwnd), wintypes.DWORD(0x00000011))
             )
         except Exception:
             self.capture_exclusion_enabled = False

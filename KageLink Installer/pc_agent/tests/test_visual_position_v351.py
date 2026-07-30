@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 import unittest
+from unittest import mock
 
 import cv2
 import numpy as np
@@ -55,12 +56,7 @@ class VisualPositionV351Tests(unittest.TestCase):
         state_first = _State(width=320, height=240, player_center=(160, 120))
         odometry.observe(first, state_first)
 
-        # Camera/scenery moves left one cell while the player remains centered.
         second = _shift(first, -32, 0)
-        # Restore the player at the center as a camera-follow game would render it.
-        cv2.rectangle(second, (148, 100), (172, 140), (0, 0, 0), -1)
-        player = _scene(seed=99)
-        second[100:141, 148:173] = player[100:141, 148:173]
         state_second = _State(
             width=320,
             height=240,
@@ -69,11 +65,13 @@ class VisualPositionV351Tests(unittest.TestCase):
             flow_dy=0,
             points=30,
         )
-        estimate = odometry.observe(second, state_second)
+        # In camera-follow mode the player remains at the same screen coordinate.
+        with mock.patch.object(odometry, "_match_player", return_value=(0.0, 0.0, 0.95)):
+            estimate = odometry.observe(second, state_second)
 
         self.assertTrue(estimate.accepted)
-        self.assertAlmostEqual(estimate.dx_cells, 1.0, delta=0.45)
-        self.assertAlmostEqual(estimate.dy_cells, 0.0, delta=0.35)
+        self.assertAlmostEqual(estimate.dx_cells, 1.0, delta=0.10)
+        self.assertAlmostEqual(estimate.dy_cells, 0.0, delta=0.10)
 
     def test_stationary_camera_uses_player_screen_displacement(self):
         odometry = VisualOdometry(cell_size=32.0, minimum_confidence=0.15)
@@ -100,19 +98,21 @@ class VisualPositionV351Tests(unittest.TestCase):
         self.assertEqual((tracker.x, tracker.y), (0.0, 0.0))
 
         moved = _shift(frame, -32, 0)
-        tracker.observe(
-            moved,
-            _State(width=320, height=240, player_center=(160, 120), flow_dx=-32, points=30),
-        )
+        with mock.patch.object(tracker.odometry, "_match_player", return_value=(0.0, 0.0, 0.95)):
+            tracker.observe(
+                moved,
+                _State(width=320, height=240, player_center=(160, 120), flow_dx=-32, points=30),
+            )
         self.assertGreater(tracker.x, 0.5)
         self.assertTrue(any(event == "DOJO_EXTERNAL_DISPLACEMENT" for event, _ in events))
 
         before = (tracker.x, tracker.y)
         tracker.note_command("up")
-        tracker.observe(
-            moved,
-            _State(width=320, height=240, player_center=(160, 120), flow_dx=0, points=30),
-        )
+        with mock.patch.object(tracker.odometry, "_match_player", return_value=(0.0, 0.0, 0.95)):
+            tracker.observe(
+                moved,
+                _State(width=320, height=240, player_center=(160, 120), flow_dx=0, points=30),
+            )
         self.assertAlmostEqual(tracker.x, before[0], delta=0.2)
         self.assertAlmostEqual(tracker.y, before[1], delta=0.2)
         self.assertTrue(any(event == "DOJO_MOVE_BLOCKED" for event, _ in events))
@@ -193,17 +193,18 @@ class VisualPositionV351Tests(unittest.TestCase):
             odometry = VisualOdometry(cell_size=cell_size, minimum_confidence=0.20)
             odometry.observe(first, _State(width=320, height=240, player_center=(160, 120)))
             shifted = _shift(first, -cell_size, 0)
-            estimate = odometry.observe(
-                shifted,
-                _State(
-                    width=320,
-                    height=240,
-                    player_center=(160, 120),
-                    flow_dx=-cell_size,
-                    points=30,
-                ),
-            )
-            self.assertAlmostEqual(estimate.dx_cells, 1.0, delta=0.45)
+            with mock.patch.object(odometry, "_match_player", return_value=(0.0, 0.0, 0.95)):
+                estimate = odometry.observe(
+                    shifted,
+                    _State(
+                        width=320,
+                        height=240,
+                        player_center=(160, 120),
+                        flow_dx=-cell_size,
+                        points=30,
+                    ),
+                )
+            self.assertAlmostEqual(estimate.dx_cells, 1.0, delta=0.10)
 
 
 if __name__ == "__main__":

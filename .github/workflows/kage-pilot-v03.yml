@@ -1,4 +1,4 @@
-name: Kage Pilot v0.3j / KageLink 3.5
+name: Kage Pilot / KageLink 3.5
 
 on:
   pull_request:
@@ -39,11 +39,14 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
 
-      - name: Compile Kage Pilot and 3.5 integration
+      - name: Compile canonical Kage Pilot boundaries and compatibility engine
         run: |
           python -m compileall -q pc_agent/kage_pilot pc_agent/dojo_api.py pc_agent/dojo_templates_api_v35.py
           python -m py_compile `
+            kage_pilot.py `
             kage_pilot_dojo.py `
+            kage_pilot_loop.py `
+            kage_pilot_round.py `
             kage_pilot_loop_v03g.py `
             kage_pilot_loop_v03j.py `
             kage_pilot_live_v03j_round.py `
@@ -53,9 +56,10 @@ jobs:
             unified_dojo_templates_ui_v35.py `
             unified_entry.py
 
-      - name: Targeted release-candidate tests
+      - name: Targeted canonical and release-candidate tests
         run: |
           python -m unittest `
+            tests.test_kage_pilot_canonical_boundaries `
             tests.test_dojo_api_v35 `
             tests.test_dojo_templates_v35 `
             tests.test_kage_pilot_dojo_service `
@@ -78,7 +82,7 @@ jobs:
 
       - name: Validate canonical configuration
         run: |
-          python kage_pilot_dojo.py --show-config
+          python kage_pilot.py dojo --show-config
 
       - name: Full PC Agent Python suite
         run: |

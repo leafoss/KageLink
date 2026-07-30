@@ -45,7 +45,11 @@ def main() -> int:
         restore_tracker_state,
         save_tracker_state,
     )
+    from pc_agent.kage_pilot.dojo_runtime_guard_v351 import install_runtime_guard
     from pc_agent.kage_pilot.position_map_continuity import merge_nonorigin_keyframes
+
+    # Wrap the exact PR23 visual-return class. Legacy engines and main are never restored.
+    install_runtime_guard(runtime)
 
     if position_path is not None:
         original_init = runtime.ClosedLoopVisualRecoveryEngine.__init__

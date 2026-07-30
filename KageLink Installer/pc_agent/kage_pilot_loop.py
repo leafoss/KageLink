@@ -17,6 +17,10 @@ from pc_agent.kage_pilot.visual_position_guard import install_visual_position_gu
 
 install_visual_position_guard()
 
+# Compatibility handles retained for the established packaged-runtime tests and callers.
+sys = _validated_engine.sys
+subprocess = _validated_engine.subprocess
+
 _ORIGINAL_REQUEST = _validated_engine.request_taijutsu_dojo_spar_single_click
 _ORIGINAL_ROUND_COMMAND = _validated_engine._round_command
 _ACTIVE_MONITOR: DojoAnchorMonitor | None = None

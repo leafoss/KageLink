@@ -10,7 +10,7 @@ set "PYTHON_EXE="
 set "ISCC="
 
  echo ================================================================
- echo KAGELINK 3.5.0 - CRIADOR DO INSTALADOR COM DOJO TRAINER
+ echo KAGELINK 3.5.1 - CRIADOR DO INSTALADOR COM DOJO TRAINER
  echo ================================================================
  echo.
  echo Este processo gera KageLink.exe e os dois motores isolados do
@@ -95,7 +95,7 @@ echo [6/6] Compilando o instalador final...
 "!ISCC!" "%~dp0KageLink_PC_Agent.iss"
 if errorlevel 1 goto :error
 
-set "OUTPUT=%~dp0output\KageLink-PC-Agent-Setup-v3.5.0.exe"
+set "OUTPUT=%~dp0output\KageLink-PC-Agent-Setup-v3.5.1.exe"
 if not exist "%OUTPUT%" goto :error
 
 echo.

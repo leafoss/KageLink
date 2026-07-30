@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 
@@ -15,6 +16,10 @@ def install_chakra_recovery_bridge(runtime: Any):
     updates its Y toggle after ``super().step()``, so those early returns skipped
     the Y update completely. This bridge invokes only that inherited side effect;
     it does not make meditation-state or V decisions.
+
+    HP is compared through the quantization-aware bridge when available. This
+    prevents a physical 90% threshold from deadlocking at an observable 89.x%
+    HUD column without lowering the configured HP target.
     """
 
     engine_type = runtime.ClosedLoopVisualRecoveryEngine
@@ -39,7 +44,45 @@ def install_chakra_recovery_bridge(runtime: Any):
             and str(getattr(decision, "state", "")) == MEDITATING
             and callable(updater)
         ):
-            updater(decision)
+            updater_decision = decision
+            hp = getattr(decision, "health", None)
+            chakra = getattr(decision, "chakra", None)
+            hp_target = float(getattr(self, "health_target", 0.90))
+            chakra_target = float(getattr(self, "chakra_target", 0.40))
+            checker = getattr(self, "_v351_level_ready", None)
+            quantized_hp_ready = bool(
+                callable(checker)
+                and hp is not None
+                and checker(hp, hp_target, "health")
+            )
+            needs_chakra = chakra is not None and float(chakra) < chakra_target
+            if (
+                not bool(getattr(self, "y_fast_active", False))
+                and hp is not None
+                and float(hp) <= hp_target
+                and quantized_hp_ready
+                and needs_chakra
+            ):
+                # The inherited hook uses a strict HP > target condition. Present
+                # the same measurement with its half-pixel uncertainty resolved
+                # upward solely for deciding Y; READY remains owned by the guard.
+                updater_decision = replace(decision, health=hp_target + 1e-6)
+                marker = (
+                    round(float(hp), 4),
+                    round(float(chakra), 4),
+                    round(hp_target, 4),
+                )
+                if marker != getattr(self, "_v351_last_quantized_y_marker", None):
+                    self._v351_last_quantized_y_marker = marker
+                    telemetry(
+                        "DOJO_FAST_CHAKRA_QUANTIZED_HP",
+                        {
+                            "hp": f"{float(hp):.3f}",
+                            "hp_target": f"{hp_target:.3f}",
+                            "chakra": f"{float(chakra):.3f}",
+                        },
+                    )
+            updater(updater_decision)
 
         # The controller consumes pending Y actions on apply_keys(()) before it
         # processes decision.tap_v. Queue Y OFF first so a timeout or normal exit

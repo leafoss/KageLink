@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from pc_agent.kage_pilot.dojo_templates_v35 import (
+from pc_agent.kage_pilot.dojo_templates import (
     DEFAULT_DOJO_TEMPLATE_STORE,
     DojoTemplateStore,
     normalize_template_mode,

@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 
 from pc_agent.dojo_templates_api_v35 import install_template_start_guard
-from pc_agent.kage_pilot.dojo_templates_v35 import (
+from pc_agent.kage_pilot.dojo_templates import (
     DojoTemplateStore,
     UserDojoLeaderDetector,
 )

@@ -4,27 +4,27 @@ import argparse
 import json
 import sys
 
-# The user-template detector must be installed before the validated v0.3j patch
-# chain imports PersistentDojoLeaderDetector by value. Limit that global patch to
-# an actual source/frozen runtime execution so importing this module in regression
-# suites does not change legacy engine classes in the same Python process.
-from pc_agent.kage_pilot.dojo_templates_v35 import install_user_dojo_leader_detector
+# Install the user-template detector before the validated patch chain imports
+# PersistentDojoLeaderDetector by value. Limit the global patch to an actual
+# source/frozen execution so importing this module in regression suites does
+# not change legacy engine classes in the same Python process.
+from pc_agent.kage_pilot.dojo_templates import install_user_dojo_leader_detector
 
 if __name__ == "__main__" or bool(getattr(sys, "frozen", False)):
     install_user_dojo_leader_detector()
 
-import kage_pilot_live_v03 as live_v03
-import kage_pilot_live_v03j_round as round_v03j  # installs validated v0.3j patches first
+import kage_pilot_live_v03 as live_runtime
+import kage_pilot_live_v03j_round as validated_round  # installs validated patches first
 
-from pc_agent.kage_pilot.ko_identity_v03k import RoundKOIdentityGate
+from pc_agent.kage_pilot.ko_identity import RoundKOIdentityGate
 
 
-_BASE_WATCHER = live_v03.ChatVictoryWatcher
-_BASE_OBSERVER = live_v03.ParticleSafeGridTargetObserver
-_BASE_ENGINE = live_v03.ShadowCombatDecisionEngine
-_BASE_PLANNER = live_v03.LiveCombatControlPlanner
-_BASE_BURST_GUARD = live_v03.MotionBurstGuard
-_BASE_CONTROLLER = live_v03.WindowsGameController
+_BASE_WATCHER = live_runtime.ChatVictoryWatcher
+_BASE_OBSERVER = live_runtime.ParticleSafeGridTargetObserver
+_BASE_ENGINE = live_runtime.ShadowCombatDecisionEngine
+_BASE_PLANNER = live_runtime.LiveCombatControlPlanner
+_BASE_BURST_GUARD = live_runtime.MotionBurstGuard
+_BASE_CONTROLLER = live_runtime.WindowsGameController
 
 _GATE = RoundKOIdentityGate()
 _REJECTION_GENERATION = 0
@@ -162,13 +162,13 @@ class OpponentAwareController(_BASE_CONTROLLER):
                 _ACTIVE_CONTROLLER = None
 
 
-# Preserve the validated v0.3j runtime and replace only the cross-round KO authority boundary.
-live_v03.ChatVictoryWatcher = OpponentAwareVictoryWatcher
-live_v03.ParticleSafeGridTargetObserver = OpponentAwareObserver
-live_v03.ShadowCombatDecisionEngine = OpponentAwareCombatEngine
-live_v03.LiveCombatControlPlanner = OpponentAwarePlanner
-live_v03.MotionBurstGuard = OpponentAwareBurstGuard
-live_v03.WindowsGameController = OpponentAwareController
+# Preserve the validated runtime and replace only the cross-round KO authority boundary.
+live_runtime.ChatVictoryWatcher = OpponentAwareVictoryWatcher
+live_runtime.ParticleSafeGridTargetObserver = OpponentAwareObserver
+live_runtime.ShadowCombatDecisionEngine = OpponentAwareCombatEngine
+live_runtime.LiveCombatControlPlanner = OpponentAwarePlanner
+live_runtime.MotionBurstGuard = OpponentAwareBurstGuard
+live_runtime.WindowsGameController = OpponentAwareController
 
 
 def _extract_internal_args(argv: list[str]) -> tuple[str, list[str]]:
@@ -183,7 +183,7 @@ def main() -> int:
     sys.argv = [sys.argv[0], *remaining]
     _configure_round(previous_name)
 
-    print("Kage Pilot v0.3j HOTFIX: OPPONENT-AWARE KO IDENTITY BUFFER")
+    print("Kage Pilot ROUND: CANONICAL ENTRY OVER VALIDATED COMPATIBILITY ENGINE")
     print("TRAINER: external user templates for game modes 32x32 and 64x64")
     print(
         f"KO BUFFER previous={_quoted(previous_name or None)}; "
@@ -191,7 +191,7 @@ def main() -> int:
     )
     print("KO ACCEPT: different name + two current visual enemy observations")
     print("KO REJECT: release all -> invalidate target memory -> reacquire another enemy")
-    return round_v03j.main()
+    return validated_round.main()
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # Organização do repositório KageLink 3.5
 
-[English](KAGELINK_REPOSITORY_ORGANIZATION.en.md)
+[English](KAGELINK_REPOSITORY_ORGANIZATION.en.md) · [Migração do Kage Pilot](KAGE_PILOT_MIGRATION.md)
 
 ## Objetivo
 
@@ -13,7 +13,21 @@ AGENTS.md + AGENTS_3_5.md + capítulos especializados
 KAGE_PILOT.md / KAGE_PILOT.en.md
 KageLink Installer/pc_agent/kage_pilot.py
 KageLink Installer/pc_agent/kage_pilot_loop.py
+KageLink Installer/pc_agent/kage_pilot_round.py
 KageLink Installer/pc_agent/kage_pilot_dojo.py  # wrapper do helper instalado
+.github/workflows/kage-pilot.yml
+```
+
+Módulos internos canônicos:
+
+```text
+pc_agent.kage_pilot.dojo_training_service
+pc_agent.kage_pilot.dojo_request
+pc_agent.kage_pilot.dojo_templates
+pc_agent.kage_pilot.trainer_search
+pc_agent.kage_pilot.ko_identity
+pc_agent.kage_pilot.combat_control
+pc_agent.kage_pilot.post_combat
 ```
 
 ## Compatibilidade externa preservada
@@ -26,19 +40,20 @@ KagePilotRound.exe
 
 Esses nomes são contratos de distribuição do 3.5.0 e não devem ser removidos incidentalmente.
 
-## Dívida interna versionada
+## Estado da migração
 
-O motor validado ainda depende de famílias como:
+A fase 1 migra consumidores oficiais, specs, serviço, API e CI para nomes sem versão. `ko_identity.py` e `dojo_training_service.py` já são implementações canônicas; os equivalentes versionados permanecem wrappers temporários.
+
+A cadeia complexa ainda depende de famílias como:
 
 ```text
 kage_pilot_loop_v03*
 kage_pilot_live_v03*
 pc_agent/kage_pilot/*_v03*
 tests/test_kage_pilot_v03*
-.github/workflows/kage-pilot-v03.yml
 ```
 
-Esses arquivos não são novas superfícies públicas. Eles formam uma cadeia de compatibilidade histórica que deve ser extraída para nomes por responsabilidade em uma PR funcional separada.
+Esses arquivos não são superfícies públicas. Eles fornecem temporariamente a composição de patches validada e não podem receber novos snapshots paralelos.
 
 ## Política de novos arquivos
 
@@ -62,7 +77,7 @@ Durante uma grande atualização:
 
 ## Gate para remoção dos snapshots
 
-A fase de remoção física exige:
+A remoção física exige:
 
 - inventário automático de imports e referências;
 - nomes canônicos internos por responsabilidade;
@@ -73,6 +88,7 @@ A fase de remoção física exige:
 - builds/smokes dos três EXEs;
 - Setup e APK verdes;
 - validação real de clique único, diálogo, combate, KO, retorno, recuperação, F12 e interlock GAME;
+- evidência conforme `KAGE_PILOT_MIGRATION.md`;
 - rollback por PR identificável.
 
-Até esse gate, os arquivos internos permanecem, mas são marcados como compatibilidade e não como padrão arquitetural.
+Até esse gate, os arquivos internos permanecem como compatibilidade e não como padrão arquitetural. Um wrapper só pode ser apagado quando não possuir consumidores e a validação física correspondente estiver registrada.

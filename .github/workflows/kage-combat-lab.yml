@@ -1,0 +1,31 @@
+name: Kage Combat Lab
+
+on:
+  pull_request:
+    paths:
+      - "KAGE_COMBAT_LAB.md"
+      - "tools/kage_combat_lab/**"
+      - ".github/workflows/kage-combat-lab.yml"
+  push:
+    paths:
+      - "KAGE_COMBAT_LAB.md"
+      - "tools/kage_combat_lab/**"
+      - ".github/workflows/kage-combat-lab.yml"
+
+jobs:
+  deterministic-combat:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/kage_combat_lab
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test runner
+        run: python -m pip install pytest
+      - name: Verify immutable 64px grid and strategy
+        run: python -m pytest -q
+      - name: Run all deterministic scenarios
+        run: python -m kage_combat_lab.cli --run-all

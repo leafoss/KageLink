@@ -59,12 +59,12 @@ def main() -> int:
 
     activate_round_resolution_detector()
 
-    from pc_agent.kage_pilot.combat_target_v351 import install_combat_target_bridge
+    from pc_agent.kage_pilot.combat_strategy_runtime_v351 import (
+        emit_runtime_provenance,
+        install_combat_strategy_runtime,
+    )
     from pc_agent.kage_pilot.dojo_chakra_recovery_bridge_v351 import (
         install_chakra_recovery_bridge,
-    )
-    from pc_agent.kage_pilot.dojo_combat_runtime_hardening_v351 import (
-        install_combat_runtime_hardening,
     )
     from pc_agent.kage_pilot.dojo_meditation_timeout_v351 import (
         ensure_safe_meditation_timeout,
@@ -85,13 +85,12 @@ def main() -> int:
     # round-5 capture showed Y becoming eligible only at the end of that window.
     ensure_safe_meditation_timeout(telemetry=runtime._telemetry)
 
-    # Combat identity is installed after the validated compatibility chain has loaded,
-    # but before the recorder captures the concrete observer type. It does not alter
-    # meditation, resources, Trainer matching, KO authority or post-combat recovery.
-    install_combat_target_bridge(runtime)
-    install_combat_runtime_hardening(runtime)
+    # Combat is installed once through an explicit strategy factory. The historical
+    # compatibility chain remains available as the class base, but no second combat
+    # bridge or hardening subclass may silently replace the selected strategy.
+    install_combat_strategy_runtime(runtime)
 
-    # Install every gameplay bridge first. The final visual recorder observes only
+    # Install every non-combat gameplay bridge first. The final recorder observes only
     # the already-processed round input and never changes controls or detector state.
     install_runtime_guard(runtime)
     install_meditation_timeout_bridge(runtime)
@@ -100,6 +99,10 @@ def main() -> int:
     install_chakra_recovery_bridge(runtime)
     recorder = install_runtime_lab(runtime)
     install_round_video_performance_guard(recorder, target_fps=2.0)
+
+    # Record the concrete classes after every bridge has finished. This proves which
+    # observer/tracker/strategy/engine/planner the packaged round will instantiate.
+    emit_runtime_provenance(runtime)
 
     if position_path is not None:
         original_init = runtime.ClosedLoopVisualRecoveryEngine.__init__

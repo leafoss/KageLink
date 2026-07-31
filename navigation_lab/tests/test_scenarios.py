@@ -28,6 +28,20 @@ class ScenarioTests(unittest.TestCase):
         sources = [snapshot.pose.source for snapshot in result.snapshots]
         self.assertIn("landmark_relocalization", sources)
 
+    def test_stuck_scenario_requires_recovery(self) -> None:
+        result = SimulatorEngine(SCENARIOS["08_stuck_in_corner"]).run()
+        self.assertEqual(result.outcome, "arrived")
+        self.assertGreaterEqual(result.recoveries, 1)
+        self.assertGreaterEqual(result.replans, 2)
+        self.assertTrue(any(snapshot.decision.action == "REPLAN" for snapshot in result.snapshots))
+        self.assertTrue(
+            any(
+                event.startswith("movement blocked at")
+                for snapshot in result.snapshots
+                for event in snapshot.events
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

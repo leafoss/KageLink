@@ -7,10 +7,11 @@ from typing import Any
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from pc_agent.kage_pilot.dojo_templates import (
+from pc_agent.kage_pilot.dojo_user_templates_v351 import (
     DEFAULT_DOJO_TEMPLATE_STORE,
     DojoTemplateStore,
-    ensure_canonical_raw_templates,
+    ensure_factory_defaults,
+    install_user_owned_template_pipeline,
     normalize_template_mode,
 )
 from pc_agent.kage_pilot.dojo_training import DojoTrainingPhase
@@ -38,24 +39,13 @@ def _route_exists(app: FastAPI, path: str, method: str) -> bool:
 
 
 def install_template_start_guard(service: Any, store: DojoTemplateStore) -> None:
-    """Materialize and validate the two immutable RAW references before Start."""
+    """Fail closed when no active Images-tab template is available."""
 
     if bool(getattr(service, "_kagelink_template_guard", False)):
         return
     original_start = service.start
 
     def guarded_start(config):
-        try:
-            ensure_canonical_raw_templates(store)
-        except Exception as error:
-            setter = getattr(service, "_set_phase", None)
-            if callable(setter):
-                setter(
-                    DojoTrainingPhase.ERROR,
-                    running=False,
-                    last_error=f"DOJO_RAW_TEMPLATE_REQUIRED:{type(error).__name__}:{error}",
-                )
-            return False
         if not store.has_any():
             setter = getattr(service, "_set_phase", None)
             if callable(setter):
@@ -79,7 +69,8 @@ def install_dojo_template_routes(
     store: DojoTemplateStore = DEFAULT_DOJO_TEMPLATE_STORE,
 ) -> None:
     authorization = [Depends(security.require_authorization)]
-    ensure_canonical_raw_templates(store)
+    install_user_owned_template_pipeline()
+    ensure_factory_defaults(store)
     install_template_start_guard(dojo_service, store)
 
     def require_template_mutation_available() -> None:
@@ -97,7 +88,6 @@ def install_dojo_template_routes(
 
         @app.get("/api/dojo/templates", dependencies=authorization)
         async def get_dojo_templates() -> dict:
-            ensure_canonical_raw_templates(store)
             return store.public_status()
 
     if not _route_exists(app, "/api/dojo/templates/{mode}/image", "GET"):
@@ -105,7 +95,6 @@ def install_dojo_template_routes(
         @app.get("/api/dojo/templates/{mode}/image", dependencies=authorization)
         async def get_dojo_template_image(mode: str) -> dict:
             try:
-                ensure_canonical_raw_templates(store)
                 value = normalize_template_mode(mode)
                 record = store.record(value)
                 if not record.configured:
@@ -113,6 +102,9 @@ def install_dojo_template_routes(
                 return {
                     "mode": value,
                     "sha256": record.sha256,
+                    "source": record.source,
+                    "width": record.width,
+                    "height": record.height,
                     "raw": True,
                     "template_modified": False,
                     "image_base64": store.image_base64(value),
@@ -146,10 +138,28 @@ def install_dojo_template_routes(
         async def delete_dojo_template(mode: str) -> dict:
             require_template_mutation_available()
             try:
-                normalize_template_mode(mode)
+                value = normalize_template_mode(mode)
+                record = store.remove(value)
             except ValueError as error:
                 raise HTTPException(status_code=404, detail=str(error)) from error
-            raise HTTPException(status_code=409, detail="DOJO_RAW_TEMPLATE_IMMUTABLE")
+            payload = store.public_status()
+            payload["removed"] = record.to_public_dict()
+            return payload
+
+    restore_path = "/api/dojo/templates/{mode}/restore-default"
+    if not _route_exists(app, restore_path, "POST"):
+
+        @app.post(restore_path, dependencies=authorization)
+        async def restore_default_dojo_template(mode: str) -> dict:
+            require_template_mutation_available()
+            try:
+                value = normalize_template_mode(mode)
+                record = store.restore_default(value)
+            except ValueError as error:
+                raise HTTPException(status_code=404, detail=str(error)) from error
+            payload = store.public_status()
+            payload["restored"] = record.to_public_dict()
+            return payload
 
 
 __all__ = [

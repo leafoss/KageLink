@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from pathlib import Path
-import tempfile
-import unittest
 from types import SimpleNamespace
+import unittest
 
-import cv2
 import numpy as np
 
+from pc_agent.kage_pilot.dojo_raw_trainer_v351 import RawDojoLeaderDetector
 from pc_agent.kage_pilot.post_combat_v03b import (
     CalibratedDojoLeaderDetector,
     CalibratedHudResourceReader,
@@ -34,57 +32,51 @@ class FakeLeaderDetector:
 
 
 class KagePilotV03BPostCombatTests(unittest.TestCase):
-    def _template(self):
-        rng = np.random.default_rng(12345)
-        template = rng.integers(0, 256, size=(34, 28, 3), dtype=np.uint8)
-        cv2.rectangle(template, (4, 5), (22, 29), (10, 240, 80), 2)
-        return template
+    def test_legacy_calibrated_name_returns_raw_matcher_and_ignores_local_path(self):
+        detector = CalibratedDojoLeaderDetector(
+            threshold=0.99,
+            template_path="forbidden-local-template.png",
+            scales=(0.5, 1.0, 2.0),
+        )
+        self.assertIsInstance(detector, RawDojoLeaderDetector)
+        self.assertEqual(detector.scales, (1.0,))
 
-    def test_local_live_template_is_preferred_and_matches(self):
-        with tempfile.TemporaryDirectory() as temp:
-            path = Path(temp) / "leader.png"
-            template = self._template()
-            self.assertTrue(cv2.imwrite(str(path), template))
-            detector = CalibratedDojoLeaderDetector(
-                threshold=0.95,
-                template_path=path,
-                scales=(1.0,),
-            )
-            frame = np.zeros((180, 240, 3), dtype=np.uint8)
-            frame[70:104, 120:148] = template
-            match = detector.find(frame, now=1.0)
-            self.assertIsNotNone(match)
-            self.assertEqual(detector.template_source, "local")
-            self.assertEqual(match.source, "visual")
-            self.assertEqual(match.bbox[:2], (120, 70))
-            self.assertGreaterEqual(match.score, 0.99)
+        template = next(item for item in detector._raw_templates if item.mode == "32")
+        frame = np.zeros((180, 240, 3), dtype=np.uint8)
+        x, y = 120, 70
+        frame[y:y + template.height, x:x + template.width] = template.pixels[:, :, :3]
+        match = detector.find(frame, now=1.0)
+        self.assertIsNotNone(match)
+        self.assertEqual(match.source, "visual")
+        self.assertEqual(match.bbox, (x, y, 30, 31))
+        self.assertEqual(match.scale, 1.0)
+        self.assertTrue(detector.last_accepted_template_source.startswith("raw-32-"))
+        self.assertGreaterEqual(match.score, 0.999)
 
-    def test_camera_flow_shifts_leader_memory_when_visual_is_missing(self):
-        with tempfile.TemporaryDirectory() as temp:
-            path = Path(temp) / "leader.png"
-            template = self._template()
-            cv2.imwrite(str(path), template)
-            detector = CalibratedDojoLeaderDetector(
-                threshold=0.95,
-                template_path=path,
-                scales=(1.0,),
-                memory_seconds=10.0,
-            )
-            frame = np.zeros((180, 240, 3), dtype=np.uint8)
-            frame[70:104, 120:148] = template
-            visual = detector.find(frame, now=1.0)
-            self.assertIsNotNone(visual)
+    def test_camera_flow_shifts_raw_leader_memory_when_visual_is_missing(self):
+        detector = CalibratedDojoLeaderDetector(
+            threshold=0.99,
+            template_path="ignored.png",
+            scales=(1.0,),
+            memory_seconds=10.0,
+        )
+        template = next(item for item in detector._raw_templates if item.mode == "64")
+        frame = np.zeros((220, 300, 3), dtype=np.uint8)
+        x, y = 120, 70
+        frame[y:y + template.height, x:x + template.width] = template.pixels[:, :, :3]
+        visual = detector.find(frame, now=1.0)
+        self.assertIsNotNone(visual)
 
-            blank = np.zeros_like(frame)
-            memory = detector.find(
-                blank,
-                flow=SimpleNamespace(dx=-32.0, dy=5.0),
-                now=1.1,
-            )
-            self.assertIsNotNone(memory)
-            self.assertEqual(memory.source, "memory")
-            self.assertEqual(memory.bbox[0], visual.bbox[0] - 32)
-            self.assertEqual(memory.bbox[1], visual.bbox[1] + 5)
+        blank = np.zeros_like(frame)
+        memory = detector.find(
+            blank,
+            flow=SimpleNamespace(dx=-32.0, dy=5.0),
+            now=1.1,
+        )
+        self.assertIsNotNone(memory)
+        self.assertEqual(memory.source, "memory")
+        self.assertEqual(memory.bbox[0], visual.bbox[0] - 32)
+        self.assertEqual(memory.bbox[1], visual.bbox[1] + 5)
 
     def test_micro_full_resource_widths_report_one_hundred_percent(self):
         reader = CalibratedHudResourceReader()

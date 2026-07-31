@@ -4,7 +4,12 @@ from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 root = os.path.abspath(os.path.join(SPECPATH, '..'))
 agent = os.path.join(root, 'pc_agent')
-datas = []
+datas = [
+    (
+        os.path.join(agent, 'config', 'kage_pilot_combat_target.json'),
+        'config',
+    ),
+]
 binaries = []
 hiddenimports = collect_submodules('pc_agent') + [
     'kage_pilot_visual_return',

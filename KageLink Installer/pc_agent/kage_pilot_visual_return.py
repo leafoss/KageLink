@@ -50,8 +50,6 @@ def main() -> int:
     )
     from pc_agent.kage_pilot.visual_position_guard import install_visual_position_guard
 
-    # Install content-aware coordinates first, then keep that detector scoped until
-    # this isolated helper explicitly activates it for the real round runtime.
     install_resolution_independent_dojo()
     install_resolution_scope_compat()
     install_resolution_gate_slots_compat()
@@ -59,8 +57,6 @@ def main() -> int:
 
     import kage_pilot_live_v0351_round as runtime
 
-    # KagePilotRound.exe is isolated, so enabling the adaptive detector globally here
-    # cannot contaminate generic providers or the parent KageLink process.
     activate_round_resolution_detector()
 
     from pc_agent.kage_pilot.dojo_chakra_recovery_bridge_v351 import (
@@ -72,14 +68,17 @@ def main() -> int:
     )
     from pc_agent.kage_pilot.dojo_runtime_guard_v351 import install_runtime_guard
     from pc_agent.kage_pilot.dojo_vision_black_box_v351 import install_vision_black_box
+    from pc_agent.kage_pilot.dojo_vision_lab_v351 import install_runtime_lab
     from pc_agent.kage_pilot.position_map_continuity import merge_nonorigin_keyframes
 
-    # Wrap the exact PR23 visual-return class. Legacy engines and main are never restored.
+    # The Vision Lab is installed last so it observes the exact runtime after every
+    # safety, geometry, Chakra and black-box bridge has already made its decision.
     install_runtime_guard(runtime)
     install_runtime_geometry_bridge(runtime)
     install_resource_quantization_bridge(runtime)
     install_chakra_recovery_bridge(runtime)
     install_vision_black_box(runtime)
+    install_runtime_lab(runtime)
 
     if position_path is not None:
         original_init = runtime.ClosedLoopVisualRecoveryEngine.__init__

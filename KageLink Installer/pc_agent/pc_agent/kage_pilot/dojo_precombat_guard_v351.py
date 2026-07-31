@@ -13,10 +13,24 @@ from .dojo_fight_v03i import DojoRoundWithoutCombatError
 
 
 PRECOMBAT_GUARD_PULSE_SECONDS = 0.08
+LEGACY_SPAWN_DELAY_SECONDS = 5.0
+SAFE_SPAWN_DELAY_SECONDS = 1.0
 _REQUEST_PATCH_LOCK = threading.RLock()
 _HANDOFF_LOCK = threading.RLock()
 _ROUND_BRIDGE_INSTALLED = False
 _ACTIVE_HANDOFF: tuple["_GuardedRequestController", Any] | None = None
+
+
+def effective_spawn_delay(value: float) -> float:
+    configured = max(0.0, float(value))
+    if abs(configured - LEGACY_SPAWN_DELAY_SECONDS) <= 1e-6:
+        print(
+            "DOJO_PRECOMBAT_TIMING_MIGRATED "
+            f"spawn_delay={configured:.2f}->{SAFE_SPAWN_DELAY_SECONDS:.2f}",
+            flush=True,
+        )
+        return SAFE_SPAWN_DELAY_SECONDS
+    return configured
 
 
 class _GuardedRequestController:
@@ -90,12 +104,7 @@ def precombat_handoff_active() -> bool:
 
 
 def release_precombat_handoff(reason: str = "round_handoff") -> bool:
-    """Release the parent-process R lease after the round child has armed R.
-
-    The frozen KagePilotRound helper is a separate one-file executable. Its cold
-    extraction may take several seconds. Keeping the request controller alive closes
-    the physical input gap between the OK click and the child controller startup.
-    """
+    """Release the parent-process R lease after the round child has armed R."""
 
     global _ACTIVE_HANDOFF
     with _HANDOFF_LOCK:
@@ -142,7 +151,7 @@ def request_taijutsu_dojo_spar_single_click(
 
     1. one Ctrl+Right Arrow pulse;
     2. begin BYOND repeat-held R;
-    3. preserve R through the existing spawn timer;
+    3. preserve R through the shortened protected spawn timer;
     4. when the controller is owned by this request, keep it alive until the
        KagePilotRound child confirms its own repeat-held R;
     5. continue with the unchanged isolated combat runtime.
@@ -158,6 +167,7 @@ def request_taijutsu_dojo_spar_single_click(
     )
     successful = False
     handed_off = False
+    spawn_delay = effective_spawn_delay(spawn_delay_seconds)
 
     with _REQUEST_PATCH_LOCK:
         original_click_ok = legacy_request.click_first_option_ok
@@ -173,7 +183,7 @@ def request_taijutsu_dojo_spar_single_click(
                 dialog_delay_seconds=dialog_delay_seconds,
                 dialog_find_timeout_seconds=dialog_find_timeout_seconds,
                 dialog_retries=dialog_retries,
-                spawn_delay_seconds=spawn_delay_seconds,
+                spawn_delay_seconds=spawn_delay,
                 leader_threshold=leader_threshold,
                 trainer_search_timeout_seconds=trainer_search_timeout_seconds,
                 interaction_attempts=interaction_attempts,
@@ -197,13 +207,7 @@ def request_taijutsu_dojo_spar_single_click(
 
 
 def install_round_precombat_r_hold(controller_type=None) -> None:
-    """Hold repeat-R during the round process's existing startup delay.
-
-    The base runtime calls ``activate()`` followed immediately by one defensive
-    ``release_all()`` before sleeping. This bridge changes only that first release:
-    it clears stale input and then starts repeat-held R. Every later release keeps
-    its original semantics, including victory, F12, errors and post-combat.
-    """
+    """Hold repeat-R during the round process's existing startup delay."""
 
     global _ROUND_BRIDGE_INSTALLED
 
@@ -258,8 +262,11 @@ def install_round_precombat_r_hold(controller_type=None) -> None:
 __all__ = [
     "DojoFightRequestError",
     "DojoRoundWithoutCombatError",
+    "LEGACY_SPAWN_DELAY_SECONDS",
     "PRECOMBAT_GUARD_PULSE_SECONDS",
+    "SAFE_SPAWN_DELAY_SECONDS",
     "TrainerClickTarget",
+    "effective_spawn_delay",
     "install_round_precombat_r_hold",
     "precombat_handoff_active",
     "release_precombat_handoff",

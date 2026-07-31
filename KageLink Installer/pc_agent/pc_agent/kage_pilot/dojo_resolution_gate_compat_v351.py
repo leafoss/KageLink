@@ -25,24 +25,23 @@ def install_resolution_gate_slots_compat() -> None:
         TrainerSearchMotionGate._kagelink_scale_hold_started = _SidecarSlot(None)
         TrainerSearchMotionGate._kagelink_resolution_slots = True
 
-    # Install after the original resolution bridge has loaded its aliases. The runtime
-    # fix bounds template work per frame and makes the search grid follow real geometry.
-    from .dojo_resolution_runtime_fix_v351 import (
-        _ORIGINAL_RESOLUTION_DETECTOR,
-        install_resolution_runtime_fix,
-    )
+    # Preserve dynamic observer/search-grid corrections, then replace every
+    # Trainer acquisition alias with the exact RAW pipeline. RAW runs last so an
+    # older compatibility provider cannot win through import order.
+    from .dojo_resolution_runtime_fix_v351 import install_resolution_runtime_fix
 
     install_resolution_runtime_fix()
 
-    # The bounded detector is runtime-only. Restore the public template API and generic
-    # post-combat provider immediately; trainer_search, the anchor monitor and the isolated
-    # round activation retain the bounded class through their explicit aliases.
-    from . import dojo_templates, dojo_templates_v35, post_combat_v03c
+    from . import post_combat_v03c
     from .dojo_resolution_scope_compat_v351 import _legacy_detector_class
 
-    dojo_templates_v35.UserDojoLeaderDetector = _ORIGINAL_RESOLUTION_DETECTOR
-    dojo_templates.UserDojoLeaderDetector = _ORIGINAL_RESOLUTION_DETECTOR
+    # Generic parent post-combat behavior remains isolated. Trainer acquisition,
+    # anchor monitoring and the round helper are patched explicitly by RAW install.
     post_combat_v03c.PersistentDojoLeaderDetector = _legacy_detector_class()
+
+    from .dojo_raw_trainer_v351 import install_raw_trainer_pipeline
+
+    install_raw_trainer_pipeline()
 
 
 __all__ = ["install_resolution_gate_slots_compat"]

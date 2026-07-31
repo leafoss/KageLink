@@ -20,5 +20,18 @@
   "effect_vertical_min_height": 72.0,
   "effect_border_margin": 8.0,
   "effect_border_long_ratio": 0.18,
-  "structured_logging_enabled": true
+  "structured_logging_enabled": true,
+  "combat_strategy": {
+    "strategy": "persistent_hardened",
+    "attention_confirm_hits": 2,
+    "rebind_confirm_hits": 2,
+    "clean_visual_grace_seconds": 0.2,
+    "local_recovery_seconds": 1.2,
+    "hard_lost_timeout": 3.0,
+    "minimum_enemy_score": 55.0,
+    "minimum_rebind_score": 0.62,
+    "direction_confirm_hits": 2,
+    "maximum_prediction_cells": 1,
+    "runtime_provenance_enabled": true
+  }
 }

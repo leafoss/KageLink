@@ -118,6 +118,7 @@ def _evaluate(
     direction_errors = 0
     prediction_jumps = 0
     previous_prediction = None
+    previous_combat_target_id = None
 
     for decision in decisions:
         visual_id = decision.current_visual_track_id
@@ -144,6 +145,13 @@ def _evaluate(
                     direction_errors += 1
                 elif expected == "DOWN" and dy < 0 and abs(dy) > abs(dx):
                     direction_errors += 1
+
+        # Prediction continuity belongs to one logical opponent. A target that was
+        # genuinely hard-lost and followed by a new combat_target_id starts a new
+        # lifecycle and must not be counted as a multi-cell prediction jump.
+        if decision.combat_target_id != previous_combat_target_id:
+            previous_prediction = None
+            previous_combat_target_id = decision.combat_target_id
         prediction = decision.predicted_target_cell
         if previous_prediction is not None and prediction is not None:
             jump = max(
@@ -154,6 +162,8 @@ def _evaluate(
                 prediction_jumps += 1
         if prediction is not None:
             previous_prediction = prediction
+        elif decision.combat_target_id is None:
+            previous_prediction = None
 
     final = decisions[-1]
     target_present = final.combat_target_id is not None and final.active

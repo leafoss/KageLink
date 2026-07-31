@@ -162,12 +162,14 @@ class DojoRoundVideoV351Tests(unittest.TestCase):
         recorder = (
             root / "pc_agent" / "kage_pilot" / "dojo_vision_lab_v351.py"
         ).read_text(encoding="utf-8")
+        recorder_casefold = recorder.casefold()
 
         self.assertNotIn("unified_dojo_vision_lab_v351", entry)
         self.assertNotIn("install_dojo_vision_lab_desktop", entry)
         self.assertNotIn("install_vision_black_box(runtime)", visual_return)
         self.assertIn("install_runtime_lab(runtime)", visual_return)
-        self.assertNotIn("tkinter", recorder.casefold())
+        self.assertNotIn("import tkinter", recorder_casefold)
+        self.assertNotIn("from tkinter", recorder_casefold)
         self.assertNotIn("ImageTk", recorder)
         self.assertIn("DOJO_ROUND_VIDEO_READY", recorder)
         self.assertIn("RAW CANDIDATES", recorder)

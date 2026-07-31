@@ -18,7 +18,9 @@ As Bíblias permanecem na raiz do repositório para máxima visibilidade:
 
 - [`KAGELINK_3_5_1_DOJO_PLAN.md`](3.5.1/KAGELINK_3_5_1_DOJO_PLAN.md) — plano e limites de escopo;
 - [`KAGELINK_3_5_1_DOJO_RELIABILITY.md`](3.5.1/KAGELINK_3_5_1_DOJO_RELIABILITY.md) — contrato de confiabilidade em PT-BR;
-- [`KAGELINK_3_5_1_DOJO_RELIABILITY.en.md`](3.5.1/KAGELINK_3_5_1_DOJO_RELIABILITY.en.md) — contrato equivalente em EN-US.
+- [`KAGELINK_3_5_1_DOJO_RELIABILITY.en.md`](3.5.1/KAGELINK_3_5_1_DOJO_RELIABILITY.en.md) — contrato equivalente em EN-US;
+- [`KAGELINK_3_5_1_COMBAT_TARGET.md`](3.5.1/KAGELINK_3_5_1_COMBAT_TARGET.md) — alvo lógico persistente, rebind local e estabilidade do combate;
+- [`KAGELINK_3_5_1_COMBAT_TARGET.en.md`](3.5.1/KAGELINK_3_5_1_COMBAT_TARGET.en.md) — documentação equivalente em EN-US.
 
 ## Mapa dos arquivos operacionais
 
@@ -31,7 +33,7 @@ KageLink Installer/pc_agent/
 ├── unified_dojo_*.py
 │   └── composição da interface Desktop e integração da API
 ├── pc_agent/kage_pilot/
-│   └── dojo_*_v351.py, bridges, guards e subsistemas de visão/posição
+│   └── dojo_*_v351.py, bridges, guards e subsistemas de visão/posição/combate
 ├── tests/
 │   └── test_dojo_*.py e testes de empacotamento/regressão
 └── config/
@@ -44,4 +46,4 @@ KageLink Installer/installer/
 └── CRIAR_INSTALADOR.bat
 ```
 
-A organização desta pasta é documental. Nenhuma linha de código, import, rota, teste, spec, workflow ou comportamento do Dojo foi alterado.
+A organização documental não altera caminhos operacionais. Mudanças funcionais da PR permanecem isoladas nos módulos canônicos, com testes e documentação bilíngue.

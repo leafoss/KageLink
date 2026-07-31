@@ -27,6 +27,13 @@ from .dojo_stop_reliability_v351 import install_dojo_stop_reliability
 
 install_dojo_stop_reliability(DojoTrainingService)
 
+# Register the concrete experimental strategy through the explicit strategy registry.
+# This import changes only the registry entry; it does not replace runtime classes or
+# install a compatibility bridge. The configured default remains persistent_hardened.
+from .grid_focus_v2_strategy_v351 import register_grid_focus_v2_strategy
+
+register_grid_focus_v2_strategy()
+
 from .learning import BehaviorCloner, Prediction
 from .learning_v2 import CombatPrediction, PolicyPrediction, TemporalCombatModel
 

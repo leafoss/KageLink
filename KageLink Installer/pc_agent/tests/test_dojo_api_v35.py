@@ -12,6 +12,7 @@ import unified_dojo_debug_v351  # noqa: F401
 import unified_dojo_templates_ui_v35  # noqa: F401
 import unified_dojo_ui  # noqa: F401
 import unified_dojo_ui_v351  # noqa: F401
+import unified_dojo_user_templates_v351  # noqa: F401
 import unified_launcher
 from pc_agent.dojo_api import DojoDebugRequest, DojoStartRequest, dojo_status_payload
 from pc_agent.kage_pilot import DojoTrainingService
@@ -42,6 +43,7 @@ class KageLinkDojoApiV351Tests(unittest.TestCase):
             ("GET", "/api/dojo/templates/{mode}/image"),
             ("POST", "/api/dojo/templates/{mode}"),
             ("DELETE", "/api/dojo/templates/{mode}"),
+            ("POST", "/api/dojo/templates/{mode}/restore-default"),
         ):
             self.assertIn(key, by_key)
             self.assertGreaterEqual(
@@ -49,7 +51,7 @@ class KageLinkDojoApiV351Tests(unittest.TestCase):
                 1,
                 f"{key} must require the KageLink authorization dependency",
             )
-        self.assertEqual(len(routes), 9)
+        self.assertEqual(len(routes), 10)
         self.assertEqual(unified_app.APP_VERSION, "3.5.1")
         self.assertEqual(unified_app.app.version, "3.5.1")
 
@@ -113,7 +115,12 @@ class KageLinkDojoApiV351Tests(unittest.TestCase):
             "dojo_template_mode",
             "dojo_template_upload",
             "dojo_template_remove",
+            "dojo_template_restore",
+            "dojo_template_restore_confirm",
             "dojo_template_required",
+            "dojo_template_used_by_detector",
+            "dojo_template_invalid_png",
+            "dojo_template_training_active",
             "dojo_tab_summary",
             "dojo_tab_settings",
             "dojo_tab_images",

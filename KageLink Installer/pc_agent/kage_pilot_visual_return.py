@@ -62,6 +62,10 @@ def main() -> int:
     from pc_agent.kage_pilot.dojo_chakra_recovery_bridge_v351 import (
         install_chakra_recovery_bridge,
     )
+    from pc_agent.kage_pilot.dojo_meditation_timeout_v351 import (
+        ensure_safe_meditation_timeout,
+        install_meditation_timeout_bridge,
+    )
     from pc_agent.kage_pilot.dojo_position_bridge import save_tracker_state
     from pc_agent.kage_pilot.dojo_resource_quantization_v351 import (
         install_resource_quantization_bridge,
@@ -70,9 +74,14 @@ def main() -> int:
     from pc_agent.kage_pilot.dojo_vision_lab_v351 import install_runtime_lab
     from pc_agent.kage_pilot.position_map_continuity import merge_nonorigin_keyframes
 
+    # Migrate the old 120-second setting before the guard reads it. The physical
+    # round-5 capture showed Y becoming eligible only at the end of that window.
+    ensure_safe_meditation_timeout(telemetry=runtime._telemetry)
+
     # Install every gameplay bridge first. The final visual recorder observes only
     # the already-processed round input and never changes controls or detector state.
     install_runtime_guard(runtime)
+    install_meditation_timeout_bridge(runtime)
     install_runtime_geometry_bridge(runtime)
     install_resource_quantization_bridge(runtime)
     install_chakra_recovery_bridge(runtime)

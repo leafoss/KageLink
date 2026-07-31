@@ -19,9 +19,13 @@ from pc_agent.kage_pilot.dojo_resolution_bridge_v351 import (
     reset_dojo_geometry,
     restore_tracker_state_resolution_safe,
 )
+from pc_agent.kage_pilot.dojo_resolution_gate_compat_v351 import (
+    install_resolution_gate_slots_compat,
+)
 
 # This must run before DojoAnchorMonitor imports direct detector/decoder aliases.
 install_resolution_independent_dojo()
+install_resolution_gate_slots_compat()
 
 from pc_agent.kage_pilot.dojo_anchor_monitor_compat_v351 import (
     install_anchor_monitor_tracker_compat,

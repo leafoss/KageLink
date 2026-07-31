@@ -20,11 +20,17 @@ class _SidecarSlot:
 def install_resolution_gate_slots_compat() -> None:
     from .trainer_search_v03k import TrainerSearchMotionGate
 
-    if bool(getattr(TrainerSearchMotionGate, "_kagelink_resolution_slots", False)):
-        return
-    TrainerSearchMotionGate._kagelink_blind_moves = _SidecarSlot(0)
-    TrainerSearchMotionGate._kagelink_scale_hold_started = _SidecarSlot(None)
-    TrainerSearchMotionGate._kagelink_resolution_slots = True
+    if not bool(getattr(TrainerSearchMotionGate, "_kagelink_resolution_slots", False)):
+        TrainerSearchMotionGate._kagelink_blind_moves = _SidecarSlot(0)
+        TrainerSearchMotionGate._kagelink_scale_hold_started = _SidecarSlot(None)
+        TrainerSearchMotionGate._kagelink_resolution_slots = True
+
+    # Install after the original resolution bridge has loaded its aliases. The runtime
+    # fix replaces only those adaptive aliases, bounds template work per frame and makes
+    # the concentric search grid follow the real arena/tile geometry.
+    from .dojo_resolution_runtime_fix_v351 import install_resolution_runtime_fix
+
+    install_resolution_runtime_fix()
 
 
 __all__ = ["install_resolution_gate_slots_compat"]

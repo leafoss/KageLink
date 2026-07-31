@@ -5,17 +5,19 @@ import unittest
 from pc_agent.kage_pilot.combat_strategy_v351 import (
     AttackVisualContext,
     CombatStrategyConfig,
-    GridFocusV2Strategy,
     ObservationClass,
     adjacent,
     create_combat_target_strategy,
+)
+from pc_agent.kage_pilot.grid_focus_v2_strategy_v351 import (
+    GridFocusV2SpatialStrategy,
 )
 from pc_agent.kage_pilot.combat_lab.scenarios import frame, observation
 
 
 class CombatStrategyV351Tests(unittest.TestCase):
     def setUp(self) -> None:
-        self.strategy = GridFocusV2Strategy(
+        self.strategy = GridFocusV2SpatialStrategy(
             CombatStrategyConfig(
                 strategy="grid_focus_v2",
                 attention_confirm_hits=2,
@@ -128,10 +130,14 @@ class CombatStrategyV351Tests(unittest.TestCase):
 
     def test_09_pending_rebind_does_not_change_main_memory(self):
         target = self.acquire(track_id=10)
-        result = self.strategy.update(frame(2, (0, 0), observation(2, 11, (0, 1))))
+        candidate = observation(2, 11, (0, 1), timestamp=0.5)
+        result = self.strategy.update(
+            frame(2, (0, 0), candidate, timestamp=0.5)
+        )
         self.assertEqual(result.combat_target_id, target.combat_target_id)
         self.assertEqual(result.confirmed_target_cell, (1, 0))
         self.assertEqual(result.pending_rebind_cell, (0, 1))
+        self.assertEqual(result.pending_rebind_hits, 1)
 
     def test_10_rebind_requires_clean_observations(self):
         self.acquire(track_id=10)
@@ -156,13 +162,16 @@ class CombatStrategyV351Tests(unittest.TestCase):
 
     def test_12_rebind_does_not_jump_prediction_multiple_cells(self):
         self.acquire(track_id=10)
-        self.strategy.update(frame(2, (0, 0), observation(2, 11, (1, 1))))
-        result = self.strategy.update(frame(3, (0, 0), observation(3, 11, (1, 1))))
+        first = observation(2, 11, (1, 1), timestamp=0.5)
+        second = observation(3, 11, (1, 1), timestamp=0.6)
+        self.strategy.update(frame(2, (0, 0), first, timestamp=0.5))
+        result = self.strategy.update(frame(3, (0, 0), second, timestamp=0.6))
         self.assertTrue(adjacent(result.confirmed_target_cell, result.predicted_target_cell))
 
     def test_13_pending_rebind_does_not_change_direction(self):
         acquired = self.acquire(track_id=10, cell=(1, 0))
-        result = self.strategy.update(frame(2, (0, 0), observation(2, 11, (0, 1))))
+        candidate = observation(2, 11, (0, 1), timestamp=0.5)
+        result = self.strategy.update(frame(2, (0, 0), candidate, timestamp=0.5))
         self.assertEqual(result.last_contact_direction, acquired.last_contact_direction)
 
     def test_14_diagonal_is_adjacent(self):

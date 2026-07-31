@@ -1,0 +1,241 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from .domain import (
+    CandidateObservation,
+    CombatDecision,
+    CombatFrame,
+    GridCell,
+    ObservationKind,
+    TargetState,
+    cardinal_face,
+    cardinal_move,
+)
+
+
+@dataclass(slots=True)
+class _AttentionHypothesis:
+    cell: GridCell
+    hits: int
+    last_frame: int
+
+
+class GridFocusStrategy:
+    """Deterministic combat policy whose identity authority is the 64px grid.
+
+    Visual track IDs are evidence only. They never own identity. After confirmation,
+    only the confirmed cell, one predicted adjacent cell, and a bounded 3×3 recovery
+    neighborhood may influence the logical target.
+    """
+
+    def __init__(
+        self,
+        *,
+        acquire_hits: int = 2,
+        suspend_frames: int = 3,
+        hard_lost_frames: int = 8,
+    ) -> None:
+        self.acquire_hits = max(2, int(acquire_hits))
+        self.suspend_frames = max(1, int(suspend_frames))
+        self.hard_lost_frames = max(self.suspend_frames + 1, int(hard_lost_frames))
+        self.reset_round()
+
+    def reset_round(self) -> None:
+        self._state = TargetState.SEARCH
+        self._next_target_id = 1
+        self._target_id: int | None = None
+        self._confirmed_cell: GridCell | None = None
+        self._predicted_cell: GridCell | None = None
+        self._attention: _AttentionHypothesis | None = None
+        self._last_clean_frame: int | None = None
+        self._last_face: str | None = None
+
+    def end_combat(self) -> None:
+        self._state = TargetState.ENDED
+        self._target_id = None
+        self._confirmed_cell = None
+        self._predicted_cell = None
+        self._attention = None
+        self._last_clean_frame = None
+        self._last_face = None
+
+    def _focused_cells(self) -> set[GridCell] | None:
+        if self._confirmed_cell is None:
+            return None
+        focused = {self._confirmed_cell}
+        if self._predicted_cell is not None:
+            focused.add(self._predicted_cell)
+        if self._state is TargetState.SUSPENDED:
+            origin = self._predicted_cell or self._confirmed_cell
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    focused.add(GridCell(origin.x + dx, origin.y + dy))
+        return focused
+
+    @staticmethod
+    def _best_clean(
+        candidates: tuple[CandidateObservation, ...],
+        *,
+        player_cell: GridCell,
+        allowed_cells: set[GridCell] | None,
+    ) -> CandidateObservation | None:
+        valid = [
+            candidate
+            for candidate in candidates
+            if candidate.is_clean_body
+            and candidate.anchor_cell != player_cell
+            and (allowed_cells is None or candidate.anchor_cell in allowed_cells)
+        ]
+        valid.sort(
+            key=lambda candidate: (
+                player_cell.chebyshev_distance(candidate.anchor_cell),
+                -float(candidate.confidence),
+                candidate.anchor_cell.x,
+                candidate.anchor_cell.y,
+                candidate.track_id,
+            )
+        )
+        return valid[0] if valid else None
+
+    def _decision(
+        self,
+        frame: CombatFrame,
+        *,
+        attack: bool,
+        move: str | None,
+        reason: str,
+    ) -> CombatDecision:
+        face = (
+            cardinal_face(frame.player_cell, self._confirmed_cell, self._last_face)
+            if self._confirmed_cell is not None
+            else self._last_face
+        )
+        if face is not None:
+            self._last_face = face
+        return CombatDecision(
+            frame_index=frame.frame_index,
+            target_state=self._state,
+            combat_target_id=self._target_id,
+            confirmed_cell=self._confirmed_cell,
+            predicted_cell=self._predicted_cell,
+            face=face,
+            move=move,
+            attack_primary=attack,
+            attack_secondary=False,
+            reason=reason,
+        )
+
+    def update(self, frame: CombatFrame) -> CombatDecision:
+        if frame.ko_confirmed or any(
+            candidate.kind is ObservationKind.KO for candidate in frame.candidates
+        ):
+            self.end_combat()
+            return self._decision(
+                frame,
+                attack=False,
+                move=None,
+                reason="KO confirmed; combat authority disabled",
+            )
+
+        if self._state is TargetState.ENDED:
+            return self._decision(
+                frame,
+                attack=False,
+                move=None,
+                reason="combat already ended",
+            )
+
+        allowed = self._focused_cells()
+        clean = self._best_clean(
+            frame.candidates,
+            player_cell=frame.player_cell,
+            allowed_cells=allowed,
+        )
+
+        if self._target_id is None:
+            if clean is None:
+                self._state = TargetState.SEARCH
+                self._attention = None
+                return self._decision(
+                    frame,
+                    attack=False,
+                    move=None,
+                    reason="global discovery: no clean single-cell body",
+                )
+
+            if self._attention is not None and self._attention.cell == clean.anchor_cell:
+                self._attention.hits += 1
+                self._attention.last_frame = frame.frame_index
+            else:
+                self._attention = _AttentionHypothesis(clean.anchor_cell, 1, frame.frame_index)
+
+            if self._attention.hits < self.acquire_hits:
+                self._state = TargetState.ATTENTION
+                self._confirmed_cell = clean.anchor_cell
+                self._predicted_cell = clean.anchor_cell
+                return self._decision(
+                    frame,
+                    attack=False,
+                    move=None,
+                    reason=f"attention hypothesis {self._attention.hits}/{self.acquire_hits}",
+                )
+
+            self._target_id = self._next_target_id
+            self._next_target_id += 1
+            self._confirmed_cell = clean.anchor_cell
+            self._predicted_cell = clean.anchor_cell
+            self._last_clean_frame = frame.frame_index
+            self._state = TargetState.LOCKED
+            self._attention = None
+        elif clean is not None:
+            previous = self._confirmed_cell
+            assert previous is not None
+            if previous.chebyshev_distance(clean.anchor_cell) > 1:
+                clean = None
+            else:
+                self._confirmed_cell = clean.anchor_cell
+                self._predicted_cell = previous.step_toward(clean.anchor_cell)
+                self._last_clean_frame = frame.frame_index
+                self._state = TargetState.LOCKED
+
+        if clean is None and self._target_id is not None:
+            assert self._last_clean_frame is not None
+            missing = frame.frame_index - self._last_clean_frame
+            if missing >= self.hard_lost_frames:
+                old_id = self._target_id
+                self._target_id = None
+                self._confirmed_cell = None
+                self._predicted_cell = None
+                self._attention = None
+                self._last_clean_frame = None
+                self._state = TargetState.SEARCH
+                return self._decision(
+                    frame,
+                    attack=False,
+                    move=None,
+                    reason=f"target #{old_id} hard lost after {missing} frames",
+                )
+            self._state = TargetState.SUSPENDED
+            return self._decision(
+                frame,
+                attack=False,
+                move=None,
+                reason=f"target suspended; local 3x3 recovery frame {missing}",
+            )
+
+        assert self._confirmed_cell is not None
+        distance = frame.player_cell.chebyshev_distance(self._confirmed_cell)
+        if distance <= 1:
+            return self._decision(
+                frame,
+                attack=True,
+                move=None,
+                reason="clean target in adjacent 64px grid cell",
+            )
+        return self._decision(
+            frame,
+            attack=False,
+            move=cardinal_move(frame.player_cell, self._confirmed_cell),
+            reason="clean target outside contact; one-cell pursuit intention",
+        )

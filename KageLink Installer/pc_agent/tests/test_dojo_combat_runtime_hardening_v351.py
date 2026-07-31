@@ -16,11 +16,20 @@ from pc_agent.kage_pilot.dojo_round_video_performance_v351 import (
 
 
 class _Track:
-    def __init__(self, track_id, *, center, bbox=(0, 0, 32, 48), score=80.0):
+    def __init__(
+        self,
+        track_id,
+        *,
+        center,
+        bbox=(0, 0, 32, 48),
+        score=80.0,
+        shape_score=0.8,
+    ):
         self.track_id = track_id
         self.center = center
         self.bbox = bbox
         self.enemy_score = score
+        self.shape_score = shape_score
         self.residual_velocity = (0.0, 0.0)
 
 
@@ -33,12 +42,18 @@ class _Tracker:
 
 
 class _Observer:
-    def __init__(self, distances):
+    tile_size = 64.0
+
+    def __init__(self, distances, rejected=None):
         self.distances = dict(distances)
+        self.rejected = dict(rejected or {})
 
     def metrics_for(self, track_id):
         value = self.distances.get(track_id)
         return None if value is None else SimpleNamespace(grid_distance=value)
+
+    def combat_track_rejection_reason(self, track, *, for_acquire=False):
+        return self.rejected.get(track.track_id)
 
 
 class _Recorder:
@@ -56,21 +71,39 @@ class _Recorder:
 
 
 class DojoCombatRuntimeHardeningV351Tests(unittest.TestCase):
-    def test_contact_candidate_beats_distant_blob_and_lost_entry(self):
+    def test_only_visible_body_can_be_contact_candidate(self):
         distant = _Track(10, center=(260.0, 100.0), score=95.0)
-        contact = _Track(11, center=(112.0, 100.0), score=60.0)
-        lost = _Track(12, center=(101.0, 100.0), score=99.0)
-        tracker = _Tracker({10: "VISIBLE", 11: "OCCLUDED", 12: "LOST"})
-        observer = _Observer({10: 5, 11: 1, 12: 1})
+        contact = _Track(11, center=(150.0, 100.0), score=60.0)
+        occluded = _Track(12, center=(120.0, 100.0), score=99.0)
+        lost = _Track(13, center=(115.0, 100.0), score=99.0)
+        tracker = _Tracker(
+            {10: "VISIBLE", 11: "VISIBLE", 12: "OCCLUDED", 13: "LOST"}
+        )
+        observer = _Observer({10: 5, 11: 1, 12: 1, 13: 1})
 
         chosen = choose_contact_candidate(
-            (distant, lost, contact),
+            (distant, lost, occluded, contact),
             tracker=tracker,
             observer=observer,
             player_center=(100.0, 100.0),
         )
 
         self.assertIs(chosen, contact)
+
+    def test_large_nearby_blob_never_wins_by_proximity(self):
+        body = _Track(1, center=(150.0, 100.0), bbox=(135, 70, 30, 58), score=60.0)
+        effect = _Track(2, center=(110.0, 100.0), bbox=(40, 80, 140, 40), score=99.0)
+        tracker = _Tracker({1: "VISIBLE", 2: "VISIBLE"})
+        observer = _Observer({1: 1, 2: 1}, rejected={2: "BODY_TOO_WIDE"})
+
+        chosen = choose_contact_candidate(
+            (effect, body),
+            tracker=tracker,
+            observer=observer,
+            player_center=(100.0, 100.0),
+        )
+
+        self.assertIs(chosen, body)
 
     def test_visual_id_rebind_never_becomes_teleport_velocity(self):
         memory = HardenedCombatTargetMemory(
@@ -122,28 +155,29 @@ class DojoCombatRuntimeHardeningV351Tests(unittest.TestCase):
             frame_index=1,
         )
         memory._velocity = (-900.0, 450.0)
-        memory.mark_missing(now=5.0, frame_index=20, flow=(-80.0, 50.0))
-        predicted = memory.snapshot(now=5.0, frame_index=20).predicted_position
+        memory.mark_missing(now=1.5, frame_index=5, flow=(-80.0, 50.0))
+        predicted = memory.snapshot(now=1.5, frame_index=5).predicted_position
 
         self.assertIsNotNone(predicted)
         self.assertLessEqual(
             math.dist(player, predicted),
-            memory.config.contact_radius * 1.75 + 1e-6,
+            memory.config.contact_radius * 1.35 + 1e-6,
         )
         self.assertLessEqual(
             math.dist(track.center, predicted),
-            memory.config.local_rebind_radius + 1e-6,
+            memory.config.local_rebind_radius * 0.65 + 1e-6,
         )
 
-    def test_melee_rebind_score_prioritizes_d1_and_rejects_far_track(self):
+    def test_melee_rebind_requires_visible_d1_and_rejects_far_track(self):
         memory = HardenedCombatTargetMemory(
             CombatTargetConfig(structured_logging_enabled=False)
         )
-        context = SimpleNamespace(state="VISIBLE", appearance=())
+        visible = SimpleNamespace(state="VISIBLE", appearance=())
+        occluded = SimpleNamespace(state="OCCLUDED", appearance=())
         player = (100.0, 100.0)
         memory.acquire(
             _Track(1, center=(135.0, 100.0)),
-            context,
+            visible,
             SimpleNamespace(grid_distance=1),
             player_center=player,
             now=1.0,
@@ -152,19 +186,63 @@ class DojoCombatRuntimeHardeningV351Tests(unittest.TestCase):
 
         close_score = memory.rebind_score(
             _Track(2, center=(130.0, 100.0)),
-            context,
+            visible,
+            SimpleNamespace(grid_distance=1),
+            player_center=player,
+        )
+        occluded_score = memory.rebind_score(
+            _Track(3, center=(130.0, 100.0)),
+            occluded,
             SimpleNamespace(grid_distance=1),
             player_center=player,
         )
         far_score = memory.rebind_score(
-            _Track(3, center=(250.0, 100.0)),
-            context,
+            _Track(4, center=(250.0, 100.0)),
+            visible,
             SimpleNamespace(grid_distance=5),
             player_center=player,
         )
 
-        self.assertGreaterEqual(close_score, 0.94)
-        self.assertLessEqual(far_score, 0.12)
+        self.assertGreaterEqual(close_score, 0.82)
+        self.assertEqual(occluded_score, 0.0)
+        self.assertLessEqual(far_score, 0.10)
+
+    def test_rebind_needs_two_consecutive_visible_frames(self):
+        memory = HardenedCombatTargetMemory(
+            CombatTargetConfig(structured_logging_enabled=False)
+        )
+        visible = SimpleNamespace(state="VISIBLE", appearance=())
+        player = (100.0, 100.0)
+        memory.acquire(
+            _Track(1, center=(140.0, 100.0)),
+            visible,
+            SimpleNamespace(grid_distance=1),
+            player_center=player,
+            now=1.0,
+            frame_index=1,
+        )
+        memory.mark_missing(now=1.4, frame_index=4)
+        rebound = _Track(7, center=(144.0, 100.0))
+        tracker = _Tracker({7: "VISIBLE"})
+        observer = _Observer({7: 1})
+
+        first, first_score = memory.choose_local_rebind(
+            [rebound],
+            tracker=tracker,
+            observer=observer,
+            player_center=player,
+        )
+        second, second_score = memory.choose_local_rebind(
+            [rebound],
+            tracker=tracker,
+            observer=observer,
+            player_center=player,
+        )
+
+        self.assertIsNone(first)
+        self.assertGreaterEqual(first_score, memory.config.minimum_rebind_score)
+        self.assertIs(second, rebound)
+        self.assertEqual(second_score, first_score)
 
     def test_round_video_is_sampled_by_wall_clock_instead_of_every_observer_frame(self):
         recorder = _Recorder()

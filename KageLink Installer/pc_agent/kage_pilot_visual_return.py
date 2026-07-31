@@ -67,17 +67,15 @@ def main() -> int:
         install_resource_quantization_bridge,
     )
     from pc_agent.kage_pilot.dojo_runtime_guard_v351 import install_runtime_guard
-    from pc_agent.kage_pilot.dojo_vision_black_box_v351 import install_vision_black_box
     from pc_agent.kage_pilot.dojo_vision_lab_v351 import install_runtime_lab
     from pc_agent.kage_pilot.position_map_continuity import merge_nonorigin_keyframes
 
-    # The Vision Lab is installed last so it observes the exact runtime after every
-    # safety, geometry, Chakra and black-box bridge has already made its decision.
+    # Install every gameplay bridge first. The final visual recorder observes only
+    # the already-processed round input and never changes controls or detector state.
     install_runtime_guard(runtime)
     install_runtime_geometry_bridge(runtime)
     install_resource_quantization_bridge(runtime)
     install_chakra_recovery_bridge(runtime)
-    install_vision_black_box(runtime)
     install_runtime_lab(runtime)
 
     if position_path is not None:

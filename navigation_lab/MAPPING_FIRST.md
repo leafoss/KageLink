@@ -1,58 +1,81 @@
-# Mapping First — live 64 px tile observer
+# Mapping First — fullscreen input-confirmed tile mapper
 
-PR 24 now treats mapping as the gate before real navigation. The simulator and A* planner remain available, but live assisted/autonomous navigation stays blocked until this mapping layer is physically validated.
+PR 24 treats mapping as the gate before real navigation. The simulator and A* planner remain available, but live assisted/autonomous navigation stays blocked until this mapping layer is physically validated.
+
+## Mapping rule
+
+The default strategy is now **input-confirmed mapping**:
+
+```text
+one physical movement-key tap
+→ one attempted logical map cell
+→ visible screen movement confirms passage
+→ no visible movement within the timeout marks the attempted neighbor as blocked
+```
+
+The configured `64x64` size describes the logical game tile and the debug grid. The camera is **not** required to move a full 64 pixels for each accepted step. An 8 px or 20 px scrolling response can confirm one logical tile when it follows the expected direction.
 
 ## What this milestone does
 
-- locates the visible Windows client area whose title contains `Shinobi Story Online`;
-- captures only that client rectangle at a configurable FPS;
-- estimates translational screen motion between consecutive frames with phase correlation;
-- converts screen displacement into inverse world displacement;
-- accumulates partial pixel displacement instead of rounding every frame;
-- advances the relative map only after the accumulated displacement reaches one configurable tile;
-- uses `64x64` pixels as the default tile size;
-- stores visited cells in an unbounded sparse map centered at `(0, 0)`;
-- displays original capture, processed capture, 64 px grid, motion vector, residual and ASCII map;
-- saves the mapping state atomically under the selected profile and region;
+- locates the visible Windows client whose title contains `Shinobi Story Online`;
+- captures its visible client rectangle at a configurable FPS;
+- passively listens for arrow keys and WASD without suppressing or sending input;
+- ignores movement keys unless the game window is the foreground window;
+- compares the frame before the key with subsequent frames;
+- confirms one logical cell when screen translation matches the key direction;
+- marks the attempted neighbor as `#` when no matching movement appears before timeout;
+- uses `64x64` pixels as the default logical cell size;
+- stores visited and blocked cells in an unbounded sparse map centered at `(0, 0)`;
+- auto-starts, minimizes behind the fullscreen game and auto-saves after each resolved attempt;
 - restores an existing map automatically unless `-NewMap` is supplied;
 - never sends keyboard or mouse input.
 
-## Important limitation of the first capture backend
+## Fullscreen workflow
 
-The initial backend captures the visible client rectangle associated with the HWND. The game must not be minimized and its client area must not be covered by another window. A future Windows Graphics Capture backend can replace this without changing the motion or tile-mapping engine.
+The Mapping Lab does not need to remain visible or over the game.
 
-## Coordinate rule
+1. Open `Shinobi Story Online`.
+2. Run the observer command.
+3. The Mapping Lab starts automatically and minimizes.
+4. Return to the fullscreen game.
+5. Tap one movement key at a time during calibration.
+6. After the route, use Alt+Tab to inspect the map and event log.
 
-When a following camera moves the scenery left, the character moved right in world space:
+A held key is intentionally counted as one attempt until released. During the first calibration, use distinct taps rather than holding a direction continuously.
+
+## Coordinate and confirmation rule
+
+For a following camera:
 
 ```text
-world movement = inverse(screen movement)
+RIGHT input expects scenery movement LEFT
+LEFT input expects scenery movement RIGHT
+DOWN input expects scenery movement UP
+UP input expects scenery movement DOWN
 ```
 
-Partial motion is retained:
+The default confirmation window is `0.70 s`, and the default minimum projected screen shift is `2 px`.
+
+Successful attempt:
 
 ```text
--16 px screen X, repeated four times
-= +64 px world X
-= +1 map tile when tile size is 64 px
+MOVED RIGHT -> cell=(1,0)
 ```
 
-The `-InvertX` and `-InvertY` switches exist for physical calibration if the game/capture convention produces an inverted axis.
+Blocked attempt:
 
-## First physical test
+```text
+BLOCKED RIGHT -> obstacle=(1,0)
+```
 
-Keep the game visible and place the debug window beside it rather than over it.
+Map symbols:
 
-1. Stand in a safe location.
-2. Start the observer.
-3. Click **Start / Iniciar**.
-4. Do not move for several seconds. The map should remain at `(0, 0)`.
-5. Walk right until the background visibly scrolls by approximately one cell.
-6. Confirm the map becomes `(1, 0)`.
-7. Walk down, left and up to form a square.
-8. Confirm the map returns close to `(0, 0)` and the ASCII trail forms a loop.
-9. Click **Save / Salvar**, close and reopen with the same `RegionId`.
-10. Confirm the previous map and position are restored.
+```text
+P = current position
+, = visited cell
+# = blocked attempted cell
+? = unknown cell
+```
 
 ## Run
 
@@ -61,26 +84,44 @@ Keep the game visible and place the debug window beside it rather than over it.
   -WindowTitle "Shinobi Story Online" `
   -RegionId "mapping_calibration" `
   -TileSize 64 `
-  -Fps 10 `
-  -CameraMode following
-```
-
-Use a clean map when required:
-
-```powershell
-.\navigation_lab\scripts\run_mapping_observer.ps1 `
-  -RegionId "mapping_calibration" `
-  -TileSize 64 `
+  -Fps 12 `
+  -CameraMode following `
+  -MappingStrategy input `
+  -CommandTimeout 0.70 `
+  -MinCommandShift 2.0 `
   -NewMap
 ```
 
-## Approval gate before obstacle mapping
+Use the same command without `-NewMap` to restore the saved map.
 
-This milestone is approved only after physical evidence shows:
+For diagnostics only, the previous free-running odometry remains available with:
 
-- no drift while standing still;
-- horizontal and vertical screen shifts have the correct map direction;
-- four 16 px partial movements accumulate into one 64 px cell;
-- a square route produces a recognizable loop;
-- save, restart and restore preserve the map;
-- loss of focus, minimization or missing window produces a visible error rather than invented movement.
+```powershell
+-MappingStrategy continuous
+```
+
+It is not the default mapping method.
+
+## First physical validation
+
+Use a safe area and tap:
+
+```text
+RIGHT
+DOWN
+LEFT
+UP
+```
+
+Expected result:
+
+- each successful tap changes the map by exactly one cell;
+- returning around the square reaches `(0,0)`;
+- tapping toward a wall leaves `P` in place and adds `#` beside it;
+- unrelated animation does not create movement without a recorded movement key;
+- keys pressed while the game is not foreground are ignored;
+- closing and reopening without `-NewMap` restores visited and blocked cells.
+
+## Current limitation
+
+This confirmation model assumes a following or hybrid camera that visibly scrolls in response to movement. A fully fixed camera requires player-sprite tracking, which is a later mapping milestone. Automatic extraction of all visible walkable ground and obstacles is also not implemented yet; the current map learns from successful and failed movement attempts.

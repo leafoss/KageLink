@@ -54,7 +54,7 @@ class CombatRuntimeProvenanceV351Tests(unittest.TestCase):
         self.assertIn("CanonicalCombatTracker", fields["tracker_class"])
         self.assertIn("CanonicalCombatDecisionEngine", fields["engine_class"])
         self.assertIn("CanonicalCombatPlanner", fields["planner_class"])
-        self.assertIn("GridFocusV2Strategy", fields["memory_class"])
+        self.assertIn("GridFocusV2SpatialStrategy", fields["memory_class"])
 
     def test_install_is_idempotent_and_does_not_stack_classes(self):
         live, runtime = self._runtime_pair()
@@ -85,9 +85,9 @@ class CombatRuntimeProvenanceV351Tests(unittest.TestCase):
     def test_provenance_is_emitted_after_recorder_installation(self):
         root = Path(__file__).resolve().parents[1]
         content = (root / "kage_pilot_visual_return.py").read_text(encoding="utf-8")
-        recorder_index = content.index("install_round_video_performance_guard")
-        provenance_index = content.index("emit_runtime_provenance(runtime)")
-        self.assertGreater(provenance_index, recorder_index)
+        recorder_call = content.index("install_round_video_performance_guard(recorder")
+        provenance_call = content.index("emit_runtime_provenance(runtime)")
+        self.assertGreater(provenance_call, recorder_call)
 
 
 if __name__ == "__main__":

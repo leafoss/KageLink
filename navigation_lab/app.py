@@ -27,11 +27,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--tile-size", type=int, default=64)
     parser.add_argument("--fps", type=float, default=10.0)
     parser.add_argument("--camera-mode", choices=["following", "hybrid", "fixed"], default="following")
+    parser.add_argument("--mapping-strategy", choices=["input", "continuous"], default="input")
     parser.add_argument("--map-radius", type=int, default=10)
     parser.add_argument("--motion-confidence", type=float, default=0.18)
+    parser.add_argument("--command-timeout", type=float, default=0.70)
+    parser.add_argument("--min-command-shift", type=float, default=2.0)
     parser.add_argument("--invert-x", action="store_true")
     parser.add_argument("--invert-y", action="store_true")
     parser.add_argument("--new-map", action="store_true")
+    parser.add_argument("--no-auto-start", action="store_true")
+    parser.add_argument("--keep-window-visible", action="store_true")
     return parser
 
 
@@ -83,6 +88,9 @@ def _run_observer(args: argparse.Namespace) -> int:
     if args.tile_size <= 0:
         print("--tile-size must be positive", file=sys.stderr)
         return 2
+    if args.command_timeout <= 0 or args.min_command_shift <= 0:
+        print("--command-timeout and --min-command-shift must be positive", file=sys.stderr)
+        return 2
     try:
         from .observer import MappingObserverEngine
         from .observer.debug_window import MappingObserverDebugWindow
@@ -97,6 +105,9 @@ def _run_observer(args: argparse.Namespace) -> int:
             min_motion_response=args.motion_confidence,
             invert_x=args.invert_x,
             invert_y=args.invert_y,
+            mapping_strategy=args.mapping_strategy,
+            command_timeout_seconds=args.command_timeout,
+            min_command_shift_px=args.min_command_shift,
         )
         if not args.new_map and repository.has_mapping_state(args.region_id):
             engine.restore_state(repository.load_mapping_state(args.region_id))
@@ -107,6 +118,8 @@ def _run_observer(args: argparse.Namespace) -> int:
             repository=repository,
             fps=args.fps,
             language=args.language,
+            auto_start=not args.no_auto_start,
+            minimize_on_start=not args.keep_window_visible,
         ).run()
         return 0
     except Exception as exc:

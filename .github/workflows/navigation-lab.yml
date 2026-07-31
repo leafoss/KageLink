@@ -11,13 +11,15 @@ permissions:
   contents: read
 
 jobs:
-  simulator:
+  mapping-and-simulator:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Install mapping observer dependencies
+        run: python -m pip install -r navigation_lab/requirements-observer.txt
       - name: Compile independent navigation package
         run: python -m compileall -q navigation_lab
       - name: Run unit and scenario tests

@@ -11,6 +11,13 @@ from pathlib import Path
 
 import kage_pilot_loop_v03j as _validated_engine
 
+from pc_agent.kage_pilot.dojo_user_templates_v351 import (
+    install_user_owned_template_pipeline,
+)
+
+# Install the Images-tab template authority before any detector aliases are imported.
+install_user_owned_template_pipeline()
+
 from pc_agent.kage_pilot.dojo_resolution_bridge_v351 import (
     apply_tracker_geometry,
     geometry_cli_args,

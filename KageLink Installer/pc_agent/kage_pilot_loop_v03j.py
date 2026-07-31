@@ -18,6 +18,20 @@ from pc_agent.kage_pilot.ko_identity import extract_ko_identity
 
 _LAST_ACCEPTED_KO_NAME = ""
 _ROUND_HANDOFF_TIMEOUT_SECONDS = 20.0
+_LEGACY_ROUND_STARTUP_SECONDS = 1.0
+_SAFE_ROUND_STARTUP_SECONDS = 0.15
+
+
+def _effective_round_startup_delay(value: float) -> float:
+    configured = max(0.0, float(value))
+    if abs(configured - _LEGACY_ROUND_STARTUP_SECONDS) <= 1e-6:
+        print(
+            "DOJO_PRECOMBAT_TIMING_MIGRATED "
+            f"round_startup={configured:.2f}->{_SAFE_ROUND_STARTUP_SECONDS:.2f}",
+            flush=True,
+        )
+        return _SAFE_ROUND_STARTUP_SECONDS
+    return configured
 
 
 def _round_command(args, *, round_number: int) -> tuple[list[str], Path]:
@@ -34,6 +48,7 @@ def _round_command(args, *, round_number: int) -> tuple[list[str], Path]:
         cwd = Path(__file__).resolve().parent
 
     recovery_hp_percent, recovery_chakra_percent = legacy_loop._validate_recovery_targets(args)
+    startup_delay = _effective_round_startup_delay(args.round_startup_delay)
     command.extend(
         [
             "--seconds",
@@ -41,7 +56,7 @@ def _round_command(args, *, round_number: int) -> tuple[list[str], Path]:
             "--post-combat-timeout",
             str(max(5.0, float(args.post_combat_timeout))),
             "--startup-delay",
-            str(max(0.0, float(args.round_startup_delay))),
+            str(startup_delay),
             "--chat-poll-seconds",
             str(max(0.10, min(2.0, float(args.chat_poll_seconds)))),
             "--recovery-hp",

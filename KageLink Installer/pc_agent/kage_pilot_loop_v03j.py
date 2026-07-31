@@ -4,15 +4,20 @@ from pathlib import Path
 import os
 import subprocess
 import sys
+import threading
 
 import kage_pilot_loop_v03g as legacy_loop
 
+from pc_agent.kage_pilot.dojo_precombat_guard_v351 import (
+    release_precombat_handoff,
+)
 from pc_agent.kage_pilot.dojo_request import request_taijutsu_dojo_spar_single_click
 from pc_agent.kage_pilot.dojo_templates import install_user_dojo_leader_detector
 from pc_agent.kage_pilot.ko_identity import extract_ko_identity
 
 
 _LAST_ACCEPTED_KO_NAME = ""
+_ROUND_HANDOFF_TIMEOUT_SECONDS = 20.0
 
 
 def _round_command(args, *, round_number: int) -> tuple[list[str], Path]:
@@ -74,31 +79,55 @@ def _run_round_with_ko_buffer(args, *, round_number: int) -> bool:
         f"{_LAST_ACCEPTED_KO_NAME or '-'}"
     )
     print("COMMAND:", subprocess.list2cmdline(command))
-    process = subprocess.Popen(
-        command,
-        cwd=str(cwd),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        bufsize=1,
-        creationflags=_round_creationflags(),
+
+    timeout = threading.Timer(
+        _ROUND_HANDOFF_TIMEOUT_SECONDS,
+        release_precombat_handoff,
+        kwargs={"reason": "round_start_timeout"},
     )
+    timeout.daemon = True
+    process = None
+    try:
+        process = subprocess.Popen(
+            command,
+            cwd=str(cwd),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+            creationflags=_round_creationflags(),
+        )
+        timeout.start()
+    except Exception:
+        release_precombat_handoff("round_process_start_failed")
+        raise
 
     ready = False
     victory = False
     accepted_ko_name: str | None = None
+    handoff_complete = False
     assert process.stdout is not None
-    for line in process.stdout:
-        print(line, end="")
-        lowered = line.casefold()
-        if "victory_chat / vitoria_chat" in lowered:
-            victory = True
-            _, _, payload = line.partition(":")
-            accepted_ko_name = extract_ko_identity(payload)
-        if "result=ready" in lowered:
-            ready = True
+    try:
+        for line in process.stdout:
+            print(line, end="")
+            lowered = line.casefold()
+            if (
+                not handoff_complete
+                and "dojo_precombat_r_hold state=armed source=round_startup" in lowered
+            ):
+                handoff_complete = release_precombat_handoff("round_child_armed")
+                timeout.cancel()
+            if "victory_chat / vitoria_chat" in lowered:
+                victory = True
+                _, _, payload = line.partition(":")
+                accepted_ko_name = extract_ko_identity(payload)
+            if "result=ready" in lowered:
+                ready = True
+    finally:
+        timeout.cancel()
+        release_precombat_handoff("round_child_exit")
 
     return_code = process.wait()
     if return_code != 0:
@@ -126,6 +155,7 @@ def _run_round_with_ko_buffer(args, *, round_number: int) -> bool:
 def main() -> int:
     global _LAST_ACCEPTED_KO_NAME
     _LAST_ACCEPTED_KO_NAME = ""
+    release_precombat_handoff("loop_start_cleanup")
 
     install_user_dojo_leader_detector()
     print("Kage Pilot: CANONICAL DOJO LOOP OVER VALIDATED COMPATIBILITY ENGINE")
@@ -135,12 +165,16 @@ def main() -> int:
     print("BURST: only one confirmed adjacent facing pulse; movement and H remain blocked")
     print("KO: remember accepted opponent; repeated previous name is rejected")
     print("KO REJECT: release all, invalidate target memory, reacquire, continue combat")
+    print("PRECOMBAT: parent R remains held until the round child confirms its own R")
 
     legacy_loop.REQUEST_DOJO_FIGHT = request_taijutsu_dojo_spar_single_click
     legacy_loop.DIALOG_RETRY_POLICY_ENABLED = True
     legacy_loop.ROUND_SCRIPT_NAME = "kage_pilot_round.py"
     legacy_loop._run_round = _run_round_with_ko_buffer
-    return legacy_loop.main()
+    try:
+        return legacy_loop.main()
+    finally:
+        release_precombat_handoff("loop_exit")
 
 
 if __name__ == "__main__":

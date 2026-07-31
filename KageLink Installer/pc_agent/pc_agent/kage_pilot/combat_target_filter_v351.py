@@ -11,6 +11,104 @@ def candidate_bbox(candidate: Any) -> tuple[int, int, int, int]:
     return tuple(int(round(float(item))) for item in value)
 
 
+def _intersection_over_union(
+    first: tuple[float, float, float, float],
+    second: tuple[float, float, float, float],
+) -> float:
+    ax, ay, aw, ah = first
+    bx, by, bw, bh = second
+    left = max(ax, bx)
+    top = max(ay, by)
+    right = min(ax + aw, bx + bw)
+    bottom = min(ay + ah, by + bh)
+    intersection = max(0.0, right - left) * max(0.0, bottom - top)
+    union = max(1.0, aw * ah + bw * bh - intersection)
+    return intersection / union
+
+
+def combat_body_rejection_reason(
+    candidate: Any,
+    *,
+    context_state: str,
+    grid_distance: int | None,
+    player_center: tuple[float, float],
+    player_box_size: tuple[float, float],
+    tile_size: float,
+    frame_shape: tuple[int, int] | None = None,
+    for_acquire: bool = False,
+) -> str | None:
+    """Return why a contour must not own combat movement or identity.
+
+    This boundary is intentionally stricter than the diagnostic tracker. Attack
+    effects, shadows and map strips may remain visible for debugging, but only a
+    currently VISIBLE, body-sized contour may acquire or rebind the logical enemy.
+    """
+
+    state = str(context_state or "").upper()
+    if state != "VISIBLE":
+        return "BODY_NOT_VISIBLE"
+
+    x, y, width, height = candidate_bbox(candidate)
+    width_f = max(1.0, float(width))
+    height_f = max(1.0, float(height))
+    tile = max(16.0, float(tile_size))
+    horizontal_aspect = width_f / height_f
+    vertical_aspect = height_f / width_f
+
+    if width_f < max(6.0, tile * 0.10) or height_f < max(12.0, tile * 0.22):
+        return "BODY_TOO_SMALL"
+    if width_f > tile * 1.10:
+        return "BODY_TOO_WIDE"
+    if height_f > tile * 1.35:
+        return "BODY_TOO_TALL"
+    if horizontal_aspect > 2.40:
+        return "BODY_HORIZONTAL_EFFECT"
+    if vertical_aspect > 3.00:
+        return "BODY_VERTICAL_EFFECT"
+    if width_f * height_f > tile * tile * 1.20:
+        return "BODY_AREA_TOO_LARGE"
+
+    shape_score = getattr(candidate, "shape_score", None)
+    if shape_score is not None:
+        try:
+            if float(shape_score) < 0.28:
+                return "BODY_SHAPE_WEAK"
+        except (TypeError, ValueError):
+            return "BODY_SHAPE_INVALID"
+
+    distance = None if grid_distance is None else int(grid_distance)
+    if for_acquire and distance == 0:
+        return "BODY_SELF_CELL"
+
+    if for_acquire and distance is not None and distance <= 1:
+        player_width = max(8.0, float(player_box_size[0]))
+        player_height = max(12.0, float(player_box_size[1]))
+        player_box = (
+            float(player_center[0]) - player_width * 0.50,
+            float(player_center[1]) - player_height * 0.50,
+            player_width,
+            player_height,
+        )
+        candidate_box = (float(x), float(y), width_f, height_f)
+        if _intersection_over_union(candidate_box, player_box) >= 0.62:
+            return "BODY_PLAYER_OVERLAP"
+
+    if frame_shape is not None:
+        frame_height, frame_width = frame_shape
+        margin = max(3.0, tile * 0.08)
+        touches_border = (
+            x <= margin
+            or y <= margin
+            or x + width >= frame_width - margin
+            or y + height >= frame_height - margin
+        )
+        if touches_border and (
+            width_f >= tile * 0.70 or height_f >= tile * 0.90
+        ):
+            return "BODY_MAP_BORDER"
+    return None
+
+
 def effect_rejection_reason(
     candidate: Any,
     *,
@@ -39,7 +137,7 @@ def effect_rejection_reason(
         and height_f >= config.effect_vertical_min_height
     ):
         return "TOO_VERTICAL"
-    if frame_shape is not None and not protected_contact:
+    if frame_shape is not None:
         frame_height, frame_width = frame_shape
         margin = config.effect_border_margin
         touches_border = (
@@ -49,6 +147,9 @@ def effect_rejection_reason(
             or y + height >= frame_height - margin
         )
         long_ratio = max(width_f / max(1.0, frame_width), height_f / max(1.0, frame_height))
+        # Contact proximity no longer grants immunity to a large border strip. The
+        # failed physical round showed a map/effect blob becoming authoritative only
+        # because it crossed the player circle.
         if touches_border and long_ratio >= config.effect_border_long_ratio:
             return "MAP_BORDER"
         if y + height >= frame_height - margin and height_f <= 24.0 and width_f >= 40.0:
@@ -57,9 +158,17 @@ def effect_rejection_reason(
             float(getattr(flow, "dx", 0.0) or 0.0),
             float(getattr(flow, "dy", 0.0) or 0.0),
         )
-        if flow_magnitude >= 4.0 and width_f / max(1.0, frame_width) >= 0.30:
+        if (
+            not protected_contact
+            and flow_magnitude >= 4.0
+            and width_f / max(1.0, frame_width) >= 0.30
+        ):
             return "CAMERA_FLOW"
     return None
 
 
-__all__ = ["candidate_bbox", "effect_rejection_reason"]
+__all__ = [
+    "candidate_bbox",
+    "combat_body_rejection_reason",
+    "effect_rejection_reason",
+]

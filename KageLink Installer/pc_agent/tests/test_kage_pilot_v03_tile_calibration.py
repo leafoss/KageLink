@@ -51,7 +51,7 @@ class KagePilotV03TileCalibrationTests(unittest.TestCase):
         config = V03ObserverConfig().normalized()
         return TileCalibratedGridTargetObserver(config, tile_size=64.0)
 
-    def test_auto_grid_alignment_centres_player_inside_64px_cell(self):
+    def test_auto_grid_alignment_centres_player_feet_inside_64px_cell(self):
         observer = self._observer()
         state = _state()
 
@@ -59,9 +59,13 @@ class KagePilotV03TileCalibrationTests(unittest.TestCase):
 
         origin_x, origin_y = observer.grid_origin
         full_player_x = state.arena_rect[0] + state.player_center[0]
-        full_player_y = state.arena_rect[1] + state.player_center[1]
+        full_player_foot_y = (
+            state.arena_rect[1]
+            + state.player_center[1]
+            + observer.config.player_box_height * 0.50
+        )
         self.assertAlmostEqual((full_player_x - origin_x) % 64.0, 32.0, places=5)
-        self.assertAlmostEqual((full_player_y - origin_y) % 64.0, 32.0, places=5)
+        self.assertAlmostEqual((full_player_foot_y - origin_y) % 64.0, 32.0, places=5)
 
     def test_single_adjacent_observation_does_not_confirm_contact(self):
         observer = self._observer()

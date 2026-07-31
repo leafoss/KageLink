@@ -22,9 +22,13 @@ from pc_agent.kage_pilot.dojo_resolution_bridge_v351 import (
 from pc_agent.kage_pilot.dojo_resolution_gate_compat_v351 import (
     install_resolution_gate_slots_compat,
 )
+from pc_agent.kage_pilot.dojo_resolution_scope_compat_v351 import (
+    install_resolution_scope_compat,
+)
 
-# This must run before DojoAnchorMonitor imports direct detector/decoder aliases.
+# These must run before DojoAnchorMonitor imports direct detector/decoder aliases.
 install_resolution_independent_dojo()
+install_resolution_scope_compat()
 install_resolution_gate_slots_compat()
 
 from pc_agent.kage_pilot.dojo_anchor_monitor_compat_v351 import (

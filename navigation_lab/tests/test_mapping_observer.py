@@ -7,8 +7,9 @@ import numpy as np
 
 from navigation_lab.mapping.sparse_map import SparseTileMap
 from navigation_lab.models import CellState, Point
+from navigation_lab.observer.command_verifier import MovementCommandVerifier
 from navigation_lab.observer.engine import MappingObserverEngine
-from navigation_lab.observer.motion import PhaseCorrelationMotionEstimator
+from navigation_lab.observer.motion import MotionSample, PhaseCorrelationMotionEstimator
 from navigation_lab.observer.tile_odometry import TileOdometry
 
 
@@ -29,6 +30,37 @@ class MotionEstimatorTests(unittest.TestCase):
         self.assertTrue(sample.accepted, sample)
         self.assertAlmostEqual(sample.screen_dx_px, -8.0, delta=0.5)
         self.assertAlmostEqual(sample.screen_dy_px, 3.0, delta=0.5)
+
+
+class MovementCommandVerifierTests(unittest.TestCase):
+    def test_right_key_accepts_leftward_following_camera_shift(self) -> None:
+        verifier = MovementCommandVerifier(camera_mode="following", min_shift_px=2.0)
+        self.assertTrue(verifier.begin("right", started_at=0.0))
+        result = verifier.observe(MotionSample(-5.0, 0.2, 0.90, True, "screen_translation"), now=0.2)
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertTrue(result.moved)
+        self.assertEqual(result.world_delta, Point(1, 0))
+
+    def test_no_motion_after_key_marks_attempt_blocked(self) -> None:
+        verifier = MovementCommandVerifier(camera_mode="following", timeout_seconds=0.5)
+        self.assertTrue(verifier.begin("down", started_at=0.0))
+        result = verifier.observe(MotionSample(0.0, 0.0, 0.98, False, "below_deadzone"), now=0.6)
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertTrue(result.blocked)
+        self.assertEqual(result.world_delta, Point(0, 1))
+
+    def test_sideways_animation_does_not_confirm_wrong_direction(self) -> None:
+        verifier = MovementCommandVerifier(camera_mode="following", timeout_seconds=0.5)
+        self.assertTrue(verifier.begin("up", started_at=0.0))
+        self.assertIsNone(
+            verifier.observe(MotionSample(8.0, 0.2, 0.90, True, "screen_translation"), now=0.2)
+        )
+        result = verifier.observe(MotionSample(0.0, 0.0, 0.90, False, "below_deadzone"), now=0.6)
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertTrue(result.blocked)
 
 
 class TileOdometryTests(unittest.TestCase):
@@ -64,10 +96,16 @@ class SparseMapTests(unittest.TestCase):
 
 
 class MappingObserverEngineTests(unittest.TestCase):
-    def test_four_incremental_screen_shifts_create_one_map_cell(self) -> None:
+    def test_continuous_compatibility_accumulates_four_shifts(self) -> None:
         rng = np.random.default_rng(9876)
         base = rng.integers(0, 255, size=(240, 320), dtype=np.uint8)
-        engine = MappingObserverEngine("calibration", tile_size_px=64, map_radius=4, min_motion_response=0.10)
+        engine = MappingObserverEngine(
+            "calibration",
+            tile_size_px=64,
+            map_radius=4,
+            min_motion_response=0.10,
+            mapping_strategy="continuous",
+        )
         engine.process_frame(base)
         for offset in (-16, -32, -48, -64):
             matrix = np.float32([[1, 0, offset], [0, 1, 0]])
@@ -75,6 +113,47 @@ class MappingObserverEngineTests(unittest.TestCase):
             engine.process_frame(frame)
         self.assertEqual(engine.odometry.position, Point(1, 0))
         self.assertEqual(engine.region_map.current_position, Point(1, 0))
+
+    def test_one_right_key_creates_exactly_one_cell_even_for_eight_pixel_shift(self) -> None:
+        rng = np.random.default_rng(2222)
+        base = rng.integers(0, 255, size=(240, 320), dtype=np.uint8)
+        shifted = cv2.warpAffine(
+            base,
+            np.float32([[1, 0, -8], [0, 1, 0]]),
+            (320, 240),
+            borderMode=cv2.BORDER_WRAP,
+        )
+        engine = MappingObserverEngine(
+            "calibration",
+            tile_size_px=64,
+            min_motion_response=0.10,
+            mapping_strategy="input",
+            min_command_shift_px=2.0,
+        )
+        engine.process_frame(base, now=-0.1)
+        self.assertTrue(engine.begin_movement("right", base, started_at=0.0))
+        snapshot = engine.process_frame(shifted, now=0.2)
+        self.assertIsNotNone(snapshot.command_resolution)
+        self.assertEqual(engine.region_map.current_position, Point(1, 0))
+        self.assertEqual(engine.region_map.get(Point(1, 0)).state, CellState.VISITED)
+
+    def test_no_visual_movement_marks_attempted_neighbor_blocked(self) -> None:
+        rng = np.random.default_rng(3333)
+        base = rng.integers(0, 255, size=(240, 320), dtype=np.uint8)
+        engine = MappingObserverEngine(
+            "calibration",
+            tile_size_px=64,
+            min_motion_response=0.10,
+            mapping_strategy="input",
+            command_timeout_seconds=0.5,
+        )
+        engine.process_frame(base, now=-0.1)
+        self.assertTrue(engine.begin_movement("right", base, started_at=0.0))
+        snapshot = engine.process_frame(base.copy(), now=0.6)
+        self.assertIsNotNone(snapshot.command_resolution)
+        self.assertEqual(engine.region_map.current_position, Point(0, 0))
+        self.assertEqual(engine.region_map.get(Point(1, 0)).state, CellState.BLOCKED)
+        self.assertIn("#", snapshot.map_ascii)
 
     def test_export_and_restore_preserve_mapping_position(self) -> None:
         engine = MappingObserverEngine("calibration", tile_size_px=64)

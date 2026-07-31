@@ -2,55 +2,49 @@
 
 Independent laboratory for mapping, localization, route planning and safe navigation experiments. It does **not** import or control KageLink.
 
-## Current priority: mapping first
+## Current priority: grid-first semantic mapping
 
-The live Observer Mode is the active PR 24 milestone. Real navigation remains blocked until the program can build, save and restore a trustworthy relative map from the game window.
-
-The default mapper now follows this rule:
+The movement-first MapMaker did not produce a trustworthy world map in the real fullscreen game. PR 24 now begins from the calibrated square grid and treats every complete visible cell as an independent visual crop.
 
 ```text
-one movement-key tap = one attempted logical cell
-visible movement = visited cell
-no visible movement before timeout = blocked cell
+capture target HWND
+→ crop every calibrated square cell
+→ compare with taught examples
+→ classify confident matches
+→ ask the player only about unknown cells
 ```
 
-The configured `64x64` size represents the logical tile and debug grid. The camera does not need to scroll a full 64 pixels to confirm each step.
+No unknown cell is silently assumed to be walkable or blocked.
 
-Implemented and automatically validated:
+Implemented:
 
-- visible Windows client capture selected by window title;
-- passive global observation of arrow keys and WASD;
-- movement keys accepted only while the game is foreground;
-- comparison between the pre-input frame and subsequent frames;
-- directional screen-motion confirmation for following/hybrid cameras;
-- exactly one logical tile per physical key tap;
-- automatic `#` marking when an attempted move produces no visual translation;
-- unbounded sparse map of visited and blocked cells;
-- ASCII projection centered on the current position;
-- automatic start, minimization behind fullscreen and save after every resolved attempt;
-- atomic save and automatic restore per profile/region;
-- original and processed capture panels for later inspection;
-- occupancy grid, world graph, A*, frontier foundation and simulator scenarios;
-- PowerShell setup, observer, simulator, test and diagnostics scripts;
-- isolated Windows CI workflow.
+- square-grid calibration saved per profile/region;
+- exact target-window capture selected by title/HWND;
+- one visual crop for every complete calibrated cell;
+- explainable local descriptor using color, structure and edges;
+- nearest-example recognition with adjustable confidence threshold;
+- active teaching queue for unknown crops;
+- semantic categories for walkable terrain, walls, jutsu terrain, blocking objects, transitions, danger and dynamic/ignored content;
+- immediate reclassification of the full captured viewport after each taught example;
+- saved PNG examples and JSON feature knowledge;
+- simulator, occupancy grid, world graph, A*, frontier foundation and state machine retained as later layers;
+- no keyboard or mouse output adapter.
 
 Still intentionally blocked:
 
-- automatic extraction of all visible walkable ground;
-- Teaching Mode labels and landmark capture;
-- player tracking for a fully fixed camera;
+- stitching viewport classifications into persistent world coordinates;
+- conflict resolution across repeated observations;
+- automatic player/camera localization;
 - assisted navigation against the live game;
 - autonomous keyboard control;
-- replay of real captured sessions.
-
-The observer only listens. It never sends or suppresses game input. `--arm-input` has no effect.
+- real replay and relocalization.
 
 ## Requirements
 
 - Windows 10 or later;
 - Python 3.11 or later;
 - Tkinter included in the Python installation;
-- the game client visible and not minimized for the first capture backend.
+- `Shinobi Story Online` visible and not minimized during capture.
 
 ## Setup
 
@@ -58,40 +52,38 @@ The observer only listens. It never sends or suppresses game input. `--arm-input
 .\navigation_lab\scripts\setup_navigation.ps1
 ```
 
-## Start fullscreen mapping
+## 1. Calibrate the square grid
 
 ```powershell
-.\navigation_lab\scripts\run_mapping_observer.ps1 `
+.\navigation_lab\scripts\run_grid_calibration.ps1 `
   -WindowTitle "Shinobi Story Online" `
-  -RegionId "mapping_calibration" `
-  -TileSize 64 `
-  -Fps 12 `
-  -CameraMode following `
-  -MappingStrategy input `
-  -CommandTimeout 0.70 `
-  -MinCommandShift 2.0 `
-  -NewMap
+  -RegionId "mapping_input_calibration" `
+  -Profile "default"
 ```
 
-The window starts automatically and minimizes. Return to the fullscreen game and tap one direction at a time. After the test, Alt+Tab back to inspect the ASCII map and event log.
+Inside the fullscreen game, press `F8`, return with `Alt+Tab`, align the grid and save.
 
-Expected events:
+## 2. Teach and classify visible cells
 
-```text
-MOVED RIGHT -> cell=(1,0)
-BLOCKED RIGHT -> obstacle=(1,0)
+```powershell
+.\navigation_lab\scripts\run_tile_map_maker.ps1 `
+  -WindowTitle "Shinobi Story Online" `
+  -RegionId "mapping_input_calibration" `
+  -Profile "default" `
+  -SimilarityThreshold 0.92
 ```
 
-Map symbols:
+Minimize the MapMaker, return to the game and press `F8`. After returning with `Alt+Tab`, the viewport is colored by category. Select an unknown cell and teach it; all similar cells are re-evaluated immediately.
 
-```text
-P current position
-, visited cell
-# blocked attempted cell
-? unknown cell
+Read [`SEMANTIC_TILE_MAPPER.md`](SEMANTIC_TILE_MAPPER.md) for the complete workflow and category definitions.
+
+## Legacy diagnostic observer
+
+The input/motion observer remains available for experiments, but it is no longer proof of a valid map:
+
+```powershell
+.\navigation_lab\scripts\run_mapping_observer.ps1
 ```
-
-Read the complete physical procedure in [`MAPPING_FIRST.md`](MAPPING_FIRST.md).
 
 ## Desktop simulator
 
@@ -108,7 +100,7 @@ Read the complete physical procedure in [`MAPPING_FIRST.md`](MAPPING_FIRST.md).
 .\navigation_lab\scripts\run_tests.ps1
 ```
 
-Windows data is stored by default under:
+Windows data is stored under:
 
 ```text
 %LOCALAPPDATA%\KageNavigationLab\profiles\<profile>

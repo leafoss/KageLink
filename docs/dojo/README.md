@@ -18,7 +18,9 @@ The Bibles remain at the repository root for maximum visibility:
 
 - [`KAGELINK_3_5_1_DOJO_PLAN.md`](3.5.1/KAGELINK_3_5_1_DOJO_PLAN.md) — plan and scope boundaries;
 - [`KAGELINK_3_5_1_DOJO_RELIABILITY.en.md`](3.5.1/KAGELINK_3_5_1_DOJO_RELIABILITY.en.md) — EN-US reliability contract;
-- [`KAGELINK_3_5_1_DOJO_RELIABILITY.md`](3.5.1/KAGELINK_3_5_1_DOJO_RELIABILITY.md) — equivalent PT-BR contract.
+- [`KAGELINK_3_5_1_DOJO_RELIABILITY.md`](3.5.1/KAGELINK_3_5_1_DOJO_RELIABILITY.md) — equivalent PT-BR contract;
+- [`KAGELINK_3_5_1_COMBAT_TARGET.en.md`](3.5.1/KAGELINK_3_5_1_COMBAT_TARGET.en.md) — persistent logical target, local rebind and combat stability;
+- [`KAGELINK_3_5_1_COMBAT_TARGET.md`](3.5.1/KAGELINK_3_5_1_COMBAT_TARGET.md) — equivalent PT-BR documentation.
 
 ## Operational file map
 
@@ -31,7 +33,7 @@ KageLink Installer/pc_agent/
 ├── unified_dojo_*.py
 │   └── Desktop UI composition and API integration
 ├── pc_agent/kage_pilot/
-│   └── dojo_*_v351.py, bridges, guards and vision/position subsystems
+│   └── dojo_*_v351.py, bridges, guards and vision/position/combat subsystems
 ├── tests/
 │   └── test_dojo_*.py and packaging/regression tests
 └── config/
@@ -44,4 +46,4 @@ KageLink Installer/installer/
 └── CRIAR_INSTALADOR.bat
 ```
 
-This is a documentation-only organization change. No code line, import, route, test, spec, workflow or Dojo behavior was changed.
+Documentation organization does not change operational paths. Functional PR changes remain isolated in canonical modules with tests and bilingual documentation.

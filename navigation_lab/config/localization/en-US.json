@@ -1,0 +1,8 @@
+{
+  "app.title": "Kage Navigation Lab",
+  "state.idle": "Idle",
+  "state.planning": "Planning",
+  "state.navigating": "Navigating",
+  "state.arrived": "Destination reached",
+  "safety.physical_validation_required": "Windows/BYOND physical validation required"
+}

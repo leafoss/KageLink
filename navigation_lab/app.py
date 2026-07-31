@@ -11,7 +11,11 @@ from .visualization import DebugWindow, render_ascii
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Independent Kage mapping and navigation laboratory")
-    parser.add_argument("--mode", choices=["simulator", "observer", "teaching", "assisted", "autonomous", "replay"], default="simulator")
+    parser.add_argument(
+        "--mode",
+        choices=["simulator", "observer", "grid-calibration", "teaching", "assisted", "autonomous", "replay"],
+        default="simulator",
+    )
     parser.add_argument("--scenario", default="basic_world")
     parser.add_argument("--profile", default="default")
     parser.add_argument("--language", choices=["pt-BR", "en-US"], default="pt-BR")
@@ -37,6 +41,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--new-map", action="store_true")
     parser.add_argument("--no-auto-start", action="store_true")
     parser.add_argument("--keep-window-visible", action="store_true")
+    parser.add_argument("--ignore-grid-calibration", action="store_true")
     return parser
 
 
@@ -47,12 +52,14 @@ def main(argv: list[str] | None = None) -> int:
             if scenario_id != "basic_world":
                 print(scenario_id)
         return 0
+    if args.mode == "grid-calibration":
+        return _run_grid_calibration(args)
     if args.mode == "observer":
         return _run_observer(args)
     if args.mode != "simulator":
         message = {
-            "pt-BR": "Este modo permanece bloqueado até o mapeamento ao vivo ser validado. Use --mode observer ou --mode simulator.",
-            "en-US": "This mode remains blocked until live mapping is validated. Use --mode observer or --mode simulator.",
+            "pt-BR": "Este modo permanece bloqueado até o mapeamento ao vivo ser validado. Use --mode grid-calibration, observer ou simulator.",
+            "en-US": "This mode remains blocked until live mapping is validated. Use --mode grid-calibration, observer or simulator.",
         }[args.language]
         print(message, file=sys.stderr)
         return 3
@@ -77,11 +84,33 @@ def main(argv: list[str] | None = None) -> int:
         }, ensure_ascii=False))
     else:
         final = result.snapshots[-1] if result.snapshots else None
-        print(f"scenario={result.scenario_id} outcome={result.outcome} steps={result.steps} recoveries={result.recoveries} replans={result.replans}")
+        print(
+            f"scenario={result.scenario_id} outcome={result.outcome} steps={result.steps} "
+            f"recoveries={result.recoveries} replans={result.replans}"
+        )
         if final:
             print(render_ascii(engine.grid, final.actual_position, final.goal, final.path))
             print(f"state={final.state.value} confidence={final.pose.confidence:.2f} action={final.decision.action}")
     return 0 if result.outcome == scenario.expected_result else 2
+
+
+def _run_grid_calibration(args: argparse.Namespace) -> int:
+    try:
+        from .observer.grid_calibration_window import GridCalibrationWindow
+        from .observer.window_capture import WindowsClientCapture
+
+        repository = JsonRepository(profile=args.profile)
+        capture = WindowsClientCapture(args.window_title)
+        GridCalibrationWindow(
+            capture=capture,
+            repository=repository,
+            region_id=args.region_id,
+            language=args.language,
+        ).run()
+        return 0
+    except Exception as exc:
+        print(f"Grid calibration startup failed: {exc}", file=sys.stderr)
+        return 4
 
 
 def _run_observer(args: argparse.Namespace) -> int:
@@ -92,14 +121,18 @@ def _run_observer(args: argparse.Namespace) -> int:
         print("--command-timeout and --min-command-shift must be positive", file=sys.stderr)
         return 2
     try:
-        from .observer import MappingObserverEngine
+        from .observer import GridCalibration, MappingObserverEngine
         from .observer.debug_window import MappingObserverDebugWindow
         from .observer.window_capture import WindowsClientCapture
 
         repository = JsonRepository(profile=args.profile)
+        calibration = GridCalibration(tile_size_px=args.tile_size)
+        if not args.ignore_grid_calibration and repository.has_grid_calibration(args.region_id):
+            calibration = GridCalibration.from_dict(repository.load_grid_calibration(args.region_id))
+
         engine = MappingObserverEngine(
             region_id=args.region_id,
-            tile_size_px=args.tile_size,
+            tile_size_px=calibration.tile_size_px,
             camera_mode=args.camera_mode,
             map_radius=args.map_radius,
             min_motion_response=args.motion_confidence,
@@ -108,6 +141,10 @@ def _run_observer(args: argparse.Namespace) -> int:
             mapping_strategy=args.mapping_strategy,
             command_timeout_seconds=args.command_timeout,
             min_command_shift_px=args.min_command_shift,
+            grid_offset_x_px=calibration.offset_x_px,
+            grid_offset_y_px=calibration.offset_y_px,
+            grid_line_thickness=calibration.line_thickness,
+            grid_line_opacity=calibration.line_opacity,
         )
         if not args.new_map and repository.has_mapping_state(args.region_id):
             engine.restore_state(repository.load_mapping_state(args.region_id))

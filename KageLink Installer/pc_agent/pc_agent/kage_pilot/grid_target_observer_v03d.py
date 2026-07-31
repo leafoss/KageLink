@@ -10,10 +10,11 @@ from .grid_target_observer_v03c import FrameAlignedGridTargetObserver
 
 
 class TileCalibratedGridTargetObserver(FrameAlignedGridTargetObserver):
-    """32px logical-grid hybrid observer with confirmed local contact memory.
+    """Logical-grid hybrid observer with confirmed local contact memory.
 
-    Real water/combat validation established 32x32 as the useful behavioural grid.
     Sprite artwork may span multiple cells; the grid represents navigation geometry.
+    The tile lattice and distance metrics are anchored to character feet, never the
+    centre or dimensions of a Trainer template.
 
     CONTACT MEMORY is intentionally local to PLAYER. A noisy adjacent contour must be
     observed in the same side/cell for multiple frames before it may open the contact
@@ -68,8 +69,9 @@ class TileCalibratedGridTargetObserver(FrameAlignedGridTargetObserver):
         if self._grid_alignment_ready or not self.auto_align_grid:
             return
         x0, y0, _, _ = state.arena_rect
-        full_player_x = float(x0) + float(state.player_center[0])
-        full_player_y = float(y0) + float(state.player_center[1])
+        player_x, player_y = self._player_anchor(state)
+        full_player_x = float(x0) + float(player_x)
+        full_player_y = float(y0) + float(player_y)
         half = self.tile_size / 2.0
         self.grid_origin_x = (full_player_x - half) % self.tile_size
         self.grid_origin_y = (full_player_y - half) % self.tile_size

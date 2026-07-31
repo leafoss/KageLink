@@ -84,7 +84,7 @@ Durante combate ativo, `MAP_SAVE_RESYNC` passa a fazer uma ressincronização vi
 
 ## Configuração
 
-Os parâmetros ficam centralizados em `config/kage_pilot_dojo.json`, na seção `combat_target`:
+Os parâmetros ficam centralizados no arquivo independente `config/kage_pilot_combat_target.json`. A separação mantém intacto o esquema público de `config/kage_pilot_dojo.json`:
 
 ```json
 {

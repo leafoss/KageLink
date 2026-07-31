@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 from dataclasses import dataclass
 import re
 
@@ -10,53 +9,6 @@ import numpy as np
 from pc_agent.chat_reader import ChatReader, find_new_lines
 from .grid_target_observer_v03 import _grid_distance
 
-
-# Real user-supplied Dojo leader reference. Kept as text so the GitHub contents API can
-# preserve the exact PNG without adding a binary-file dependency to this incremental gate.
-_DOJO_LEADER_PNG_BASE64 = (
-    "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"
-)
 
 _VICTORY_RE = re.compile(r"\bhas\s+been\s+knocked(?:\s*-\s*|\s+)out\b", re.IGNORECASE)
 
@@ -90,7 +42,6 @@ class ChatVictoryWatcher:
             return None
         lines, resynchronized = find_new_lines(self._previous, current)
         self._previous = current
-        # Fail closed on chat resynchronization: the returned block may contain old history.
         if resynchronized:
             return None
         for line in lines:
@@ -104,46 +55,36 @@ class LeaderMatch:
     score: float
     bbox: tuple[int, int, int, int]
     foot: tuple[float, float]
+    source: str = "visual"
+    scale: float = 1.0
 
 
 class DojoLeaderDetector:
-    """Exact-sprite template detector for the fixed Dojo leader supplied by the user."""
+    """Compatibility constructor for the immutable RAW Trainer matcher.
 
-    def __init__(self, *, threshold: float = 0.72) -> None:
-        raw = np.frombuffer(base64.b64decode(_DOJO_LEADER_PNG_BASE64), dtype=np.uint8)
-        template = cv2.imdecode(raw, cv2.IMREAD_COLOR)
-        if template is None or template.size == 0:
-            raise RuntimeError("DOJO_LEADER_TEMPLATE_DECODE_FAILED")
-        self.template = template
-        self.template_gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
-        self.threshold = max(0.45, min(0.98, float(threshold)))
+    This module intentionally contains no embedded image, grayscale conversion,
+    resize, generated mask or fallback template. Importing the implementation is
+    delayed to avoid a compatibility-module cycle during startup.
+    """
 
-    def find(self, frame_bgr: np.ndarray, *, arena_rect=None) -> LeaderMatch | None:
-        if frame_bgr is None or frame_bgr.size == 0:
-            return None
-        frame_h, frame_w = frame_bgr.shape[:2]
-        if arena_rect is None:
-            x0, y0, x1, y1 = 0, 0, frame_w, frame_h
-        else:
-            x0, y0, x1, y1 = (int(v) for v in arena_rect)
-            x0, y0 = max(0, x0), max(0, y0)
-            x1, y1 = min(frame_w, x1), min(frame_h, y1)
-        roi = frame_bgr[y0:y1, x0:x1]
-        th, tw = self.template_gray.shape[:2]
-        if roi.shape[0] < th or roi.shape[1] < tw:
-            return None
-        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-        result = cv2.matchTemplate(gray, self.template_gray, cv2.TM_CCOEFF_NORMED)
-        _, score, _, location = cv2.minMaxLoc(result)
-        score = float(score)
-        if score < self.threshold:
-            return None
-        left = x0 + int(location[0])
-        top = y0 + int(location[1])
-        # The supplied crop contains a little ground below the sprite. 0.84 lands at the
-        # character's feet rather than the bottom edge of that ground patch.
-        foot = (left + tw * 0.50, top + th * 0.84)
-        return LeaderMatch(score=score, bbox=(left, top, tw, th), foot=foot)
+    def __new__(
+        cls,
+        *,
+        threshold: float = 0.88,
+        template_path=None,
+        memory_seconds: float = 180.0,
+        scales=(1.0,),
+        template_root=None,
+    ):
+        from .dojo_raw_trainer_v351 import RawDojoLeaderDetector
+
+        return RawDojoLeaderDetector(
+            threshold=threshold,
+            template_path=template_path,
+            memory_seconds=memory_seconds,
+            scales=scales,
+            template_root=template_root,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,12 +100,7 @@ class ResourceLevels:
 
 
 class HudResourceReader:
-    """Read HP and Chakra fill from the fixed 960x540 GAME HUD.
-
-    The ranges are intentionally broad normalized ROIs; the actual fill is extracted by
-    color. Full-fill widths are conservative so the recovery gate tends to overshoot rather
-    than exit meditation below the user's requested thresholds.
-    """
+    """Read HP and Chakra fill from the fixed 960x540 GAME HUD."""
 
     HEALTH_ROI = (0.150, 0.800, 0.105, 0.090)
     CHAKRA_ROI = (0.585, 0.800, 0.110, 0.090)
@@ -234,12 +170,12 @@ class PostCombatDecision:
 
 
 class PostCombatRecoveryEngine:
-    """Deterministic victory -> leader -> meditation -> READY state machine."""
+    """Deterministic victory -> RAW leader -> meditation -> READY state machine."""
 
     def __init__(
         self,
         *,
-        leader_detector: DojoLeaderDetector | None = None,
+        leader_detector=None,
         resource_reader: HudResourceReader | None = None,
         leader_confirm_frames: int = 2,
         health_target: float = 0.90,
@@ -370,3 +306,15 @@ class PostCombatRecoveryEngine:
             )
 
         return PostCombatDecision(state=self.state, reason="unknown post-combat state")
+
+
+__all__ = [
+    "ChatVictoryWatcher",
+    "DojoLeaderDetector",
+    "HudResourceReader",
+    "LeaderMatch",
+    "PostCombatDecision",
+    "PostCombatRecoveryEngine",
+    "ResourceLevels",
+    "VictorySignal",
+]

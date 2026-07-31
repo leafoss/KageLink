@@ -5,6 +5,7 @@ import unittest
 
 import unified_dojo_debug_v351
 import unified_dojo_responsive_v351
+import unified_dojo_stop_v351
 import unified_dojo_ui_v351
 import unified_launcher
 from unified_dojo_templates_ui_v35 import CANONICAL_SIDEBAR_ORDER
@@ -19,6 +20,9 @@ class DojoDesktopV351ContractTests(unittest.TestCase):
             encoding="utf-8"
         )
         cls.debug_source = Path(unified_dojo_debug_v351.__file__).read_text(
+            encoding="utf-8"
+        )
+        cls.stop_source = Path(unified_dojo_stop_v351.__file__).read_text(
             encoding="utf-8"
         )
 
@@ -74,6 +78,12 @@ class DojoDesktopV351ContractTests(unittest.TestCase):
         self.assertIn("self._dojo_setting_dirty.clear()", self.debug_source)
         self.assertNotIn("command=self._dojo_update_debug_live", self.debug_source)
         self.assertNotIn("command=lambda _value: self._dojo_update_debug_live()", self.debug_source)
+
+    def test_stop_remains_available_while_start_request_is_busy(self):
+        self.assertIn("self._dojo_stop_busy", self.stop_source)
+        self.assertIn("self._dojo_running or self._dojo_busy", self.stop_source)
+        self.assertIn("DojoStopStartupSafe", self.stop_source)
+        self.assertNotIn("if self._dojo_busy:\n                return", self.stop_source)
 
     def test_images_are_built_in_64_then_32_order_and_centered(self):
         self.assertIn('for column, mode in enumerate(("64", "32"))', self.source)

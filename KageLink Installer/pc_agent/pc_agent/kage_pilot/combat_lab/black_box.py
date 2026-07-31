@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from datetime import datetime
 import json
 from pathlib import Path
 import queue
 import threading
 import time
-from typing import Any, Callable, Iterable
+from typing import Callable
 
 import numpy as np
 
@@ -51,9 +51,9 @@ class BlackBoxStats:
 class CombatBlackBoxRecorder:
     """Bounded hot-path buffer with asynchronous failure materialization.
 
-    `append` copies only the already captured arena and simple metadata. Rendering,
-    video encoding and disk writes never happen in the combat loop. When the lock is
-    busy or the ring buffer is full, the oldest evidence is discarded by policy.
+    `append` stores the already captured arena and simple metadata. Rendering, video
+    encoding and disk writes never happen in the combat loop. When the lock is busy or
+    the ring is full, evidence is discarded according to a bounded policy.
     """
 
     def __init__(
@@ -64,13 +64,23 @@ class CombatBlackBoxRecorder:
         telemetry: Telemetry | None = None,
     ) -> None:
         self.max_frames = max(16, min(1200, int(max_frames)))
-        self.root = Path(root) if root is not None else Path.home() / ".kagelink" / "combat_black_box"
+        self.root = (
+            Path(root)
+            if root is not None
+            else Path.home() / ".kagelink" / "combat_black_box"
+        )
         self.telemetry = telemetry
         self._records: deque[BlackBoxRecord] = deque(maxlen=self.max_frames)
         self._lock = threading.Lock()
-        self._jobs: queue.Queue[tuple[str, tuple[BlackBoxRecord, ...]]] = queue.Queue(maxsize=2)
+        self._jobs: queue.Queue[tuple[str, tuple[BlackBoxRecord, ...]]] = queue.Queue(
+            maxsize=2
+        )
         self._stop = threading.Event()
-        self._thread = threading.Thread(target=self._worker, name="kage-combat-black-box", daemon=True)
+        self._thread = threading.Thread(
+            target=self._worker,
+            name="kage-combat-black-box",
+            daemon=True,
+        )
         self._thread.start()
         self.submitted = 0
         self.dropped = 0
@@ -122,7 +132,17 @@ class CombatBlackBoxRecorder:
             pending_jobs=self._jobs.qsize(),
         )
 
-    def close(self, *, timeout: float = 1.0) -> None:
+    def flush(self, *, timeout: float = 4.0) -> bool:
+        """Wait outside the combat loop for already requested packages to finish."""
+        deadline = time.monotonic() + max(0.0, float(timeout))
+        while self._jobs.unfinished_tasks > 0 and time.monotonic() < deadline:
+            time.sleep(0.02)
+        return self._jobs.unfinished_tasks == 0
+
+    def close(self, *, timeout: float = 4.0) -> None:
+        # A failure request is queued immediately before shutdown. Drain it first so
+        # closing the process cannot silently discard the only forensic package.
+        self.flush(timeout=max(0.0, float(timeout)))
         self._stop.set()
         try:
             self._jobs.put_nowait(("__stop__", ()))
@@ -137,6 +157,7 @@ class CombatBlackBoxRecorder:
             except queue.Empty:
                 continue
             if reason == "__stop__":
+                self._jobs.task_done()
                 return
             try:
                 destination = self._write_package(reason, records)
@@ -174,7 +195,9 @@ class CombatBlackBoxRecorder:
                     "raw_candidates": list(item.raw_candidates),
                     "filtered_candidates": list(item.filtered_candidates),
                     "tracks": list(item.tracks),
-                    "observations": [observation_to_dict(value) for value in item.observations],
+                    "observations": [
+                        observation_to_dict(value) for value in item.observations
+                    ],
                     "snapshot": asdict(item.snapshot),
                     "decision": item.decision,
                     "command": item.command,
@@ -183,7 +206,11 @@ class CombatBlackBoxRecorder:
                 }
             )
         (destination / "replay.json").write_text(
-            json.dumps({"version": 1, "reason": reason, "frames": rows}, indent=2, sort_keys=True),
+            json.dumps(
+                {"version": 1, "reason": reason, "frames": rows},
+                indent=2,
+                sort_keys=True,
+            ),
             encoding="utf-8",
         )
         return destination

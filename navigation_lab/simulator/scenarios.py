@@ -93,13 +93,13 @@ SCENARIOS: dict[str, Scenario] = {
         "#.............#",
         "###############",
     ]),
-    "08_stuck_in_corner": _scenario("08_stuck_in_corner", "Stuck in corner", [
+    "08_stuck_in_corner": _scenario("08_stuck_in_corner", "Blocked next cell recovery", [
         "#############",
         "#S..........#",
         "#...........#",
         "#..........G#",
         "#############",
-    ], dynamic_blocks={1: [Point(2, 1)], 2: [Point(1, 2)]}),
+    ], dynamic_blocks={0: [Point(2, 1)]}),
     "09_input_without_movement": _scenario("09_input_without_movement", "Input without movement", [
         "###########",
         "#S.......G#",

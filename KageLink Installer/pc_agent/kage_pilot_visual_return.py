@@ -36,18 +36,23 @@ def _extract_position_state_argument(argv: list[str]) -> Path | None:
 def main() -> int:
     position_path = _extract_position_state_argument(sys.argv)
 
+    from pc_agent.kage_pilot.dojo_resolution_bridge_v351 import (
+        install_resolution_independent_dojo,
+        install_runtime_geometry_bridge,
+        restore_tracker_state_resolution_safe,
+    )
     from pc_agent.kage_pilot.visual_position_guard import install_visual_position_guard
 
+    # Install before importing the round runtime so direct decoder/detector aliases
+    # are resolution-independent in the isolated executable as well.
+    install_resolution_independent_dojo()
     install_visual_position_guard()
 
     import kage_pilot_live_v0351_round as runtime
     from pc_agent.kage_pilot.dojo_chakra_recovery_bridge_v351 import (
         install_chakra_recovery_bridge,
     )
-    from pc_agent.kage_pilot.dojo_position_bridge import (
-        restore_tracker_state,
-        save_tracker_state,
-    )
+    from pc_agent.kage_pilot.dojo_position_bridge import save_tracker_state
     from pc_agent.kage_pilot.dojo_resource_quantization_v351 import (
         install_resource_quantization_bridge,
     )
@@ -57,6 +62,7 @@ def main() -> int:
 
     # Wrap the exact PR23 visual-return class. Legacy engines and main are never restored.
     install_runtime_guard(runtime)
+    install_runtime_geometry_bridge(runtime)
     install_resource_quantization_bridge(runtime)
     install_chakra_recovery_bridge(runtime)
     install_vision_black_box(runtime)
@@ -67,7 +73,7 @@ def main() -> int:
 
         def bridged_init(self, *args, **kwargs):
             original_init(self, *args, **kwargs)
-            restored = restore_tracker_state(
+            restored = restore_tracker_state_resolution_safe(
                 self.position,
                 position_path,
                 delete_after_load=False,
@@ -81,6 +87,7 @@ def main() -> int:
                     "y": f"{snapshot.y:.4f}",
                     "state": snapshot.state.value,
                     "confidence": f"{snapshot.confidence:.3f}",
+                    "cell_size": f"{self.position.cell_size:.3f}",
                     "keyframes": snapshot.keyframes,
                 },
             )
@@ -114,6 +121,7 @@ def main() -> int:
                             "x": f"{snapshot.x:.4f}",
                             "y": f"{snapshot.y:.4f}",
                             "state": snapshot.state.value,
+                            "cell_size": f"{position.cell_size:.3f}",
                             "keyframes": snapshot.keyframes,
                             "return_code": result,
                         },

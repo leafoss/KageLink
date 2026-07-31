@@ -14,6 +14,7 @@ if (-not (Test-Path $Venv)) {
 }
 $VenvPython = Join-Path $Venv "Scripts\python.exe"
 & $VenvPython -m pip install --upgrade pip
+& $VenvPython -m pip install -r (Join-Path $RepoRoot "navigation_lab\requirements-observer.txt")
 & $VenvPython -m compileall -q (Join-Path $RepoRoot "navigation_lab")
 & $VenvPython -m unittest discover -s (Join-Path $RepoRoot "navigation_lab\tests") -v
 Write-Host "[Navigation Lab] Setup complete."

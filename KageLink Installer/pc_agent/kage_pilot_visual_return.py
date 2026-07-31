@@ -59,6 +59,7 @@ def main() -> int:
 
     activate_round_resolution_detector()
 
+    from pc_agent.kage_pilot.combat_target_v351 import install_combat_target_bridge
     from pc_agent.kage_pilot.dojo_chakra_recovery_bridge_v351 import (
         install_chakra_recovery_bridge,
     )
@@ -77,6 +78,11 @@ def main() -> int:
     # Migrate the old 120-second setting before the guard reads it. The physical
     # round-5 capture showed Y becoming eligible only at the end of that window.
     ensure_safe_meditation_timeout(telemetry=runtime._telemetry)
+
+    # Combat identity is installed after the validated compatibility chain has loaded,
+    # but before the recorder captures the concrete observer type. It does not alter
+    # meditation, resources, Trainer matching, KO authority or post-combat recovery.
+    install_combat_target_bridge(runtime)
 
     # Install every gameplay bridge first. The final visual recorder observes only
     # the already-processed round input and never changes controls or detector state.

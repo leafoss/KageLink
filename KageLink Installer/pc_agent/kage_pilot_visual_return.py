@@ -44,15 +44,25 @@ def main() -> int:
     from pc_agent.kage_pilot.dojo_resolution_gate_compat_v351 import (
         install_resolution_gate_slots_compat,
     )
+    from pc_agent.kage_pilot.dojo_resolution_scope_compat_v351 import (
+        activate_round_resolution_detector,
+        install_resolution_scope_compat,
+    )
     from pc_agent.kage_pilot.visual_position_guard import install_visual_position_guard
 
-    # Install before importing the round runtime so direct decoder/detector aliases
-    # are resolution-independent in the isolated executable as well.
+    # Install content-aware coordinates first, then keep that detector scoped until
+    # this isolated helper explicitly activates it for the real round runtime.
     install_resolution_independent_dojo()
+    install_resolution_scope_compat()
     install_resolution_gate_slots_compat()
     install_visual_position_guard()
 
     import kage_pilot_live_v0351_round as runtime
+
+    # KagePilotRound.exe is isolated, so enabling the adaptive detector globally here
+    # cannot contaminate generic providers or the parent KageLink process.
+    activate_round_resolution_detector()
+
     from pc_agent.kage_pilot.dojo_chakra_recovery_bridge_v351 import (
         install_chakra_recovery_bridge,
     )

@@ -7,6 +7,7 @@ real Windows/BYOND stress testing authorizes a provider extraction.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import sys
 
@@ -31,6 +32,10 @@ def _extract_position_state_argument(argv: list[str]) -> Path | None:
         index += 1
     argv[:] = cleaned
     return result
+
+
+def _environment_flag(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def main() -> int:
@@ -59,6 +64,11 @@ def main() -> int:
 
     activate_round_resolution_detector()
 
+    from pc_agent.kage_pilot.combat_black_box_runtime_v351 import (
+        close_combat_black_box,
+        install_combat_black_box_runtime,
+        request_combat_black_box,
+    )
     from pc_agent.kage_pilot.combat_strategy_runtime_v351 import (
         emit_runtime_provenance,
         install_combat_strategy_runtime,
@@ -92,6 +102,13 @@ def main() -> int:
     # compatibility chain remains available as the class base, but no second combat
     # bridge or hardening subclass may silently replace the selected strategy.
     install_combat_strategy_runtime(runtime)
+
+    # The RAW black box is opt-in until its performance gate is approved. Enabling the
+    # environment flag constitutes an explicit debug/requested capture; normal rounds
+    # allocate no black-box frame buffer and produce no package after an ordinary KO.
+    black_box_enabled = _environment_flag("KAGELINK_COMBAT_BLACK_BOX")
+    if black_box_enabled:
+        install_combat_black_box_runtime(runtime)
 
     # Install every non-combat gameplay bridge first. The final recorder observes only
     # the already-processed round input and never changes controls or detector state.
@@ -149,6 +166,13 @@ def main() -> int:
         result = int(runtime.main())
         return result
     finally:
+        if black_box_enabled:
+            if result != 0:
+                request_combat_black_box(f"round_failure_{result}")
+            elif _environment_flag("KAGELINK_COMBAT_BLACK_BOX_MATERIALIZE"):
+                request_combat_black_box("explicit_debug_request")
+            close_combat_black_box()
+
         if position_path is not None:
             try:
                 import kage_pilot_live_v03e_round as round_runtime

@@ -182,17 +182,19 @@ def install_dojo_stop_reliability(service_class) -> None:
                 thread = self._thread
                 thread_alive = thread is not None and thread.is_alive()
 
+        registered_pid = int(getattr(process, "pid", 0) or 0) if process is not None else 0
+        pid_tree_kill_attempted = bool(os.name == "nt" and registered_pid > 0)
         if process is not None:
             _terminate_process_tree(process, timeout=max(1.0, float(timeout) * 0.55))
 
-        # /T normally catches the isolated round helper. The image-name fallback is
-        # intentionally limited to Kage Pilot helpers and never touches KageLink.exe.
-        if os.name == "nt" and (process is None or _process_alive(process)):
+        # A PID tree kill (/T) is the primary and sufficient Windows authority. Use
+        # image names only when Stop won the race before any PID became observable.
+        if os.name == "nt" and not pid_tree_kill_attempted and process is None:
             _taskkill_helpers(max(1.0, float(timeout) * 0.35))
 
         if thread is not None:
             thread.join(timeout=max(0.5, float(timeout)))
-            if thread.is_alive() and os.name == "nt":
+            if thread.is_alive() and os.name == "nt" and not pid_tree_kill_attempted:
                 _taskkill_helpers(2.0)
                 thread.join(timeout=1.0)
 

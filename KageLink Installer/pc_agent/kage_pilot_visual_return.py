@@ -63,6 +63,9 @@ def main() -> int:
     from pc_agent.kage_pilot.dojo_chakra_recovery_bridge_v351 import (
         install_chakra_recovery_bridge,
     )
+    from pc_agent.kage_pilot.dojo_combat_runtime_hardening_v351 import (
+        install_combat_runtime_hardening,
+    )
     from pc_agent.kage_pilot.dojo_meditation_timeout_v351 import (
         ensure_safe_meditation_timeout,
         install_meditation_timeout_bridge,
@@ -70,6 +73,9 @@ def main() -> int:
     from pc_agent.kage_pilot.dojo_position_bridge import save_tracker_state
     from pc_agent.kage_pilot.dojo_resource_quantization_v351 import (
         install_resource_quantization_bridge,
+    )
+    from pc_agent.kage_pilot.dojo_round_video_performance_v351 import (
+        install_round_video_performance_guard,
     )
     from pc_agent.kage_pilot.dojo_runtime_guard_v351 import install_runtime_guard
     from pc_agent.kage_pilot.dojo_vision_lab_v351 import install_runtime_lab
@@ -83,6 +89,7 @@ def main() -> int:
     # but before the recorder captures the concrete observer type. It does not alter
     # meditation, resources, Trainer matching, KO authority or post-combat recovery.
     install_combat_target_bridge(runtime)
+    install_combat_runtime_hardening(runtime)
 
     # Install every gameplay bridge first. The final visual recorder observes only
     # the already-processed round input and never changes controls or detector state.
@@ -91,7 +98,8 @@ def main() -> int:
     install_runtime_geometry_bridge(runtime)
     install_resource_quantization_bridge(runtime)
     install_chakra_recovery_bridge(runtime)
-    install_runtime_lab(runtime)
+    recorder = install_runtime_lab(runtime)
+    install_round_video_performance_guard(recorder, target_fps=2.0)
 
     if position_path is not None:
         original_init = runtime.ClosedLoopVisualRecoveryEngine.__init__

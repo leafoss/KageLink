@@ -37,7 +37,8 @@ KageLink Installer/pc_agent/
 ├── tests/
 │   └── test_dojo_*.py and packaging/regression tests
 └── config/
-    └── kage_pilot_dojo.json
+    ├── kage_pilot_dojo.json
+    └── kage_pilot_combat_target.json
 
 KageLink Installer/installer/
 ├── KageLink.spec

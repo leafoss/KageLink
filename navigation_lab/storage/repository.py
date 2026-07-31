@@ -31,6 +31,21 @@ class JsonRepository:
         path = self.root / "regions" / f"{region_id}.json"
         return OccupancyGrid.from_dict(json.loads(path.read_text(encoding="utf-8")))
 
+    def save_mapping_state(self, region_id: str, payload: dict[str, Any]) -> Path:
+        path = self.mapping_state_path(region_id)
+        _atomic_json_write(path, payload)
+        return path
+
+    def load_mapping_state(self, region_id: str) -> dict[str, Any]:
+        return json.loads(self.mapping_state_path(region_id).read_text(encoding="utf-8"))
+
+    def mapping_state_path(self, region_id: str) -> Path:
+        safe_region_id = "".join(character if character.isalnum() or character in "-_" else "_" for character in region_id)
+        return self.root / "mappings" / f"{safe_region_id}.json"
+
+    def has_mapping_state(self, region_id: str) -> bool:
+        return self.mapping_state_path(region_id).is_file()
+
     def save_world(self, graph: WorldGraph) -> Path:
         path = self.root / "world_graph.json"
         _atomic_json_write(path, graph.to_dict())

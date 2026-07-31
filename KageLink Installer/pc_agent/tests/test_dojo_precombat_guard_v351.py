@@ -57,6 +57,10 @@ class DojoPrecombatGuardV351Tests(unittest.TestCase):
     def test_canonical_request_uses_the_guarded_provider(self):
         self.assertIs(canonical_request, guard.request_taijutsu_dojo_spar_single_click)
 
+    def test_legacy_spawn_delay_is_migrated_to_one_second(self):
+        self.assertEqual(guard.effective_spawn_delay(5.0), 1.0)
+        self.assertEqual(guard.effective_spawn_delay(2.5), 2.5)
+
     def test_after_ok_ctrl_right_pulses_once_then_r_is_held_through_spawn_wait(self):
         events: list[tuple] = []
         controller = FakeRequestController(events)
@@ -96,9 +100,7 @@ class DojoPrecombatGuardV351Tests(unittest.TestCase):
         combo_index = events.index(("keys", ("ctrl", "right")))
         guard_wait_index = events.index(("wait", 0.08))
         first_r_index = events.index(("keys", ("r",)), combo_index)
-        spawn_wait_index = max(
-            index for index, event in enumerate(events) if event == ("wait", 5.0)
-        )
+        spawn_wait_index = events.index(("wait", 1.0), first_r_index)
         final_release_index = len(events) - 1
 
         self.assertLess(ok_index, combo_index)

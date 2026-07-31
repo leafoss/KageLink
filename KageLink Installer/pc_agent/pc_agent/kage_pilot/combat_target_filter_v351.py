@@ -6,7 +6,7 @@ from typing import Any
 from .combat_target_config_v351 import CombatTargetConfig
 
 
-def _candidate_bbox(candidate: Any) -> tuple[int, int, int, int]:
+def candidate_bbox(candidate: Any) -> tuple[int, int, int, int]:
     value = getattr(candidate, "bbox", (0, 0, 0, 0))
     return tuple(int(round(float(item))) for item in value)
 
@@ -19,7 +19,7 @@ def effect_rejection_reason(
     player_center: tuple[float, float],
     config: CombatTargetConfig,
 ) -> str | None:
-    x, y, width, height = _candidate_bbox(candidate)
+    x, y, width, height = candidate_bbox(candidate)
     width_f = max(1.0, float(width))
     height_f = max(1.0, float(height))
     distance_to_player = math.dist(
@@ -62,4 +62,4 @@ def effect_rejection_reason(
     return None
 
 
-__all__ = ["effect_rejection_reason"]
+__all__ = ["candidate_bbox", "effect_rejection_reason"]

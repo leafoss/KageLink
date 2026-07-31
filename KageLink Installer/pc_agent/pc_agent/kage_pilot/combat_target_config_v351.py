@@ -107,7 +107,7 @@ class CombatTargetConfig:
 
 
 def _default_config_path() -> Path:
-    return Path(__file__).resolve().parents[2] / "config" / "kage_pilot_dojo.json"
+    return Path(__file__).resolve().parents[2] / "config" / "kage_pilot_combat_target.json"
 
 
 def load_combat_target_config(path: str | Path | None = None) -> CombatTargetConfig:
@@ -116,7 +116,9 @@ def load_combat_target_config(path: str | Path | None = None) -> CombatTargetCon
         payload = json.loads(source.read_text(encoding="utf-8"))
     except (OSError, ValueError, TypeError):
         payload = {}
-    section = payload.get("combat_target", {}) if isinstance(payload, dict) else {}
+    if not isinstance(payload, dict):
+        payload = {}
+    section = payload.get("combat_target", payload)
     return CombatTargetConfig.from_mapping(section if isinstance(section, dict) else {})
 
 

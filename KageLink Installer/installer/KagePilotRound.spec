@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
-from PyInstaller.utils.hooks import collect_all, collect_submodules
+from PyInstaller.utils.hooks import collect_submodules
 
 root = os.path.abspath(os.path.join(SPECPATH, '..'))
 agent = os.path.join(root, 'pc_agent')
@@ -20,12 +20,10 @@ hiddenimports = collect_submodules('pc_agent') + [
     'win32con',
     'win32process',
 ]
-for package in ['numpy', 'cv2', 'mss', 'PIL']:
-    d, b, h = collect_all(package)
-    datas += d
-    binaries += b
-    hiddenimports += h
 
+# Runtime hooks for numpy/OpenCV/Pillow are sufficient. collect_all() pulled in
+# large test and development trees that were extracted on every round start,
+# extending the post-OK interval while the opponent was already attacking.
 a = Analysis(
     [os.path.join(agent, 'kage_pilot_round.py')],
     pathex=[agent],
@@ -35,7 +33,14 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=[
+        'numpy.tests',
+        'numpy.testing.tests',
+        'numpy.distutils',
+        'numpy.f2py.tests',
+        'PIL.ImageQt',
+        'tkinter.test',
+    ],
     noarchive=False,
 )
 pyz = PYZ(a.pure)

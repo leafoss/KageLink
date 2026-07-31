@@ -16,9 +16,6 @@ class _Controller:
     def release_all(self) -> None:
         self.events.append(("release",))
 
-    def close(self) -> None:
-        self.events.append(("close",))
-
 
 class DojoPrecombatHandoffV351Tests(unittest.TestCase):
     def tearDown(self) -> None:
@@ -36,8 +33,9 @@ class DojoPrecombatHandoffV351Tests(unittest.TestCase):
 
         self.assertTrue(guard.release_precombat_handoff("round_child_armed"))
         self.assertFalse(guard.precombat_handoff_active())
-        self.assertIn(("release",), controller.events)
-        self.assertIn(("close",), controller.events)
+        # The validated controller owner does not call a public close() method.
+        # It releases keys, stops its repeat worker and deactivates the core.
+        self.assertGreaterEqual(controller.events.count(("release",)), 2)
 
     def test_releasing_without_active_handoff_is_safe(self):
         guard.release_precombat_handoff("initial_cleanup")

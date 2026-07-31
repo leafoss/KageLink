@@ -2,24 +2,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
-from pathlib import Path
-import time
-from typing import Iterable
 
-import cv2
 import numpy as np
 
 from .grid_target_observer_v03 import _grid_distance
 from .post_combat_v03 import (
     ChatVictoryWatcher,
-    DojoLeaderDetector as EmbeddedDojoLeaderDetector,
     HudResourceReader,
     PostCombatDecision,
 )
 
 
-PC_AGENT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_LEADER_TEMPLATE_PATH = PC_AGENT_ROOT / "data" / "kage_pilot" / "dojo_leader_template.png"
+# Retained only as an import-compatible sentinel. There is no legacy file path,
+# local calibration image or embedded fallback in the RAW-only pipeline.
+DEFAULT_LEADER_TEMPLATE_PATH = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,156 +28,46 @@ class LeaderMatchV2:
 
 
 class CalibratedDojoLeaderDetector:
-    """Prefer a locally taught live-game template and retain camera-relative memory.
+    """Compatibility constructor that always returns the immutable RAW matcher.
 
-    A visual match is authoritative. When the sprite is briefly hidden or leaves the frame,
-    the last confirmed bounding box is shifted by the observer's global camera flow. Memory
-    may guide movement but the recovery engine never starts meditation from memory alone.
+    The historic name is kept for imports only. No calibration, grayscale,
+    resizing, generated scale, local file, or embedded fallback is permitted.
     """
 
-    def __init__(
-        self,
+    def __new__(
+        cls,
         *,
-        threshold: float = 0.72,
-        template_path: Path | str | None = None,
-        memory_seconds: float = 15.0,
-        scales: Iterable[float] = (0.90, 0.95, 1.00, 1.05, 1.10),
-    ) -> None:
-        self.threshold = max(0.45, min(0.98, float(threshold)))
-        self.template_path = Path(template_path) if template_path is not None else DEFAULT_LEADER_TEMPLATE_PATH
-        self.memory_seconds = max(1.0, min(60.0, float(memory_seconds)))
-        normalized_scales = sorted({max(0.70, min(1.30, float(value))) for value in scales})
-        self.scales = tuple(normalized_scales or (1.0,))
+        threshold: float = 0.88,
+        template_path=None,
+        memory_seconds: float = 180.0,
+        scales=(1.0,),
+        template_root=None,
+    ):
+        from .dojo_raw_trainer_v351 import RawDojoLeaderDetector
 
-        local = cv2.imread(str(self.template_path), cv2.IMREAD_COLOR) if self.template_path.exists() else None
-        if local is not None and local.size > 0:
-            self.template = local
-            self.template_source = "local"
-        else:
-            fallback = EmbeddedDojoLeaderDetector(threshold=0.45)
-            self.template = fallback.template.copy()
-            self.template_source = "embedded-fallback"
-
-        self.template_gray = cv2.cvtColor(self.template, cv2.COLOR_BGR2GRAY)
-        self._last_visual: LeaderMatchV2 | None = None
-        self._last_visual_at = -1e9
-        self.last_raw_score = -1.0
-        self.last_raw_scale = 1.0
-        self.last_raw_location: tuple[int, int] | None = None
-
-    @staticmethod
-    def _roi(frame_bgr: np.ndarray, arena_rect=None):
-        frame_h, frame_w = frame_bgr.shape[:2]
-        if arena_rect is None:
-            x0, y0, x1, y1 = 0, 0, frame_w, frame_h
-        else:
-            x0, y0, x1, y1 = (int(value) for value in arena_rect)
-            x0, y0 = max(0, x0), max(0, y0)
-            x1, y1 = min(frame_w, x1), min(frame_h, y1)
-        return frame_bgr[y0:y1, x0:x1], x0, y0
-
-    def _best_visual(self, frame_bgr: np.ndarray, *, arena_rect=None) -> LeaderMatchV2 | None:
-        roi, offset_x, offset_y = self._roi(frame_bgr, arena_rect)
-        if roi.size == 0:
-            return None
-        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-
-        best_score = -1.0
-        best_scale = 1.0
-        best_location: tuple[int, int] | None = None
-        best_size: tuple[int, int] | None = None
-
-        original_h, original_w = self.template_gray.shape[:2]
-        for scale in self.scales:
-            width = max(8, round(original_w * scale))
-            height = max(8, round(original_h * scale))
-            if width > gray.shape[1] or height > gray.shape[0]:
-                continue
-            interpolation = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_CUBIC
-            template = cv2.resize(self.template_gray, (width, height), interpolation=interpolation)
-            result = cv2.matchTemplate(gray, template, cv2.TM_CCOEFF_NORMED)
-            _, score, _, location = cv2.minMaxLoc(result)
-            score = float(score)
-            if score > best_score:
-                best_score = score
-                best_scale = scale
-                best_location = (int(location[0]), int(location[1]))
-                best_size = (width, height)
-
-        self.last_raw_score = best_score
-        self.last_raw_scale = best_scale
-        self.last_raw_location = (
-            (offset_x + best_location[0], offset_y + best_location[1])
-            if best_location is not None
-            else None
+        return RawDojoLeaderDetector(
+            threshold=threshold,
+            template_path=template_path,
+            memory_seconds=memory_seconds,
+            scales=scales,
+            template_root=template_root,
         )
-        if best_location is None or best_size is None or best_score < self.threshold:
-            return None
-
-        left = offset_x + best_location[0]
-        top = offset_y + best_location[1]
-        width, height = best_size
-        return LeaderMatchV2(
-            score=best_score,
-            bbox=(left, top, width, height),
-            foot=(left + width * 0.50, top + height * 0.88),
-            source="visual",
-            scale=best_scale,
-        )
-
-    @staticmethod
-    def _shift(match: LeaderMatchV2, flow) -> LeaderMatchV2:
-        dx = float(getattr(flow, "dx", 0.0) or 0.0)
-        dy = float(getattr(flow, "dy", 0.0) or 0.0)
-        left, top, width, height = match.bbox
-        shifted_left = round(left + dx)
-        shifted_top = round(top + dy)
-        return LeaderMatchV2(
-            score=match.score,
-            bbox=(shifted_left, shifted_top, width, height),
-            foot=(match.foot[0] + dx, match.foot[1] + dy),
-            source="memory",
-            scale=match.scale,
-        )
-
-    def find(self, frame_bgr: np.ndarray, *, arena_rect=None, flow=None, now: float | None = None):
-        timestamp = time.monotonic() if now is None else float(now)
-
-        if self._last_visual is not None and flow is not None:
-            self._last_visual = self._shift(self._last_visual, flow)
-
-        visual = self._best_visual(frame_bgr, arena_rect=arena_rect)
-        if visual is not None:
-            self._last_visual = visual
-            self._last_visual_at = timestamp
-            return visual
-
-        if self._last_visual is not None and timestamp - self._last_visual_at <= self.memory_seconds:
-            remembered = self._last_visual
-            return LeaderMatchV2(
-                score=remembered.score,
-                bbox=remembered.bbox,
-                foot=remembered.foot,
-                source="memory",
-                scale=remembered.scale,
-            )
-        return None
 
 
 class CalibratedHudResourceReader(HudResourceReader):
-    """Real Micro-PC calibration: 47 health pixels and 40 chakra pixels are full."""
+    """Real Micro-PC HUD calibration; unrelated to Trainer image matching."""
 
     HEALTH_FULL_PX_960 = 47.0
     CHAKRA_FULL_PX_960 = 40.0
 
 
 class PostCombatRecoveryEngineV2:
-    """Victory -> calibrated leader -> V toggle recovery, with camera-flow memory."""
+    """Victory -> immutable RAW leader -> V toggle recovery."""
 
     def __init__(
         self,
         *,
-        leader_detector: CalibratedDojoLeaderDetector | None = None,
+        leader_detector=None,
         resource_reader: CalibratedHudResourceReader | None = None,
         leader_confirm_frames: int = 2,
         health_target: float = 0.90,
@@ -257,7 +143,6 @@ class PostCombatRecoveryEngineV2:
                     self._leader_cell = leader_cell
                     self._leader_hits = 1
             else:
-                # Camera memory guides walking, but it never counts toward V authorization.
                 self._leader_hits = 0
 
             if match.source == "visual" and self._leader_hits < self.leader_confirm_frames:
@@ -265,7 +150,7 @@ class PostCombatRecoveryEngineV2:
                     state=self.state,
                     leader_score=match.score,
                     leader_distance=distance,
-                    reason="confirming calibrated dojo leader / confirmando lider calibrado",
+                    reason="confirming RAW dojo leader / confirmando lider RAW",
                 )
 
             if distance <= 1:
@@ -284,7 +169,7 @@ class PostCombatRecoveryEngineV2:
                     tap_v=True,
                     leader_score=match.score,
                     leader_distance=distance,
-                    reason="visually adjacent to dojo leader; toggle V on / adjacente visual; ligar V",
+                    reason="visually adjacent to RAW dojo leader; toggle V on / adjacente visual RAW; ligar V",
                 )
 
             direction = self._direction(player_cell, leader_cell)
@@ -294,8 +179,8 @@ class PostCombatRecoveryEngineV2:
                 leader_score=match.score,
                 leader_distance=distance,
                 reason=(
-                    f"move toward dojo leader ({match.source}) / mover ate lider ({match.source}): "
-                    f"{direction or 'hold'}"
+                    f"move toward RAW dojo leader ({match.source}) / mover ate lider RAW "
+                    f"({match.source}): {direction or 'hold'}"
                 ),
             )
 

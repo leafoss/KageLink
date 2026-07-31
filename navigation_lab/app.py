@@ -13,7 +13,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Independent Kage mapping and navigation laboratory")
     parser.add_argument(
         "--mode",
-        choices=["simulator", "observer", "grid-calibration", "teaching", "assisted", "autonomous", "replay"],
+        choices=[
+            "simulator",
+            "observer",
+            "grid-calibration",
+            "tile-mapper",
+            "teaching",
+            "assisted",
+            "autonomous",
+            "replay",
+        ],
         default="simulator",
     )
     parser.add_argument("--scenario", default="basic_world")
@@ -36,6 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--motion-confidence", type=float, default=0.18)
     parser.add_argument("--command-timeout", type=float, default=0.70)
     parser.add_argument("--min-command-shift", type=float, default=2.0)
+    parser.add_argument("--similarity-threshold", type=float, default=0.92)
     parser.add_argument("--invert-x", action="store_true")
     parser.add_argument("--invert-y", action="store_true")
     parser.add_argument("--new-map", action="store_true")
@@ -54,12 +64,20 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.mode == "grid-calibration":
         return _run_grid_calibration(args)
+    if args.mode == "tile-mapper":
+        return _run_tile_mapper(args)
     if args.mode == "observer":
         return _run_observer(args)
     if args.mode != "simulator":
         message = {
-            "pt-BR": "Este modo permanece bloqueado até o mapeamento ao vivo ser validado. Use --mode grid-calibration, observer ou simulator.",
-            "en-US": "This mode remains blocked until live mapping is validated. Use --mode grid-calibration, observer or simulator.",
+            "pt-BR": (
+                "Este modo permanece bloqueado até o mapeamento visual ser validado. "
+                "Use --mode grid-calibration, tile-mapper, observer ou simulator."
+            ),
+            "en-US": (
+                "This mode remains blocked until visual mapping is validated. "
+                "Use --mode grid-calibration, tile-mapper, observer or simulator."
+            ),
         }[args.language]
         print(message, file=sys.stderr)
         return 3
@@ -110,6 +128,39 @@ def _run_grid_calibration(args: argparse.Namespace) -> int:
         return 0
     except Exception as exc:
         print(f"Grid calibration startup failed: {exc}", file=sys.stderr)
+        return 4
+
+
+def _run_tile_mapper(args: argparse.Namespace) -> int:
+    if not 0.50 <= args.similarity_threshold <= 1.0:
+        print("--similarity-threshold must be between 0.50 and 1.0", file=sys.stderr)
+        return 2
+    try:
+        from .observer.grid_calibration import GridCalibration
+        from .observer.tile_map_maker_window import TileMapMakerWindow
+        from .observer.window_capture import WindowsClientCapture
+
+        repository = JsonRepository(profile=args.profile)
+        if not repository.has_grid_calibration(args.region_id):
+            print(
+                "No saved grid calibration was found for this profile/region. "
+                "Run run_grid_calibration.ps1 first.",
+                file=sys.stderr,
+            )
+            return 5
+        calibration = GridCalibration.from_dict(repository.load_grid_calibration(args.region_id))
+        capture = WindowsClientCapture(args.window_title)
+        TileMapMakerWindow(
+            capture=capture,
+            repository=repository,
+            region_id=args.region_id,
+            calibration=calibration,
+            similarity_threshold=args.similarity_threshold,
+            language=args.language,
+        ).run()
+        return 0
+    except Exception as exc:
+        print(f"Tile MapMaker startup failed: {exc}", file=sys.stderr)
         return 4
 
 

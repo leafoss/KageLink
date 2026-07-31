@@ -142,6 +142,96 @@ def _rejected(observer: Any) -> tuple[Any, ...]:
     return tuple(getattr(tracker, "rejected_candidates", ()) or ())
 
 
+def _authoritative_track(state: Any):
+    target_id = getattr(state, "target_id", None)
+    if target_id is None:
+        return None
+    return next(
+        (
+            track
+            for track in tuple(getattr(state, "tracks", ()) or ())
+            if int(getattr(track, "track_id", 0) or 0) == int(target_id)
+        ),
+        None,
+    )
+
+
+def _grid_details(observer: Any, state: Any) -> tuple[str, str, str]:
+    tile = float(getattr(observer, "tile_size", 0.0) or 0.0)
+    try:
+        origin_x, origin_y = getattr(observer, "grid_origin")
+        origin = f"{float(origin_x):.1f},{float(origin_y):.1f}"
+    except Exception:
+        origin = "-"
+
+    target = _authoritative_track(state)
+    metrics = None
+    if target is not None:
+        try:
+            metrics = observer.metrics_for(int(getattr(target, "track_id", 0) or 0))
+        except Exception:
+            metrics = None
+    if metrics is None:
+        cells = "PLAYER=- TARGET=- d=-"
+    else:
+        player_cell = getattr(metrics, "player_cell", "-")
+        target_cell = getattr(metrics, "cell", "-")
+        distance = getattr(metrics, "grid_distance", "-")
+        cells = f"PLAYER={player_cell} TARGET={target_cell} d={distance}"
+
+    rejection = getattr(observer, "_last_body_rejection", None)
+    if rejection:
+        body_gate = f"reject track={rejection[0]} reason={rejection[1]}"
+    elif target is not None:
+        body_gate = f"accepted track={int(getattr(target, 'track_id', 0) or 0)}"
+    else:
+        body_gate = "no authoritative body"
+    return f"cell={tile:.1f}px origin={origin} anchor=FEET", cells, body_gate
+
+
+def _draw_physical_anchors(
+    image: np.ndarray,
+    frame_bgr: np.ndarray,
+    state: Any,
+    observer: Any,
+    transform: tuple[float, int, int],
+) -> None:
+    x0, y0, _, _ = _arena_rect(frame_bgr, state)
+    player_anchor = None
+    method = getattr(observer, "_player_anchor", None)
+    if callable(method):
+        try:
+            player_anchor = _point(method(state))
+        except Exception:
+            player_anchor = None
+    if player_anchor is None:
+        player_anchor = _point(getattr(state, "player_center", None))
+    if player_anchor is not None:
+        mapped = _map_point((x0 + player_anchor[0], y0 + player_anchor[1]), transform)
+        cv2.drawMarker(image, mapped, (255, 255, 255), cv2.MARKER_CROSS, 14, 2)
+        _text(image, "PLAYER FEET", mapped[0] + 7, mapped[1] + 12, scale=0.27)
+
+    target = _authoritative_track(state)
+    if target is None:
+        return
+    target_anchor = None
+    target_method = getattr(observer, "_track_anchor", None)
+    if callable(target_method):
+        try:
+            target_anchor = _point(target_method(target))
+        except Exception:
+            target_anchor = None
+    if target_anchor is None:
+        bbox = _box(getattr(target, "bbox", None))
+        if bbox is not None:
+            x, y, width, height = bbox
+            target_anchor = (x + width * 0.50, y + height * 0.90)
+    if target_anchor is not None:
+        mapped = _map_point((x0 + target_anchor[0], y0 + target_anchor[1]), transform)
+        cv2.drawMarker(image, mapped, (0, 220, 255), cv2.MARKER_TILTED_CROSS, 14, 2)
+        _text(image, "TARGET FEET", mapped[0] + 7, mapped[1] + 12, scale=0.27, color=(0, 220, 255))
+
+
 def annotate_combat_diagnostics(
     canvas: np.ndarray,
     frame_bgr: np.ndarray,
@@ -164,6 +254,8 @@ def annotate_combat_diagnostics(
     player_full = None
     if player is not None:
         player_full = _map_point((x0 + player[0], y0 + player[1]), transform)
+
+    _draw_physical_anchors(image, frame_bgr, state, observer, transform)
 
     predicted = _point(snapshot.predicted_position)
     last_known = _point(snapshot.last_known_position)
@@ -276,6 +368,7 @@ def annotate_combat_diagnostics(
     predicted_text = (
         "-" if predicted is None else f"{predicted[0]:.0f},{predicted[1]:.0f}"
     )
+    grid_text, cells_text, body_gate_text = _grid_details(observer, state)
 
     cv2.rectangle(image, (0, 540), (646, 719), (9, 12, 10), -1)
     lines = (
@@ -297,14 +390,9 @@ def annotate_combat_diagnostics(
             f"MOVE MODE {snapshot.movement_mode}"
         ),
         f"CURRENT COMMAND / COMANDO {command}",
-        (
-            f"LOCAL REBIND radius={snapshot.local_rebind_radius:.0f}px "
-            f"best={snapshot.best_rebind_score:.2f}"
-        ),
-        (
-            f"SWITCH pending={snapshot.target_switch_pending or '-'} "
-            f"confirm={snapshot.target_switch_confirmation}"
-        ),
+        f"GRID / GRADE {grid_text}",
+        f"CELLS / CELULAS {cells_text}",
+        f"BODY GATE / CORPO {body_gate_text}",
         (
             f"CANDIDATES raw={raw_count} filtered={filtered_count} "
             f"rejected={rejected_count} tracks={len(state_tracks)}"
@@ -312,7 +400,7 @@ def annotate_combat_diagnostics(
         f"CAMERA FLOW dx={flow_dx:+.2f} dy={flow_dy:+.2f} points={flow_points}",
     )
     for index, line in enumerate(lines):
-        _text(image, line, 10, 556 + index * 16, scale=0.31)
+        _text(image, line, 10, 552 + index * 15, scale=0.285)
     return image
 
 

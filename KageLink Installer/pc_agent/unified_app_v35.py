@@ -60,6 +60,30 @@ for route in app.routes:
     break
 
 
+# The old route called service.stop() only when the latest snapshot still said
+# running. Startup failures can leave that snapshot stale while a helper process is
+# alive, so Stop must always reach the idempotent process-tree cancellation layer.
+for route in app.routes:
+    if getattr(route, "path", "") != "/api/dojo/stop":
+        continue
+    if "POST" not in set(getattr(route, "methods", set())):
+        continue
+    original_stop = getattr(route, "endpoint", None)
+    if original_stop is None or bool(getattr(original_stop, "_kagelink_startup_safe_stop", False)):
+        break
+
+    async def stop_dojo_startup_safe(_original=original_stop):
+        del _original
+        await asyncio.to_thread(dojo_service.stop, timeout=8.0)
+        await asyncio.to_thread(_canonical.legacy.game_runtime.release_all)
+        return _canonical.dojo_status_payload(dojo_service)
+
+    stop_dojo_startup_safe._kagelink_startup_safe_stop = True
+    route.endpoint = stop_dojo_startup_safe
+    route.dependant.call = stop_dojo_startup_safe
+    break
+
+
 install_dojo_template_routes(app, _canonical.legacy.security, dojo_service)
 
 

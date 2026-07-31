@@ -4,34 +4,46 @@ Independent laboratory for mapping, localization, route planning and safe naviga
 
 ## Current priority: mapping first
 
-The live Observer Mode is now the active PR 24 milestone. Real navigation remains blocked until the program can build, save and restore a trustworthy relative map from the game window.
+The live Observer Mode is the active PR 24 milestone. Real navigation remains blocked until the program can build, save and restore a trustworthy relative map from the game window.
+
+The default mapper now follows this rule:
+
+```text
+one movement-key tap = one attempted logical cell
+visible movement = visited cell
+no visible movement before timeout = blocked cell
+```
+
+The configured `64x64` size represents the logical tile and debug grid. The camera does not need to scroll a full 64 pixels to confirm each step.
 
 Implemented and automatically validated:
 
 - visible Windows client capture selected by window title;
-- original and processed live capture panels;
-- translational screen-motion estimation with correlation confidence;
-- configurable tile odometry with `64x64` pixels as the default cell size;
-- accumulation of partial movement before a tile transition;
-- inverse screen-to-world movement conversion for a following camera;
-- unbounded sparse map of visited cells;
-- ASCII mapping projection centered on the current position;
+- passive global observation of arrow keys and WASD;
+- movement keys accepted only while the game is foreground;
+- comparison between the pre-input frame and subsequent frames;
+- directional screen-motion confirmation for following/hybrid cameras;
+- exactly one logical tile per physical key tap;
+- automatic `#` marking when an attempted move produces no visual translation;
+- unbounded sparse map of visited and blocked cells;
+- ASCII projection centered on the current position;
+- automatic start, minimization behind fullscreen and save after every resolved attempt;
 - atomic save and automatic restore per profile/region;
-- controls for pause, reset and save;
+- original and processed capture panels for later inspection;
 - occupancy grid, world graph, A*, frontier foundation and simulator scenarios;
 - PowerShell setup, observer, simulator, test and diagnostics scripts;
 - isolated Windows CI workflow.
 
 Still intentionally blocked:
 
+- automatic extraction of all visible walkable ground;
 - Teaching Mode labels and landmark capture;
-- automatic obstacle extraction;
 - player tracking for a fully fixed camera;
 - assisted navigation against the live game;
 - autonomous keyboard control;
 - replay of real captured sessions.
 
-No live mode sends input. `--arm-input` has no effect.
+The observer only listens. It never sends or suppresses game input. `--arm-input` has no effect.
 
 ## Requirements
 
@@ -46,28 +58,38 @@ No live mode sends input. `--arm-input` has no effect.
 .\navigation_lab\scripts\setup_navigation.ps1
 ```
 
-## Start live mapping with 64 px cells
+## Start fullscreen mapping
 
 ```powershell
 .\navigation_lab\scripts\run_mapping_observer.ps1 `
   -WindowTitle "Shinobi Story Online" `
   -RegionId "mapping_calibration" `
   -TileSize 64 `
-  -Fps 10 `
-  -CameraMode following
+  -Fps 12 `
+  -CameraMode following `
+  -MappingStrategy input `
+  -CommandTimeout 0.70 `
+  -MinCommandShift 2.0 `
+  -NewMap
 ```
 
-Keep the game client unobstructed. Place the Mapping Lab window beside the game, then click **Start / Iniciar** and walk manually.
+The window starts automatically and minimizes. Return to the fullscreen game and tap one direction at a time. After the test, Alt+Tab back to inspect the ASCII map and event log.
 
-The interface shows:
+Expected events:
 
-- original game client;
-- processed frame with a 64 px grid and motion vector;
-- detected screen displacement and correlation;
-- pixel residual not yet large enough to become a cell;
-- current relative tile coordinate;
-- visited-cell ASCII map;
-- save and reset controls.
+```text
+MOVED RIGHT -> cell=(1,0)
+BLOCKED RIGHT -> obstacle=(1,0)
+```
+
+Map symbols:
+
+```text
+P current position
+, visited cell
+# blocked attempted cell
+? unknown cell
+```
 
 Read the complete physical procedure in [`MAPPING_FIRST.md`](MAPPING_FIRST.md).
 

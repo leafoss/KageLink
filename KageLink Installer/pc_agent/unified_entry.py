@@ -9,6 +9,9 @@ from typing import Any, Iterable
 import unified_launcher as launcher
 from pc_agent.config import load_config
 from pc_agent.history import HistoryStore
+from pc_agent.kage_pilot.dojo_meditation_timeout_v351 import (
+    ensure_safe_meditation_timeout,
+)
 from pc_agent.leafos_interpreter_v321 import LeafOSInterpreter, OllamaInterpreterProvider
 from pc_agent.leafos_ollama import OllamaManager
 from pc_agent.primary_character import resolve_primary_character
@@ -20,6 +23,10 @@ from unified_dojo_ui import install_dojo_desktop
 from unified_dojo_ui_v351 import install_dojo_reliability_desktop
 from unified_dojo_user_templates_v351 import install_dojo_user_owned_desktop
 
+
+# Upgrade legacy/unsafe 120-second recovery settings before the Dojo settings
+# page reads them, keeping the UI and the round runtime on the same 180s value.
+ensure_safe_meditation_timeout()
 
 # unified_launcher remains source-compatible, but every Interpreter path reached
 # through the packaged unified entry uses the v3.2.1 durable-revelation layer.

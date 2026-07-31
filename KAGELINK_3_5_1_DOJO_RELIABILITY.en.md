@@ -4,120 +4,115 @@
 
 ## Scope
 
-Version 3.5.1 changes only three areas:
+Version 3.5.1 preserves the RAW pipeline, click geometry, dialog, combat, visual return, recovery, F12, Stop and the other Dojo safety controls.
 
-1. a per-session journal preserved only on error or incomplete shutdown;
-2. relative visual position, keyframes, relocalization and return to the confirmed Trainer point;
-3. a responsive Desktop page with Summary, Settings, Images and Logs tabs.
+The **Dojo Trainer → Images** tab is now the absolute source of truth for the templates used to locate the Trainer.
 
-Trainer detection, thresholds, click behavior, dialog, combat, KO, recovery, F12, GAME interlock, templates and Android communication retain their previous contracts.
+## Correct RAW rule
 
-## Journal
+Immutable RAW means that the PNG selected by the user is stored and used without visual treatment.
+
+The active template receives no:
+
+- resize, upscale, downscale or interpolation;
+- automatic crop or padding;
+- grayscale, CLAHE, equalization, brightness or contrast adjustment;
+- threshold, binarization or reconstructed mask;
+- blur, sharpen, denoise or morphology;
+- Canny or edge detection;
+- rewriting, recompression or format conversion;
+- intermediate scale generation.
+
+Immutable RAW does not prevent replacing or removing the image.
+
+## Images-tab authority
+
+Canonical flow:
+
+```text
+user selects PNG
+→ backend validates only PNG/decoding
+→ exact bytes are persisted
+→ file is associated with mode 32 or 64
+→ interface shows the active file
+→ detector loads exactly the same file
+→ matching runs at scale 1.000
+```
+
+Values 32 and 64 represent the game cell mode, not a mandatory crop dimension. A 72×73 PNG may be associated with mode 64 and remains 72×73 in the matcher.
+
+## Replacement, removal and defaults
+
+- `POST /api/dojo/templates/{mode}` accepts any valid PNG and preserves its exact bytes;
+- `DELETE /api/dojo/templates/{mode}` removes the image, records `removed_by_user=true` and does not restore the default;
+- `POST /api/dojo/templates/{mode}/restore-default` restores the default only through an explicit action;
+- HTTP 409 remains only while training is active;
+- PNG errors are presented in PT-BR and EN-US instead of exposing only a generic HTTP code.
+
+Embedded templates are used only for first initialization of a mode with no persistent state. A hash difference never authorizes overwriting a user image.
+
+## Persistence
 
 Location:
 
 ```text
-%LOCALAPPDATA%\KageLink\logs\dojo
+%LOCALAPPDATA%\KageLink\data\kage_pilot\templates
 ```
 
-Flow:
+Per-mode metadata includes `user/default/none` source, real dimensions, cell mode, SHA-256, original name, date, active state and explicit removal state.
+
+## Preserved detector
+
+The following remain mandatory:
+
+- original BYOND client-area capture;
+- lossless PNG transport;
+- full client-frame search;
+- scale 1.000;
+- native template pixels;
+- bbox in the original client frame;
+- validated bbox-to-click coordinate conversion.
+
+KageLink.exe, KagePilotDojo.exe, KagePilotRound.exe, Anchor Monitor, API and Desktop use the same persistent storage.
+
+## Telemetry
 
 ```text
-start → flushed .active journal
-success → summary + .active deletion
-error → dojo_error_*.txt
-crash/power loss → dojo_incomplete_*.txt on next startup
+DOJO_USER_TEMPLATE_SAVED
+DOJO_ACTIVE_TEMPLATE_LOADED
+DOJO_USER_TEMPLATE_REMOVED
+DOJO_DEFAULT_TEMPLATE_RESTORED
+DOJO_RAW_MATCH_CANDIDATE
+DOJO_RAW_MATCH_CONFIRMED
 ```
 
-The Logs tab shows only the latest diagnostic and actions to open the file or folder.
+`DOJO_RAW_TEMPLATE_MATERIALIZED reason=hash-mismatch` no longer belongs to the operational path for customized templates.
 
-## Visual position
+## Automated validation
 
-Observed motion is authoritative:
+Validated code head before this documentation update: `db10b7ef1ca45bc39203fbbcfed640bcb8c8a9b0`.
 
-```text
-world motion = player screen motion - environment screen motion
-```
+- Kage Pilot / KageLink 3.5 — run 181: success;
+- KageLink Unified LeafOS CI — run 677: success;
+- Publish KageLink Release — run 233: success;
+- full Python suite and compilation: success;
+- KageLink.exe, KagePilotDojo.exe and KagePilotRound.exe: build and smoke tests completed;
+- Desktop smoke launch: success;
+- Windows Setup, Flutter and APK: success.
 
-Sent commands are intent. A push, teleport or jutsu can update X/Y without a command. A blocked command does not update X/Y.
+## Required physical test
 
-States:
-
-```text
-KNOWN       position is usable
-UNCERTAIN   evidence is insufficient for a long return
-LOST        continuity was lost; coordinates must not be invented
-```
-
-## Bridge between the loop and isolated round
-
-Origin `(0,0)` is created in the persistent process that finds and clicks the Trainer, before combat:
-
-```text
-visual monitor starts
-→ validated routine finds and clicks the Trainer
-→ the matching click frame defines origin
-→ dialog and spawn frames update position
-→ position and keyframes are saved to temporary state
-→ KagePilotRound imports that state
-→ the round updates the map
-→ the map returns to the loop for the next round
-```
-
-The temporary position file exists only during the Dojo session and is removed when the loop finishes. It does not replace the error journal.
-
-Non-origin keyframes may survive across rounds in the same session. When the Trainer is confirmed again, origin is refreshed with current visual evidence while the learned map is preserved within its configured bound.
-
-## Keyframes and relocalization
-
-The engine keeps a bounded set of visual references associated with X/Y. When continuity is lost, the character stops, releases keys and tries to recognize the current region. Restoration requires a minimum score and margin over the second candidate.
-
-A teleport with no shared scenery and no known keyframe remains `LOST`; the system does not fabricate a return vector. Later local motion may be observed and logged, but it does not restore absolute coordinates while position remains lost.
-
-## Closed-loop return
-
-Origin `(0,0)` is set when the Trainer is visually confirmed. After combat:
-
-```text
-stop and stabilize
-→ relocalize when needed
-→ choose one distance-reducing step
-→ measure real displacement
-→ update position
-→ replan
-→ stationary scan near origin
-→ short local search
-→ existing ring search
-```
-
-Pushes during return trigger replanning. Loops have timeout, step limits, no-progress detection and F12/Stop interruption.
-
-## Desktop
-
-Tabs:
-
-- **Summary:** runtime, phase, progress, round, compact location, controls and recent actions;
-- **Settings:** existing parameters only;
-- **Images:** 64×64 and 32×32 with sharp persistent previews;
-- **Logs:** latest error, time, summary and paths.
-
-The layout uses responsive grid containers, immediate construction, `after_idle` and debounced resize handling. It never maximizes or minimizes the window as a workaround.
-
-## Physical test
-
-1. install Setup 3.5.1;
-2. confirm correct restored and maximized startup layout;
-3. confirm Settings remains last;
-4. validate 32×32 and 64×64 templates;
-5. complete a session without a permanent error log;
-6. trigger a controlled error and open the `.txt` through Logs;
-7. observe X/Y while walking;
-8. observe external displacement from push/jutsu;
-9. test loss and relocalization in a mapped region;
-10. confirm the visual map remains available in the next round;
-11. test return while compensating another displacement;
-12. validate local search and ring fallback;
-13. validate F12, Stop and GAME interlock;
-14. validate the APK against the same build.
+1. install the current preview;
+2. open Dojo → Images;
+3. replace the mode 64 template with a valid PNG, including 72×73;
+4. confirm that HTTP 400 is not shown;
+5. confirm User source, dimensions and hash in the interface;
+6. start the Trainer and confirm the same hash in the log;
+7. confirm scale 1.000 matching and a click attempt on the correct cell;
+8. restart KageLink and confirm persistence;
+9. remove the image and confirm there is no HTTP 409 caused by immutability;
+10. restart and confirm the default does not return automatically;
+11. restore the default only with the explicit button;
+12. repeat for mode 32.
 
 The PR remains Draft and must not be merged without Rafael's explicit authorization.

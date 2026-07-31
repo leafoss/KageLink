@@ -14,7 +14,9 @@ from .dojo_fight_v03i import DojoRoundWithoutCombatError
 
 PRECOMBAT_GUARD_PULSE_SECONDS = 0.08
 _REQUEST_PATCH_LOCK = threading.RLock()
+_HANDOFF_LOCK = threading.RLock()
 _ROUND_BRIDGE_INSTALLED = False
+_ACTIVE_HANDOFF: tuple["_GuardedRequestController", Any] | None = None
 
 
 class _GuardedRequestController:
@@ -43,10 +45,14 @@ class _GuardedRequestController:
     def repeat_keys(self, value) -> None:
         setattr(self._controller, "repeat_keys", set(value or ()))
 
+    @property
+    def guard_armed(self) -> bool:
+        return bool(self._guard_armed)
+
     def release_all(self) -> None:
         # The validated request provider deliberately releases inputs at every
         # dialog boundary. Once OK has been accepted, those releases must retain
-        # defensive R until the spawn wait completes.
+        # defensive R until the spawn wait and helper handoff complete.
         if self._guard_armed:
             self._controller.apply_keys(("r",))
             return
@@ -64,17 +70,57 @@ class _GuardedRequestController:
         self._controller.apply_keys(("ctrl", "right"))
         print(
             "DOJO_PRECOMBAT_GUARD_PULSE keys=ctrl+right "
-            f"duration={self._pulse_seconds:.3f}s count=1"
+            f"duration={self._pulse_seconds:.3f}s count=1",
+            flush=True,
         )
         self._wait_fn(self._pulse_seconds)
 
         self._controller.apply_keys(("r",))
         self._guard_armed = True
-        print("DOJO_PRECOMBAT_R_HOLD state=armed source=request")
+        print("DOJO_PRECOMBAT_R_HOLD state=armed source=request", flush=True)
 
     def finish(self) -> None:
         self._guard_armed = False
         self._controller.release_all()
+
+
+def precombat_handoff_active() -> bool:
+    with _HANDOFF_LOCK:
+        return _ACTIVE_HANDOFF is not None
+
+
+def release_precombat_handoff(reason: str = "round_handoff") -> bool:
+    """Release the parent-process R lease after the round child has armed R.
+
+    The frozen KagePilotRound helper is a separate one-file executable. Its cold
+    extraction may take several seconds. Keeping the request controller alive closes
+    the physical input gap between the OK click and the child controller startup.
+    """
+
+    global _ACTIVE_HANDOFF
+    with _HANDOFF_LOCK:
+        active = _ACTIVE_HANDOFF
+        _ACTIVE_HANDOFF = None
+    if active is None:
+        return False
+    guarded, underlying = active
+    try:
+        guarded.finish()
+    finally:
+        _close_owned_controller(underlying)
+    print(f"DOJO_PRECOMBAT_R_HANDOFF_RELEASED reason={reason}", flush=True)
+    return True
+
+
+def _install_precombat_handoff(
+    guarded: _GuardedRequestController,
+    underlying: Any,
+) -> None:
+    global _ACTIVE_HANDOFF
+    release_precombat_handoff("replaced_by_new_round")
+    with _HANDOFF_LOCK:
+        _ACTIVE_HANDOFF = (guarded, underlying)
+    print("DOJO_PRECOMBAT_R_HANDOFF_WAITING source=request", flush=True)
 
 
 def request_taijutsu_dojo_spar_single_click(
@@ -97,7 +143,9 @@ def request_taijutsu_dojo_spar_single_click(
     1. one Ctrl+Right Arrow pulse;
     2. begin BYOND repeat-held R;
     3. preserve R through the existing spawn timer;
-    4. return to the unchanged isolated combat runtime.
+    4. when the controller is owned by this request, keep it alive until the
+       KagePilotRound child confirms its own repeat-held R;
+    5. continue with the unchanged isolated combat runtime.
     """
 
     from .pilot import WindowsGameController
@@ -108,6 +156,8 @@ def request_taijutsu_dojo_spar_single_click(
         underlying,
         wait_fn=legacy_request._interruptible_wait,
     )
+    successful = False
+    handed_off = False
 
     with _REQUEST_PATCH_LOCK:
         original_click_ok = legacy_request.click_first_option_ok
@@ -118,7 +168,7 @@ def request_taijutsu_dojo_spar_single_click(
 
         legacy_request.click_first_option_ok = guarded_click_ok
         try:
-            return legacy_request.request_taijutsu_dojo_spar_single_click(
+            result = legacy_request.request_taijutsu_dojo_spar_single_click(
                 game_title,
                 dialog_delay_seconds=dialog_delay_seconds,
                 dialog_find_timeout_seconds=dialog_find_timeout_seconds,
@@ -130,11 +180,20 @@ def request_taijutsu_dojo_spar_single_click(
                 round_number=round_number,
                 controller=guarded,
             )
+            successful = True
+            if owns_controller and guarded.guard_armed:
+                _install_precombat_handoff(guarded, underlying)
+                handed_off = True
+            return result
         finally:
             legacy_request.click_first_option_ok = original_click_ok
-            guarded.finish()
-            if owns_controller:
-                _close_owned_controller(underlying)
+            # Externally supplied controllers preserve the historical immediate
+            # cleanup contract used by tests and embedding callers. Production owns
+            # the controller and transfers it to the child-start handoff instead.
+            if not successful or not handed_off:
+                guarded.finish()
+                if owns_controller:
+                    _close_owned_controller(underlying)
 
 
 def install_round_precombat_r_hold(controller_type=None) -> None:
@@ -180,7 +239,10 @@ def install_round_precombat_r_hold(controller_type=None) -> None:
             repeat_keys.add("r")
             self.repeat_keys = repeat_keys
             self.apply_keys(("r",))
-            print("DOJO_PRECOMBAT_R_HOLD state=armed source=round_startup")
+            print(
+                "DOJO_PRECOMBAT_R_HOLD state=armed source=round_startup",
+                flush=True,
+            )
             return result
         return original_release_all(self, *args, **kwargs)
 
@@ -190,7 +252,7 @@ def install_round_precombat_r_hold(controller_type=None) -> None:
 
     if controller_type.__module__.startswith("pc_agent."):
         _ROUND_BRIDGE_INSTALLED = True
-        print("DOJO_PRECOMBAT_R_BRIDGE_INSTALLED")
+        print("DOJO_PRECOMBAT_R_BRIDGE_INSTALLED", flush=True)
 
 
 __all__ = [
@@ -199,5 +261,7 @@ __all__ = [
     "PRECOMBAT_GUARD_PULSE_SECONDS",
     "TrainerClickTarget",
     "install_round_precombat_r_hold",
+    "precombat_handoff_active",
+    "release_precombat_handoff",
     "request_taijutsu_dojo_spar_single_click",
 ]

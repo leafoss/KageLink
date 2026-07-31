@@ -18,6 +18,7 @@ from unified_dojo_stop_v351 import install_dojo_stop_desktop
 from unified_dojo_templates_ui_v35 import install_dojo_templates_desktop
 from unified_dojo_ui import install_dojo_desktop
 from unified_dojo_ui_v351 import install_dojo_reliability_desktop
+from unified_dojo_user_templates_v351 import install_dojo_user_owned_desktop
 
 
 # unified_launcher remains source-compatible, but every Interpreter path reached
@@ -186,16 +187,17 @@ class UnifiedKageLinkAgentUI(launcher.UnifiedKageLinkAgentUI):
             self.ui(self.open_reviewer)
 
 
-# The established Dojo and template layers remain intact. The reliability layer
-# replaces only the Dojo page; the debug layer adds protected meditation controls
-# and snapshots; the outer wrappers preserve 64×64 then 32×32 during reflow and
-# keep Stop available while a Start request is still in flight.
+# The established Dojo and template layers remain intact. The user-owned layer
+# makes the Images tab authoritative; reliability/debug wrappers preserve the
+# validated RAW capture, bbox and click flow.
 launcher.UnifiedKageLinkAgentUI = install_dojo_stop_desktop(
     install_dojo_responsive_order(
         install_dojo_debug_desktop(
             install_dojo_reliability_desktop(
-                install_dojo_templates_desktop(
-                    install_dojo_desktop(UnifiedKageLinkAgentUI)
+                install_dojo_user_owned_desktop(
+                    install_dojo_templates_desktop(
+                        install_dojo_desktop(UnifiedKageLinkAgentUI)
+                    )
                 )
             )
         )

@@ -7,6 +7,7 @@ from typing import Any
 from ..mapping.sparse_map import SparseTileMap
 from ..models import CellState, Point
 from .command_verifier import MovementCommandResolution, MovementCommandVerifier
+from .grid_calibration import GridCalibration
 from .motion import MotionSample, PhaseCorrelationMotionEstimator
 from .tile_odometry import TileOdometry, TileOdometryUpdate
 
@@ -37,12 +38,23 @@ class MappingObserverEngine:
         mapping_strategy: str = "input",
         command_timeout_seconds: float = 0.70,
         min_command_shift_px: float = 2.0,
+        grid_offset_x_px: int = 0,
+        grid_offset_y_px: int = 0,
+        grid_line_thickness: int = 1,
+        grid_line_opacity: float = 0.75,
     ) -> None:
         if mapping_strategy not in {"input", "continuous"}:
             raise ValueError("mapping_strategy must be input or continuous")
-        self.region_map = SparseTileMap(region_id, tile_size_px)
+        self.grid_calibration = GridCalibration(
+            tile_size_px=tile_size_px,
+            offset_x_px=grid_offset_x_px,
+            offset_y_px=grid_offset_y_px,
+            line_thickness=grid_line_thickness,
+            line_opacity=grid_line_opacity,
+        )
+        self.region_map = SparseTileMap(region_id, self.grid_calibration.tile_size_px)
         self.odometry = TileOdometry(
-            tile_size_px,
+            self.grid_calibration.tile_size_px,
             camera_mode,
             invert_x=invert_x,
             invert_y=invert_y,
@@ -156,8 +168,9 @@ class MappingObserverEngine:
 
     def export_state(self) -> dict:
         return {
-            "schema_version": 2,
+            "schema_version": 3,
             "mapping_strategy": self.mapping_strategy,
+            "grid_calibration": self.grid_calibration.to_dict(),
             "mapping": self.region_map.to_dict(),
             "odometry": self.odometry.to_dict(),
             "frame_index": self.frame_index,
@@ -189,13 +202,9 @@ class MappingObserverEngine:
             )
 
     def _annotate(self, frame: Any, motion: MotionSample, odometry: TileOdometryUpdate | None, cv2: Any) -> Any:
+        frame = self.grid_calibration.draw(frame)
         height, width = frame.shape[:2]
-        tile = self.region_map.tile_size_px
         center_x, center_y = width // 2, height // 2
-        for x in range(center_x % tile, width, tile):
-            cv2.line(frame, (x, 0), (x, height), (90, 90, 90), 1)
-        for y in range(center_y % tile, height, tile):
-            cv2.line(frame, (0, y), (width, y), (90, 90, 90), 1)
         end = (int(center_x + motion.screen_dx_px * 4), int(center_y + motion.screen_dy_px * 4))
         cv2.arrowedLine(frame, (center_x, center_y), end, (255, 255, 255), 2, tipLength=0.25)
         position = odometry.position if odometry else self.region_map.current_position
@@ -212,7 +221,11 @@ class MappingObserverEngine:
         )
         cv2.putText(
             frame,
-            f"tile=({position.x},{position.y}) logical={tile}px strategy={self.mapping_strategy} pending={pending}",
+            (
+                f"tile=({position.x},{position.y}) logical={self.grid_calibration.tile_size_px}px "
+                f"offset=({self.grid_calibration.offset_x_px},{self.grid_calibration.offset_y_px}) "
+                f"strategy={self.mapping_strategy} pending={pending}"
+            ),
             (12, 50),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.55,

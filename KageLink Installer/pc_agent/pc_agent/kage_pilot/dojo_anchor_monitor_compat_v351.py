@@ -7,7 +7,6 @@ from .dojo_raw_trainer_v351 import (
     RawDojoLeaderDetector,
     RawWindowsGameFrameSource,
 )
-from .dojo_vision_lab_v351 import install_anchor_monitor_lab
 from .entity_tracker_v03 import MeleeAwareEntityTracker
 
 
@@ -102,9 +101,6 @@ def install_anchor_monitor_tracker_compat() -> None:
         monitor_type.start = asynchronous_start
         monitor_type._kagelink_v351_tracker_compat = True
         monitor_type._kagelink_raw_async_start = True
-
-    # Vision Lab observes only copies after the RAW detector has completed.
-    install_anchor_monitor_lab(monitor_type)
 
 
 __all__ = ["install_anchor_monitor_tracker_compat"]

@@ -66,6 +66,9 @@ def main() -> int:
     from pc_agent.kage_pilot.dojo_chakra_recovery_bridge_v351 import (
         install_chakra_recovery_bridge,
     )
+    from pc_agent.kage_pilot.dojo_combat_strategy_vision_v351 import (
+        install_combat_strategy_vision,
+    )
     from pc_agent.kage_pilot.dojo_meditation_timeout_v351 import (
         ensure_safe_meditation_timeout,
         install_meditation_timeout_bridge,
@@ -97,6 +100,10 @@ def main() -> int:
     install_runtime_geometry_bridge(runtime)
     install_resource_quantization_bridge(runtime)
     install_chakra_recovery_bridge(runtime)
+
+    # Strategy diagnostics wrap only the rendering function. They expose the exact
+    # spatial authority without changing observations, decisions or controls.
+    install_combat_strategy_vision()
     recorder = install_runtime_lab(runtime)
     install_round_video_performance_guard(recorder, target_fps=2.0)
 

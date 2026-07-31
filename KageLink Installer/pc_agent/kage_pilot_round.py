@@ -15,9 +15,15 @@ from pc_agent.kage_pilot.dojo_precombat_guard_v351 import (
 )
 
 install_user_owned_template_pipeline()
-install_round_precombat_r_hold()
 
-from kage_pilot_visual_return import main
+from kage_pilot_visual_return import main as _visual_return_main
+
+
+def main() -> int:
+    # Install only in the executing isolated round process. Importing this
+    # canonical boundary in regression tests must not globally alter controllers.
+    install_round_precombat_r_hold()
+    return int(_visual_return_main())
 
 
 if __name__ == "__main__":

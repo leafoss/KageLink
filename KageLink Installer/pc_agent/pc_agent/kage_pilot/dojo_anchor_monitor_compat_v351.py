@@ -20,9 +20,12 @@ def install_anchor_monitor_tracker_compat() -> None:
         original_capture_once = monitor_type.capture_once
 
         def compatible_init(self, *args, **kwargs):
-            if kwargs.get("source") is None:
+            injected_source = kwargs.get("source") is None
+            if injected_source:
                 kwargs["source"] = RawWindowsGameFrameSource()
             original_init(self, *args, **kwargs)
+            if injected_source:
+                self._owns_source = True
             observer = getattr(self, "observer", None)
             tracker = getattr(observer, "tracker", None)
             if (

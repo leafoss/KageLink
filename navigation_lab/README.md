@@ -2,49 +2,76 @@
 
 Independent laboratory for mapping, localization, route planning and safe navigation experiments. It does **not** import or control KageLink.
 
-## Current milestone
+## Current priority: mapping first
+
+The live Observer Mode is now the active PR 24 milestone. Real navigation remains blocked until the program can build, save and restore a trustworthy relative map from the game window.
 
 Implemented and automatically validated:
 
-- occupancy grid with confidence and observations;
-- world graph with reliable-route weighting;
-- A* local planning;
-- frontier selection foundation;
-- explicit navigation state machine;
-- JSON persistence under a profile directory;
-- sixteen deterministic simulator scenarios;
-- route replanning after temporary obstacles;
-- simulated loss and recovery of localization;
-- bilingual desktop debug window built with Tkinter;
-- PowerShell setup, execution, tests and diagnostics scripts;
+- visible Windows client capture selected by window title;
+- original and processed live capture panels;
+- translational screen-motion estimation with correlation confidence;
+- configurable tile odometry with `64x64` pixels as the default cell size;
+- accumulation of partial movement before a tile transition;
+- inverse screen-to-world movement conversion for a following camera;
+- unbounded sparse map of visited cells;
+- ASCII mapping projection centered on the current position;
+- atomic save and automatic restore per profile/region;
+- controls for pause, reset and save;
+- occupancy grid, world graph, A*, frontier foundation and simulator scenarios;
+- PowerShell setup, observer, simulator, test and diagnostics scripts;
 - isolated Windows CI workflow.
 
-Intentionally blocked until physical Windows/BYOND validation:
+Still intentionally blocked:
 
-- Observer Mode against the live game;
-- Teaching Mode against the live game;
-- Assisted Navigation against the live game;
+- Teaching Mode labels and landmark capture;
+- automatic obstacle extraction;
+- player tracking for a fully fixed camera;
+- assisted navigation against the live game;
 - autonomous keyboard control;
-- landmark template capture from real frames;
-- window-specific image capture and replay of real sessions.
+- replay of real captured sessions.
 
-The application returns exit code `3` if one of those modes is requested. It never silently sends input.
+No live mode sends input. `--arm-input` has no effect.
 
 ## Requirements
 
-- Windows 10 or later for the intended local workflow;
+- Windows 10 or later;
 - Python 3.11 or later;
-- Tkinter included in the Python installation for the debug window.
+- Tkinter included in the Python installation;
+- the game client visible and not minimized for the first capture backend.
 
 ## Setup
-
-From the repository root:
 
 ```powershell
 .\navigation_lab\scripts\setup_navigation.ps1
 ```
 
-## Run the desktop simulator
+## Start live mapping with 64 px cells
+
+```powershell
+.\navigation_lab\scripts\run_mapping_observer.ps1 `
+  -WindowTitle "Shinobi Story Online" `
+  -RegionId "mapping_calibration" `
+  -TileSize 64 `
+  -Fps 10 `
+  -CameraMode following
+```
+
+Keep the game client unobstructed. Place the Mapping Lab window beside the game, then click **Start / Iniciar** and walk manually.
+
+The interface shows:
+
+- original game client;
+- processed frame with a 64 px grid and motion vector;
+- detected screen displacement and correlation;
+- pixel residual not yet large enough to become a cell;
+- current relative tile coordinate;
+- visited-cell ASCII map;
+- save and reset controls.
+
+Read the complete physical procedure in [`MAPPING_FIRST.md`](MAPPING_FIRST.md).
+
+## Desktop simulator
 
 ```powershell
 .\navigation_lab\scripts\run_simulator.ps1 `
@@ -53,43 +80,14 @@ From the repository root:
   -DebugWindow
 ```
 
-The window shows the map, current state, estimated and actual position, action, reason, confidence, recovery count and event stream.
-
-## Run without the window
-
-```powershell
-.\.venv-navigation\Scripts\python.exe -m navigation_lab `
-  --mode simulator `
-  --scenario 05_landmark_relocalization `
-  --json
-```
-
-## List scenarios
-
-```powershell
-.\.venv-navigation\Scripts\python.exe -m navigation_lab --list-scenarios
-```
-
-## Record a simulated session
-
-```powershell
-.\navigation_lab\scripts\run_simulator.ps1 `
-  -Scenario 03_blocked_shortest_path `
-  -RecordSession
-```
-
-By default, Windows data is stored in:
-
-```text
-%LOCALAPPDATA%\KageNavigationLab\profiles\<profile>
-```
-
 ## Test
 
 ```powershell
 .\navigation_lab\scripts\run_tests.ps1
 ```
 
-## Safety rule
+Windows data is stored by default under:
 
-The first milestone has no keyboard input adapter. `--arm-input` is parsed for future compatibility but has no effect in simulator mode. Live modes are blocked until physical validation creates reproducible evidence and regression tests.
+```text
+%LOCALAPPDATA%\KageNavigationLab\profiles\<profile>
+```

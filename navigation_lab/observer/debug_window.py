@@ -8,8 +8,10 @@ from pathlib import Path
 from tkinter import messagebox, ttk
 from typing import Any
 
+from ..models import Point
 from ..storage import JsonRepository
 from .engine import MappingObserverEngine, MappingSnapshot
+from .input_listener import GlobalMovementKeyListener
 from .window_capture import WindowBounds, WindowsClientCapture
 
 
@@ -21,12 +23,16 @@ class MappingObserverDebugWindow:
         repository: JsonRepository,
         fps: float = 10.0,
         language: str = "pt-BR",
+        auto_start: bool = True,
+        minimize_on_start: bool = True,
     ) -> None:
         self.engine = engine
         self.capture = capture
         self.repository = repository
         self.fps = max(1.0, min(30.0, fps))
         self.language = language
+        self.auto_start = auto_start
+        self.minimize_on_start = minimize_on_start
         self.root = tk.Tk()
         self.root.title("Kage Mapping Lab — PR 24")
         self.root.geometry("1480x900")
@@ -34,11 +40,23 @@ class MappingObserverDebugWindow:
         self._queue: queue.Queue[tuple[str, Any]] = queue.Queue()
         self._stop = threading.Event()
         self._running = False
+        self._started_once = False
         self._raw_photo: Any | None = None
         self._processed_photo: Any | None = None
+        self._latest_frame: Any | None = None
+        self._latest_bounds: WindowBounds | None = None
+        self._latest_lock = threading.Lock()
+        self._engine_lock = threading.Lock()
         self._build()
+        self._input_listener = GlobalMovementKeyListener(self._on_direction)
+        try:
+            self._input_listener.start()
+        except Exception as exc:
+            self._queue.put(("error", f"movement key listener failed: {exc}"))
         self.root.protocol("WM_DELETE_WINDOW", self._close)
         self.root.after(40, self._poll)
+        if self.auto_start:
+            self.root.after(500, self._start)
 
     def _build(self) -> None:
         self.root.columnconfigure(0, weight=1)
@@ -64,7 +82,7 @@ class MappingObserverDebugWindow:
         original_frame.rowconfigure(0, weight=1)
         self.raw_label = ttk.Label(original_frame, anchor="center")
         self.raw_label.grid(sticky="nsew")
-        processed_frame = ttk.LabelFrame(visual, text="Motion + 64 px grid / Movimento + grade 64 px", padding=6)
+        processed_frame = ttk.LabelFrame(visual, text="Input confirmation + 64 px grid / Confirmação + grade", padding=6)
         processed_frame.grid(row=0, column=1, sticky="nsew", padx=(4, 0))
         processed_frame.columnconfigure(0, weight=1)
         processed_frame.rowconfigure(0, weight=1)
@@ -102,8 +120,11 @@ class MappingObserverDebugWindow:
             return
         self._running = True
         self._stop.clear()
-        self.status_var.set("Observer / Observador | RUNNING")
+        self.status_var.set("Observer / Observador | RUNNING — return to the game")
         threading.Thread(target=self._capture_loop, name="mapping-observer", daemon=True).start()
+        if self.minimize_on_start and not self._started_once:
+            self._started_once = True
+            self.root.after(650, self.root.iconify)
 
     def _pause(self) -> None:
         self._running = False
@@ -116,7 +137,11 @@ class MappingObserverDebugWindow:
             started = time.perf_counter()
             try:
                 frame, bounds = self.capture.capture()
-                snapshot = self.engine.process_frame(frame)
+                with self._latest_lock:
+                    self._latest_frame = frame.copy()
+                    self._latest_bounds = bounds
+                with self._engine_lock:
+                    snapshot = self.engine.process_frame(frame, now=started)
                 self._queue.put(("snapshot", (snapshot, bounds)))
             except Exception as exc:
                 self._queue.put(("error", str(exc)))
@@ -125,6 +150,25 @@ class MappingObserverDebugWindow:
             if remaining > 0:
                 time.sleep(remaining)
 
+    def _on_direction(self, direction: str) -> None:
+        if not self._running:
+            return
+        with self._latest_lock:
+            frame = None if self._latest_frame is None else self._latest_frame.copy()
+            bounds = self._latest_bounds
+        if frame is None or bounds is None:
+            self._queue.put(("input", f"IGNORED {direction.upper()}: no captured frame yet"))
+            return
+        if not bounds.foreground:
+            self._queue.put(("input", f"IGNORED {direction.upper()}: game is not foreground"))
+            return
+        with self._engine_lock:
+            accepted = self.engine.begin_movement(direction, frame, started_at=time.perf_counter())
+        if accepted:
+            self._queue.put(("input", f"ATTEMPT {direction.upper()}: waiting for visible movement"))
+        else:
+            self._queue.put(("input", f"IGNORED {direction.upper()}: another movement is pending"))
+
     def _poll(self) -> None:
         try:
             while True:
@@ -132,6 +176,8 @@ class MappingObserverDebugWindow:
                 if kind == "snapshot":
                     snapshot, bounds = payload
                     self._render(snapshot, bounds)
+                elif kind == "input":
+                    self._append_event(str(payload))
                 else:
                     self.status_var.set(f"Observer / Observador | WAITING | {payload}")
                     self._append_event(f"ERROR: {payload}")
@@ -146,29 +192,52 @@ class MappingObserverDebugWindow:
         self.processed_label.configure(image=self._processed_photo)
         self._set_text(self.map_text, snapshot.map_ascii)
         motion = snapshot.motion
-        odometry = snapshot.odometry
-        position = self.engine.odometry.position
+        position = self.engine.region_map.current_position
+        pending = snapshot.pending_direction or "none / nenhum"
+        last = self.engine.last_resolution
+        last_line = "none / nenhum"
+        if last is not None:
+            last_line = (
+                f"{last.direction} -> {'MOVED' if last.moved else 'BLOCKED'} "
+                f"shift={last.projected_shift_px:.2f}px reason={last.reason}"
+            )
         telemetry = "\n".join([
             f"Window / Janela: {bounds.title}",
             f"Client / Cliente: {bounds.width}x{bounds.height} at {bounds.left},{bounds.top}",
             f"Foreground / Em foco: {bounds.foreground}",
             f"Frame: {snapshot.frame_index}",
             f"Region / Região: {self.engine.region_map.region_id}",
+            f"Mapping / Mapeamento: {snapshot.mapping_strategy} (one key = one tile attempt)",
             f"Camera mode / Modo câmera: {self.engine.odometry.camera_mode}",
-            f"Tile / Célula: {self.engine.region_map.tile_size_px}x{self.engine.region_map.tile_size_px} px",
+            f"Logical tile / Célula lógica: {self.engine.region_map.tile_size_px}x{self.engine.region_map.tile_size_px} px",
+            f"Pending input / Tecla pendente: {pending}",
             f"Screen shift / Movimento tela: ({motion.screen_dx_px:+.2f}, {motion.screen_dy_px:+.2f}) px",
             f"Correlation / Correlação: {motion.response:.2%} [{motion.reason}]",
-            f"Residual / Resíduo: ({self.engine.odometry.residual_x_px:+.2f}, {self.engine.odometry.residual_y_px:+.2f}) px",
             f"Map cell / Célula mapa: ({position.x}, {position.y})",
-            f"Accepted / Aceito: {bool(odometry and odometry.accepted)}",
+            f"Last result / Último resultado: {last_line}",
+            "Residual / Resíduo: not used in input-confirmed mode / não usado",
         ])
         self._set_text(self.telemetry_text, telemetry)
-        if odometry and odometry.traversed:
-            self._append_event(
-                f"frame={snapshot.frame_index} tile=({position.x},{position.y}) "
-                f"step=({odometry.tile_dx:+d},{odometry.tile_dy:+d}) confidence={motion.response:.2f}"
-            )
-        self.status_var.set(f"Observer | RUNNING | tile=({position.x},{position.y}) | confidence={motion.response:.0%}")
+        resolution = snapshot.command_resolution
+        if resolution is not None:
+            current = self.engine.region_map.current_position
+            if resolution.moved:
+                event = (
+                    f"MOVED {resolution.direction.upper()} -> cell=({current.x},{current.y}) "
+                    f"shift={resolution.projected_shift_px:.2f}px correlation={resolution.response:.0%}"
+                )
+            else:
+                blocked = Point(current.x + resolution.world_delta.x, current.y + resolution.world_delta.y)
+                event = (
+                    f"BLOCKED {resolution.direction.upper()} -> obstacle=({blocked.x},{blocked.y}) "
+                    f"shift={resolution.projected_shift_px:.2f}px reason={resolution.reason}"
+                )
+            self._append_event(event)
+            self._save_without_dialog()
+        focus = "GAME FOCUSED" if bounds.foreground else "return to game / volte ao jogo"
+        self.status_var.set(
+            f"Observer | RUNNING | tile=({position.x},{position.y}) | pending={pending} | {focus}"
+        )
 
     def _photo(self, bgr_frame: Any, widget: ttk.Label) -> Any:
         import cv2
@@ -198,11 +267,13 @@ class MappingObserverDebugWindow:
 
     def _reset(self) -> None:
         if messagebox.askyesno("Kage Mapping Lab", "Reset the current relative map? / Zerar o mapa relativo atual?"):
-            self.engine.reset()
+            with self._engine_lock:
+                self.engine.reset()
             self._append_event("map reset / mapa zerado")
 
     def _close(self) -> None:
         self._pause()
+        self._input_listener.stop()
         try:
             self._save_without_dialog()
         finally:

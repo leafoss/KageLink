@@ -41,11 +41,15 @@ def main() -> int:
         install_runtime_geometry_bridge,
         restore_tracker_state_resolution_safe,
     )
+    from pc_agent.kage_pilot.dojo_resolution_gate_compat_v351 import (
+        install_resolution_gate_slots_compat,
+    )
     from pc_agent.kage_pilot.visual_position_guard import install_visual_position_guard
 
     # Install before importing the round runtime so direct decoder/detector aliases
     # are resolution-independent in the isolated executable as well.
     install_resolution_independent_dojo()
+    install_resolution_gate_slots_compat()
     install_visual_position_guard()
 
     import kage_pilot_live_v0351_round as runtime

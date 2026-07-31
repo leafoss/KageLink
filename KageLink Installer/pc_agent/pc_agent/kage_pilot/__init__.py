@@ -23,6 +23,10 @@ DojoTrainingPhase = _dojo_training.DojoTrainingPhase
 DojoTrainingSnapshot = _dojo_training.DojoTrainingSnapshot
 
 from .dojo_training_service import DojoTrainingService
+from .dojo_stop_reliability_v351 import install_dojo_stop_reliability
+
+install_dojo_stop_reliability(DojoTrainingService)
+
 from .learning import BehaviorCloner, Prediction
 from .learning_v2 import CombatPrediction, PolicyPrediction, TemporalCombatModel
 

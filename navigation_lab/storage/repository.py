@@ -60,6 +60,32 @@ class JsonRepository:
     def has_grid_calibration(self, region_id: str) -> bool:
         return self.grid_calibration_path(region_id).is_file()
 
+    def save_tile_knowledge(self, region_id: str, payload: dict[str, Any]) -> Path:
+        path = self.tile_knowledge_path(region_id)
+        _atomic_json_write(path, payload)
+        return path
+
+    def load_tile_knowledge(self, region_id: str) -> dict[str, Any]:
+        return json.loads(self.tile_knowledge_path(region_id).read_text(encoding="utf-8"))
+
+    def tile_knowledge_path(self, region_id: str) -> Path:
+        return self.root / "tile_knowledge" / f"{self._safe_name(region_id)}.json"
+
+    def has_tile_knowledge(self, region_id: str) -> bool:
+        return self.tile_knowledge_path(region_id).is_file()
+
+    def save_tile_example_crop(self, region_id: str, example_id: str, crop: Any) -> Path:
+        import cv2
+
+        directory = self.root / "tile_knowledge" / self._safe_name(region_id) / "examples"
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / f"{self._safe_name(example_id)}.png"
+        if crop is None or not hasattr(crop, "shape") or crop.size == 0:
+            raise ValueError("crop must be a non-empty image")
+        if not cv2.imwrite(str(path), crop):
+            raise OSError(f"Failed to write tile example crop: {path}")
+        return path
+
     def save_world(self, graph: WorldGraph) -> Path:
         path = self.root / "world_graph.json"
         _atomic_json_write(path, graph.to_dict())

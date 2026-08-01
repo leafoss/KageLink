@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .domain import (
+    H_PULSE_MS,
     CandidateObservation,
     CombatFrame,
     GridCell,
@@ -20,6 +21,8 @@ class ScenarioExpectation:
     move: str | None
     move_pulse_profile: MovementPulseProfile | None
     press_h: bool
+    hold_r: bool = True
+    h_pulse_ms: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,8 +71,19 @@ def expected(
     move: str | None,
     pulse: MovementPulseProfile | None,
     press_h: bool,
+    *,
+    hold_r: bool = True,
 ) -> ScenarioExpectation:
-    return ScenarioExpectation(state, present, distance, move, pulse, press_h)
+    return ScenarioExpectation(
+        state,
+        present,
+        distance,
+        move,
+        pulse,
+        press_h,
+        hold_r,
+        H_PULSE_MS if press_h else None,
+    )
 
 
 def built_in_scenarios() -> tuple[Scenario, ...]:
@@ -77,7 +91,7 @@ def built_in_scenarios() -> tuple[Scenario, ...]:
     return (
         Scenario(
             "distance_0_overlap",
-            "D=0 uses one VERY_SHORT visual direction pulse and never presses H.",
+            "D=0 uses one VERY_SHORT direction pulse and never presses H.",
             (
                 CombatFrame.from_iterable(0, player, [body(1, 0, 0, face_hint="LEFT")]),
                 CombatFrame.from_iterable(1, player, [body(1, 0, 0, face_hint="LEFT")]),
@@ -95,7 +109,7 @@ def built_in_scenarios() -> tuple[Scenario, ...]:
         ),
         Scenario(
             "distance_2_hold_h",
-            "D=2 holds position and presses H only with clean visual confirmation.",
+            "D=2 holds position, aims, and taps H for 50ms.",
             (
                 CombatFrame.from_iterable(0, player, [body(3, 2, 0)]),
                 CombatFrame.from_iterable(1, player, [body(3, 2, 0)]),
@@ -104,7 +118,7 @@ def built_in_scenarios() -> tuple[Scenario, ...]:
         ),
         Scenario(
             "distance_3_h_approach",
-            "D=3 presses H and approaches toward D=2.",
+            "D=3 taps H and approaches toward D=2.",
             (
                 CombatFrame.from_iterable(0, player, [body(4, 3, 0)]),
                 CombatFrame.from_iterable(1, player, [body(4, 3, 0)]),
@@ -112,13 +126,41 @@ def built_in_scenarios() -> tuple[Scenario, ...]:
             expected(TargetState.LOCKED, True, 3, "right", MovementPulseProfile.APPROACH, True),
         ),
         Scenario(
-            "distance_4_undefined_hold",
-            "D>=4 remains fail-closed until Rafael defines the rule.",
+            "distance_4_h_approach",
+            "D=4 remains in H range and approaches toward D=2.",
             (
                 CombatFrame.from_iterable(0, player, [body(5, 4, 0)]),
                 CombatFrame.from_iterable(1, player, [body(5, 4, 0)]),
             ),
-            expected(TargetState.LOCKED, True, 4, None, None, False),
+            expected(TargetState.LOCKED, True, 4, "right", MovementPulseProfile.APPROACH, True),
+        ),
+        Scenario(
+            "distance_50_h_approach",
+            "D=50 is the last valid H range cell.",
+            (
+                CombatFrame.from_iterable(0, player, [body(50, 50, 0)]),
+                CombatFrame.from_iterable(1, player, [body(50, 50, 0)]),
+            ),
+            expected(TargetState.LOCKED, True, 50, "right", MovementPulseProfile.APPROACH, True),
+        ),
+        Scenario(
+            "distance_51_approach_only",
+            "D=51 is outside H range and approaches without firing.",
+            (
+                CombatFrame.from_iterable(0, player, [body(51, 51, 0)]),
+                CombatFrame.from_iterable(1, player, [body(51, 51, 0)]),
+            ),
+            expected(TargetState.LOCKED, True, 51, "right", MovementPulseProfile.APPROACH, False),
+        ),
+        Scenario(
+            "h_cooldown_blocks_repeat",
+            "A second clean frame before five seconds cannot fire H again.",
+            (
+                CombatFrame.from_iterable(0, player, [body(60, 2, 0)], timestamp_seconds=0.0),
+                CombatFrame.from_iterable(1, player, [body(60, 2, 0)], timestamp_seconds=0.5),
+                CombatFrame.from_iterable(2, player, [body(60, 2, 0)], timestamp_seconds=1.0),
+            ),
+            expected(TargetState.LOCKED, True, 2, None, None, False),
         ),
         Scenario(
             "enemy_diagonal",
@@ -152,21 +194,21 @@ def built_in_scenarios() -> tuple[Scenario, ...]:
             "short_occlusion",
             "A confirmed identity survives a short absence without movement or H authority.",
             (
-                CombatFrame.from_iterable(0, player, [body(30, 2, 0)]),
-                CombatFrame.from_iterable(1, player, [body(30, 2, 0)]),
-                CombatFrame.from_iterable(2, player, []),
+                CombatFrame.from_iterable(0, player, [body(30, 2, 0)], timestamp_seconds=0.0),
+                CombatFrame.from_iterable(1, player, [body(30, 2, 0)], timestamp_seconds=0.5),
+                CombatFrame.from_iterable(2, player, [], timestamp_seconds=1.0),
             ),
             expected(TargetState.SUSPENDED, True, 2, None, None, False),
         ),
         Scenario(
             "ko_disables_combat",
-            "KO removes all combat authority and ignores later blobs.",
+            "KO releases R, removes combat authority, and ignores later blobs.",
             (
                 CombatFrame.from_iterable(0, player, [body(40, 2, 0)]),
                 CombatFrame.from_iterable(1, player, [body(40, 2, 0)]),
                 CombatFrame.from_iterable(2, player, [], ko_confirmed=True),
                 CombatFrame.from_iterable(3, player, [body(41, -1, 0)]),
             ),
-            expected(TargetState.ENDED, False, None, None, None, False),
+            expected(TargetState.ENDED, False, None, None, None, False, hold_r=False),
         ),
     )

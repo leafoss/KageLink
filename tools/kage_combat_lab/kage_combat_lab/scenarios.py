@@ -91,25 +91,25 @@ def built_in_scenarios() -> tuple[Scenario, ...]:
     return (
         Scenario(
             "distance_0_overlap",
-            "D=0 uses one VERY_SHORT direction pulse and never presses H.",
+            "D=0 uses a fresh same-cell direction hint, aims, and fires H when ready.",
             (
                 CombatFrame.from_iterable(0, player, [body(1, 0, 0, face_hint="LEFT")]),
                 CombatFrame.from_iterable(1, player, [body(1, 0, 0, face_hint="LEFT")]),
             ),
-            expected(TargetState.LOCKED, True, 0, "left", MovementPulseProfile.VERY_SHORT, False),
+            expected(TargetState.LOCKED, True, 0, None, None, True),
         ),
         Scenario(
             "distance_1_adjacent",
-            "D=1 uses one VERY_SHORT direction pulse and never presses H.",
+            "D=1 aims from the current clean frame and fires H when ready.",
             (
                 CombatFrame.from_iterable(0, player, [body(2, 1, 0)]),
                 CombatFrame.from_iterable(1, player, [body(2, 1, 0)]),
             ),
-            expected(TargetState.LOCKED, True, 1, "right", MovementPulseProfile.VERY_SHORT, False),
+            expected(TargetState.LOCKED, True, 1, None, None, True),
         ),
         Scenario(
             "distance_2_hold_h",
-            "D=2 holds position, aims, and taps H for 50ms.",
+            "D=2 holds position, freshly aims, and taps H for 50ms.",
             (
                 CombatFrame.from_iterable(0, player, [body(3, 2, 0)]),
                 CombatFrame.from_iterable(1, player, [body(3, 2, 0)]),
@@ -118,7 +118,7 @@ def built_in_scenarios() -> tuple[Scenario, ...]:
         ),
         Scenario(
             "distance_3_h_approach",
-            "D=3 taps H and approaches toward D=2.",
+            "D=3 freshly aims, taps H, and approaches toward D=2.",
             (
                 CombatFrame.from_iterable(0, player, [body(4, 3, 0)]),
                 CombatFrame.from_iterable(1, player, [body(4, 3, 0)]),
@@ -127,7 +127,7 @@ def built_in_scenarios() -> tuple[Scenario, ...]:
         ),
         Scenario(
             "distance_4_h_approach",
-            "D=4 remains in H range and approaches toward D=2.",
+            "D=4 remains in H range, freshly aims, and approaches toward D=2.",
             (
                 CombatFrame.from_iterable(0, player, [body(5, 4, 0)]),
                 CombatFrame.from_iterable(1, player, [body(5, 4, 0)]),
@@ -164,12 +164,12 @@ def built_in_scenarios() -> tuple[Scenario, ...]:
         ),
         Scenario(
             "enemy_diagonal",
-            "Diagonal D=1 uses Chebyshev distance and a VERY_SHORT direction pulse.",
+            "Diagonal D=1 uses Chebyshev distance, fresh cardinal aim, and H.",
             (
                 CombatFrame.from_iterable(0, player, [body(6, -1, -1)]),
                 CombatFrame.from_iterable(1, player, [body(6, -1, -1)]),
             ),
-            expected(TargetState.LOCKED, True, 1, "left", MovementPulseProfile.VERY_SHORT, False),
+            expected(TargetState.LOCKED, True, 1, None, None, True),
         ),
         Scenario(
             "track_switch_same_cell",

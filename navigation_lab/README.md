@@ -2,42 +2,45 @@
 
 Independent laboratory for mapping, localization, route planning and safe navigation experiments. It does **not** import or control KageLink.
 
-## Current priority: grid-first semantic mapping
+## Current priority: continuous semantic world mapping
 
-The movement-first MapMaker did not produce a trustworthy world map in the real fullscreen game. PR 24 now begins from the calibrated square grid and treats every complete visible cell as an independent visual crop.
+PR 24 now combines the calibrated square grid, taught tile examples and the Player anchor to build a persistent relative world map while the user plays.
 
 ```text
-capture target HWND
-→ crop every calibrated square cell
-→ compare with taught examples
-→ classify confident matches
-→ ask the player only about unknown cells
+capture target HWND in background
+→ wait for a settled frame
+→ crop every calibrated cell
+→ classify known tiles
+→ locate Player
+→ stitch cells into relative world coordinates
+→ group confidence < 0.90 for later review
 ```
 
-No unknown cell is silently assumed to be walkable or blocked.
+The program does not open questions over the fullscreen game. Unknown crops are grouped by visual similarity and reviewed later with `F7`.
 
 Implemented:
 
 - square-grid calibration saved per profile/region;
-- exact target-window capture selected by title/HWND;
-- one visual crop for every complete calibrated cell;
-- explainable local descriptor using color, structure and edges;
-- nearest-example recognition with adjustable confidence threshold;
-- active teaching queue for unknown crops;
-- semantic categories for walkable terrain, walls, jutsu terrain, blocking objects, transitions, danger and dynamic/ignored content;
-- immediate reclassification of the full captured viewport after each taught example;
-- saved PNG examples and JSON feature knowledge;
+- exact target-window capture through the game HWND, with no monitor screenshot fallback;
+- visual crop and explainable feature descriptor for every complete calibrated cell;
+- semantic categories for Player, NPC, walkable terrain, walls, jutsu terrain, blocking objects, transitions, danger and ignored/dynamic content;
+- confirmed (`>= 0.95`), provisional (`>= 0.90`) and unknown (`< 0.90`) confidence bands;
+- grouped review queue instead of one interruption per unknown cell;
+- separate persistent-terrain and dynamic-occupant layers;
+- relative Player coordinates using screen-cell movement or accumulated inverse camera translation;
+- moving-frame rejection so scrolling/blurry frames are not written into the world map;
+- persistent ASCII world map, unknown queue and learned PNG/JSON examples;
+- passive `F7` review hotkey;
 - simulator, occupancy grid, world graph, A*, frontier foundation and state machine retained as later layers;
 - no keyboard or mouse output adapter.
 
 Still intentionally blocked:
 
-- stitching viewport classifications into persistent world coordinates;
-- conflict resolution across repeated observations;
-- automatic player/camera localization;
 - assisted navigation against the live game;
 - autonomous keyboard control;
-- real replay and relocalization.
+- destination routing based on the live world map;
+- automatic region-transition stitching;
+- production-grade relocalization after teleport/death/restart.
 
 ## Requirements
 
@@ -61,9 +64,7 @@ Still intentionally blocked:
   -Profile "default"
 ```
 
-Inside the fullscreen game, press `F8`, return with `Alt+Tab`, align the grid and save.
-
-## 2. Teach and classify visible cells
+## 2. Teach representative cells
 
 ```powershell
 .\navigation_lab\scripts\run_tile_map_maker.ps1 `
@@ -73,13 +74,26 @@ Inside the fullscreen game, press `F8`, return with `Alt+Tab`, align the grid an
   -SimilarityThreshold 0.92
 ```
 
-Minimize the MapMaker, return to the game and press `F8`. After returning with `Alt+Tab`, the viewport is colored by category. Select an unknown cell and teach it; all similar cells are re-evaluated immediately.
+Teach at least the Player and representative walkable/wall terrain before continuous mapping.
 
-Read [`SEMANTIC_TILE_MAPPER.md`](SEMANTIC_TILE_MAPPER.md) for the complete workflow and category definitions.
+## 3. Run continuous background mapping
+
+```powershell
+.\navigation_lab\scripts\run_continuous_mapper.ps1 `
+  -WindowTitle "Shinobi Story Online" `
+  -RegionId "mapping_input_calibration" `
+  -Profile "default" `
+  -CaptureInterval 0.75 `
+  -AutoThreshold 0.95 `
+  -ReviewThreshold 0.90 `
+  -GroupingThreshold 0.965
+```
+
+The mapper starts and minimizes. Play normally. Press `F7` when you want to review grouped unknown crops. Closing and reopening without `-NewMap` restores the relative world map.
+
+Read [`CONTINUOUS_SEMANTIC_MAPPER.md`](CONTINUOUS_SEMANTIC_MAPPER.md) for the complete confidence, layering, localization and physical-validation rules.
 
 ## Legacy diagnostic observer
-
-The input/motion observer remains available for experiments, but it is no longer proof of a valid map:
 
 ```powershell
 .\navigation_lab\scripts\run_mapping_observer.ps1

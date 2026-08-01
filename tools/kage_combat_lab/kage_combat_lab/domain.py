@@ -12,11 +12,25 @@ H_COOLDOWN_SECONDS: Final[float] = 5.0
 VERY_SHORT_PULSE_MS: Final[int] = 50
 APPROACH_PULSE_MS: Final[int] = 100
 POST_PULSE_OBSERVE_MS: Final[int] = 150
+AIM_SETTLE_MS: Final[int] = 75
+MAX_AIM_CORRECTIONS: Final[int] = 2
 MOVEMENT_REPEAT_INTERVAL_SECONDS: Final[float] = 0.25
 R_KEYDOWN_HEARTBEAT_MS: Final[int] = 250
 MAX_H_RANGE_CELLS: Final[int] = 50
-SHORT_OCCLUSION_SECONDS: Final[float] = 1.0
-HARD_LOST_SECONDS: Final[float] = 2.0
+
+OCCLUDED_COAST_SECONDS: Final[float] = 0.45
+LOCAL_REID_SECONDS: Final[float] = 6.0
+HARD_LOST_SECONDS: Final[float] = LOCAL_REID_SECONDS
+SHORT_OCCLUSION_SECONDS: Final[float] = OCCLUDED_COAST_SECONDS
+
+D0_DEADZONE_PX: Final[float] = 12.0
+D0_AXIS_SWITCH_MARGIN_PX: Final[float] = 6.0
+D0_DIRECTION_CONFIRM_FRAMES: Final[int] = 2
+
+REID_ACCEPT_SCORE: Final[float] = 0.68
+REID_MIN_APPEARANCE_SCORE: Final[float] = 0.45
+BACKGROUND_REJECT_SCORE: Final[float] = 0.72
+
 FIRST_LIVE_TEST_MAX_SECONDS: Final[float] = 80.0
 EMERGENCY_STOP_KEY: Final[str] = "F12"
 DEFAULT_FRAME_SECONDS: Final[float] = 0.5
@@ -39,6 +53,7 @@ def require_canonical_cell_size(value: int | float) -> int:
 
 class ObservationKind(str, Enum):
     CLEAN_BODY = "CLEAN_BODY"
+    REIDENTIFIED_BODY = "REIDENTIFIED_BODY"
     CONTAMINATED_ACTIVITY = "CONTAMINATED_ACTIVITY"
     MULTI_CELL_BLOB = "MULTI_CELL_BLOB"
     EMPTY = "EMPTY"
@@ -49,7 +64,9 @@ class TargetState(str, Enum):
     SEARCH = "SEARCH"
     ATTENTION = "ATTENTION"
     LOCKED = "LOCKED"
-    SUSPENDED = "SUSPENDED"
+    OCCLUDED_COAST = "OCCLUDED_COAST"
+    REID_LOCAL = "REID_LOCAL"
+    SUSPENDED = "SUSPENDED"  # compatibility with older logs/tests
     ENDED = "ENDED"
 
 
@@ -97,9 +114,32 @@ class CandidateObservation:
     cells_touched: frozenset[GridCell] = field(default_factory=frozenset)
     face_hint: str | None = None
 
+    # Live-only evidence. Defaults preserve deterministic tests.
+    bbox: tuple[int, int, int, int] | None = None
+    foot_point: tuple[float, float] | None = None
+    relative_offset_px: tuple[float, float] | None = None
+    identity_score: float = 0.0
+    appearance_score: float = 0.0
+    position_score: float = 0.0
+    shape_similarity: float = 0.0
+    motion_score: float = 0.0
+    background_probability: float = 0.0
+    reidentified: bool = False
+
     def __post_init__(self) -> None:
         if not 0.0 <= float(self.confidence) <= 1.0:
             raise ValueError("confidence must be between 0 and 1")
+        for name in (
+            "identity_score",
+            "appearance_score",
+            "position_score",
+            "shape_similarity",
+            "motion_score",
+            "background_probability",
+        ):
+            value = float(getattr(self, name))
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(f"{name} must be between 0 and 1")
         if not self.cells_touched:
             object.__setattr__(self, "cells_touched", frozenset({self.anchor_cell}))
         if self.face_hint is not None:
@@ -119,6 +159,18 @@ class CandidateObservation:
             and self.visible
             and self.body_like
             and self.is_single_cell
+            and self.background_probability < BACKGROUND_REJECT_SCORE
+        )
+
+    @property
+    def is_target_body(self) -> bool:
+        return self.is_clean_body or (
+            self.kind is ObservationKind.REIDENTIFIED_BODY
+            and self.visible
+            and self.reidentified
+            and self.identity_score >= REID_ACCEPT_SCORE
+            and self.appearance_score >= REID_MIN_APPEARANCE_SCORE
+            and self.background_probability < BACKGROUND_REJECT_SCORE
         )
 
 
@@ -166,6 +218,7 @@ class CombatDecision:
     frame_index: int
     target_state: TargetState
     combat_target_id: int | None
+    visual_track_id: int | None
     confirmed_cell: GridCell | None
     predicted_cell: GridCell | None
     grid_distance: int | None
@@ -179,6 +232,11 @@ class CombatDecision:
     press_h: bool
     h_pulse_ms: int | None
     h_cooldown_remaining_seconds: float
+    identity_score: float
+    appearance_score: float
+    background_probability: float
+    reidentified: bool
+    aim_requires_confirmation: bool
     action_sequence: tuple[str, ...]
     reason: str
 

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 
-ROUND_MODULE = "kage_combat_lab.full_round"
+ROUND_MODULE = "kage_combat_lab.full_round_daynight"
 
 
 def replace_source_round_command(command: list[str]) -> list[str]:

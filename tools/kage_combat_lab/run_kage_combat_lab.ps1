@@ -57,7 +57,7 @@ if ($FullLoop) {
         "--trainer-search-timeout", "$([Math]::Max(10, $TrainerSearchTimeout))"
     )
 }
-elif ($LiveInput) {
+elseif ($LiveInput) {
     $Arguments = @(
         "-m", "kage_combat_lab.live_input",
         "--max-seconds", "$MaxSeconds",

@@ -2,7 +2,8 @@
 param(
     [switch]$RunAll,
     [switch]$Interactive,
-    [string]$Scenario = "enemy_right",
+    [switch]$LiveChecklist,
+    [string]$Scenario = "distance_1_adjacent",
     [double]$Delay = 0.4
 )
 
@@ -21,6 +22,7 @@ if (-not $Python) {
 $Arguments = @("-m", "kage_combat_lab.cli", "--scenario", $Scenario, "--delay", "$Delay")
 if ($RunAll) { $Arguments += "--run-all" }
 if ($Interactive) { $Arguments += "--interactive" }
+if ($LiveChecklist) { $Arguments += "--live-checklist" }
 
 & $Python.Source @Arguments
 exit $LASTEXITCODE

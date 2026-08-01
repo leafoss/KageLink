@@ -25,10 +25,12 @@ def main() -> int:
 
     from . import full_round as full_round_module
     from .runtime_facing_patch import install_runtime_facing_patch
+    from .runtime_startup_inherited import install_inherited_post_ok_startup
 
     install_runtime_facing_patch(full_round_module)
+    install_inherited_post_ok_startup()
     print("TRAINER: day-64 + night-64 enabled for post-combat return")
-    print("POST_OK_GATE: confirmed; START_FACE_RIGHT transaction is authorized")
+    print("POST_OK_GATE: confirmed; child inherits the one outer RIGHT pulse")
     return int(full_round_module.main())
 
 

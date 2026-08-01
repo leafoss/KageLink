@@ -15,6 +15,7 @@ class InvalidGridGeometryError(ValueError):
 
 
 _EMITTED_SIGNATURES: set[tuple[str, int, float]] = set()
+_ACTIVE_GEOMETRY: "GridGeometry | None" = None
 
 
 def _fail(
@@ -135,6 +136,8 @@ def emit_grid_geometry(
     *,
     telemetry: Telemetry | None = None,
 ) -> dict[str, object]:
+    global _ACTIVE_GEOMETRY
+    _ACTIVE_GEOMETRY = geometry
     fields = geometry.as_telemetry()
     signature = (geometry.mode, geometry.cell_size, geometry.capture_scale)
     if signature in _EMITTED_SIGNATURES:
@@ -147,8 +150,14 @@ def emit_grid_geometry(
     return fields
 
 
+def current_grid_geometry() -> GridGeometry | None:
+    return _ACTIVE_GEOMETRY
+
+
 def reset_grid_geometry_telemetry_for_tests() -> None:
+    global _ACTIVE_GEOMETRY
     _EMITTED_SIGNATURES.clear()
+    _ACTIVE_GEOMETRY = None
 
 
 __all__ = [
@@ -156,6 +165,7 @@ __all__ = [
     "GridGeometry",
     "GridMode",
     "InvalidGridGeometryError",
+    "current_grid_geometry",
     "emit_grid_geometry",
     "reset_grid_geometry_telemetry_for_tests",
 ]

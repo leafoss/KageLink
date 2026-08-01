@@ -67,22 +67,22 @@ Defaults:
 
 ```text
 Contagem para armar: 3 s
-Duração máxima: 45 s
+Duração máxima: 80 s
 Frequência de visão: 8 FPS
 Preview OpenCV: ligado
 Parada de emergência: F12
 ```
 
-Para reduzir o teste a 20 segundos:
+Para executar o teste completo de 80 segundos:
 
 ```powershell
-.\run_kage_combat_lab.ps1 -LiveInput -MaxSeconds 20
+.\run_kage_combat_lab.ps1 -LiveInput -MaxSeconds 80
 ```
 
 Sem janela de preview:
 
 ```powershell
-.\run_kage_combat_lab.ps1 -LiveInput -NoPreview
+.\run_kage_combat_lab.ps1 -LiveInput -MaxSeconds 80 -NoPreview
 ```
 
 O modo real:

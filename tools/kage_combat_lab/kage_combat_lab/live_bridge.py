@@ -6,8 +6,10 @@ from dataclasses import dataclass
 from typing import Any, Callable, Protocol
 
 from .domain import (
+    AIM_SETTLE_MS,
     CELL_SIZE_PX,
     H_PULSE_MS,
+    MAX_AIM_CORRECTIONS,
     POST_PULSE_OBSERVE_MS,
     CandidateObservation,
     CombatDecision,
@@ -116,11 +118,15 @@ def combat_frame_from_observer_state(
     timestamp_seconds: float | None = None,
     ko_confirmed: bool = False,
     policy: LiveVisionPolicy = DEFAULT_LIVE_VISION_POLICY,
+    frame_bgr: Any | None = None,
+    target_memory: Any | None = None,
 ) -> CombatFrame:
     """Translate KageLink vision into the neutral PR25 combat domain.
 
-    Visual track ids remain evidence only. Identity stays owned by GridFocusStrategy.
-    Every clean body is anchored exclusively by its feet into one immutable 64px cell.
+    Visual track IDs remain disposable evidence. When a TargetCapsuleMemory is
+    provided, every candidate receives appearance, predicted-position and
+    background scores before the strategy decides which visual track belongs to
+    the persistent logical target.
     """
 
     now = time.monotonic() if timestamp_seconds is None else float(timestamp_seconds)
@@ -155,7 +161,13 @@ def combat_frame_from_observer_state(
             kind = ObservationKind.CONTAMINATED_ACTIVITY
             cells_touched = covered or frozenset({anchor_cell})
 
+        relative_offset = (
+            float(foot[0]) - float(player_point[0]),
+            float(foot[1]) - float(player_point[1]),
+        )
         hint = _face_hint(player_point, foot) if anchor_cell == player_cell and visible else None
+        residual_speed = float(getattr(track, "residual_speed", 0.0) or 0.0)
+        motion_score = _clamp01(0.45 + min(0.55, residual_speed / 80.0))
         candidates.append(
             CandidateObservation(
                 track_id=int(track.track_id),
@@ -166,6 +178,20 @@ def combat_frame_from_observer_state(
                 confidence=_clamp01(float(getattr(track, "enemy_score", 0.0)) / 100.0),
                 cells_touched=cells_touched,
                 face_hint=hint,
+                bbox=(left, top, width, height),
+                foot_point=foot,
+                relative_offset_px=relative_offset,
+                motion_score=motion_score,
+            )
+        )
+
+    if target_memory is not None and frame_bgr is not None:
+        candidates = list(
+            target_memory.enrich_candidates(
+                frame_bgr=frame_bgr,
+                state=state,
+                candidates=candidates,
+                timestamp=now,
             )
         )
 
@@ -186,8 +212,11 @@ class InputController(Protocol):
     def release_all(self) -> None: ...
 
 
+AimConfirmation = Callable[[str], str | None]
+
+
 class PhysicalCombatInput:
-    """Execute CombatDecision using the proven KageLink Windows controller."""
+    """Execute CombatDecision using closed-loop aim and the proven controller."""
 
     def __init__(
         self,
@@ -195,10 +224,14 @@ class PhysicalCombatInput:
         *,
         sleep_fn: Callable[[float], None] = time.sleep,
         aim_pulse_ms: int = AIM_PULSE_MS,
+        aim_settle_ms: int = AIM_SETTLE_MS,
+        max_aim_corrections: int = MAX_AIM_CORRECTIONS,
     ) -> None:
         self.controller = controller
         self.sleep_fn = sleep_fn
         self.aim_pulse_ms = max(20, min(100, int(aim_pulse_ms)))
+        self.aim_settle_ms = max(30, min(150, int(aim_settle_ms)))
+        self.max_aim_corrections = max(1, min(3, int(max_aim_corrections)))
         self._active = False
 
     def activate(self) -> None:
@@ -221,7 +254,55 @@ class PhysicalCombatInput:
         self.sleep_fn(max(0.01, float(duration_ms) / 1000.0))
         self._apply_base()
 
-    def execute(self, decision: CombatDecision) -> tuple[str, ...]:
+    def _closed_loop_h(
+        self,
+        decision: CombatDecision,
+        *,
+        confirm_aim: AimConfirmation | None,
+        actions: list[str],
+    ) -> bool:
+        if decision.face is None:
+            raise RuntimeError("H_REQUIRES_CARDINAL_AIM")
+        current = decision.face
+
+        # Fail closed when the decision explicitly requires verification but no
+        # fresh-frame callback is available.
+        if decision.aim_requires_confirmation and confirm_aim is None:
+            actions.append("H_SKIPPED_NO_AIM_CONFIRMATION")
+            return False
+
+        for attempt in range(self.max_aim_corrections):
+            self._pulse(current, self.aim_pulse_ms)
+            actions.append(f"AIM_{current}_{self.aim_pulse_ms}MS")
+            if confirm_aim is None:
+                confirmed = current
+            else:
+                self.sleep_fn(float(self.aim_settle_ms) / 1000.0)
+                actions.append(f"AIM_REOBSERVE_{self.aim_settle_ms}MS")
+                confirmed = confirm_aim(current)
+
+            if confirmed == current:
+                actions.append(f"AIM_CONFIRMED_{current}")
+                self._pulse("h", decision.h_pulse_ms or H_PULSE_MS)
+                actions.append(f"H_{decision.h_pulse_ms or H_PULSE_MS}MS")
+                return True
+
+            if confirmed is None:
+                actions.append(f"AIM_UNCONFIRMED_ATTEMPT_{attempt + 1}")
+                continue
+
+            actions.append(f"AIM_CORRECT_{current}_TO_{confirmed}")
+            current = confirmed
+
+        actions.append("H_SKIPPED_AIM_UNCONFIRMED")
+        return False
+
+    def execute(
+        self,
+        decision: CombatDecision,
+        *,
+        confirm_aim: AimConfirmation | None = None,
+    ) -> tuple[str, ...]:
         if not self._active:
             raise RuntimeError("LIVE_INPUT_NOT_ACTIVE")
         if not decision.hold_r or decision.target_state is TargetState.ENDED:
@@ -231,15 +312,12 @@ class PhysicalCombatInput:
         actions: list[str] = []
         self._apply_base()
 
-        # D0/D1 already encode their directional correction as the movement pulse.
-        # Ranged H shots aim first, tap H, then perform any approach pulse.
         if decision.press_h:
-            if decision.face is None:
-                raise RuntimeError("H_REQUIRES_CARDINAL_AIM")
-            self._pulse(decision.face, self.aim_pulse_ms)
-            actions.append(f"AIM_{decision.face}_{self.aim_pulse_ms}MS")
-            self._pulse("h", decision.h_pulse_ms or H_PULSE_MS)
-            actions.append(f"H_{decision.h_pulse_ms or H_PULSE_MS}MS")
+            self._closed_loop_h(
+                decision,
+                confirm_aim=confirm_aim,
+                actions=actions,
+            )
 
         if decision.move is not None and decision.move_pulse_profile is not None:
             duration = decision.move_pulse_ms or decision.move_pulse_profile.duration_ms
@@ -252,6 +330,14 @@ class PhysicalCombatInput:
                 self.sleep_fn(float(observe_ms) / 1000.0)
                 actions.append(f"OBSERVE_{observe_ms}MS")
         return tuple(actions)
+
+    @staticmethod
+    def h_fired(actions: tuple[str, ...]) -> bool:
+        return any(
+            action.startswith("H_")
+            and not action.startswith("H_SKIPPED")
+            for action in actions
+        )
 
     def shutdown(self) -> None:
         try:

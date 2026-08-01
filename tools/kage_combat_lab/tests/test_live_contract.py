@@ -13,7 +13,7 @@ def test_first_live_test_contract_arms_direct_input_safely() -> None:
     contract = DEFAULT_LIVE_TEST_CONTRACT
     assert contract.target_mode == "single_trainer"
     assert contract.emergency_stop_key == EMERGENCY_STOP_KEY == "F12"
-    assert contract.max_duration_seconds == FIRST_LIVE_TEST_MAX_SECONDS == 45.0
+    assert contract.max_duration_seconds == FIRST_LIVE_TEST_MAX_SECONDS == 80.0
     assert contract.h_pulse_ms == H_PULSE_MS == 50
     assert contract.h_minimum_cooldown_seconds == H_COOLDOWN_SECONDS == 5.0
     assert contract.r_keydown_heartbeat_ms == R_KEYDOWN_HEARTBEAT_MS == 250

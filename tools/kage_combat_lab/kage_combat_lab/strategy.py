@@ -76,11 +76,15 @@ class GridFocusStrategy:
     def _focused_cells(self) -> set[GridCell] | None:
         if self._confirmed_cell is None:
             return None
-        focused = {self._confirmed_cell}
+
+        # A clean target may move one canonical 64px cell between frames. The
+        # identity focus therefore follows a bounded 3x3 neighbourhood around
+        # the confirmed/predicted cells instead of freezing on the old cell.
+        origins = {self._confirmed_cell}
         if self._predicted_cell is not None:
-            focused.add(self._predicted_cell)
-        if self._state is TargetState.SUSPENDED:
-            origin = self._predicted_cell or self._confirmed_cell
+            origins.add(self._predicted_cell)
+        focused: set[GridCell] = set()
+        for origin in origins:
             for dx in (-1, 0, 1):
                 for dy in (-1, 0, 1):
                     focused.add(GridCell(origin.x + dx, origin.y + dy))
@@ -294,6 +298,7 @@ class GridFocusStrategy:
                 self._update_face(frame, clean)
 
         if clean is None and self._target_id is not None:
+            self._update_face(frame, None)
             assert self._last_clean_at is not None
             missing_seconds = now - self._last_clean_at
             if missing_seconds >= self.hard_lost_seconds:

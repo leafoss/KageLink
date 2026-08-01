@@ -6,13 +6,11 @@ Laboratório determinístico e independente do BYOND para desenvolver a mecânic
 
 **Cada célula lógica possui exatamente 64×64 pixels.**
 
-Isso não é uma configuração, preferência ou valor calibrável. É uma invariável do domínio:
-
 ```text
 CELL_SIZE_PX = 64
 ```
 
-Qualquer tentativa de iniciar, configurar, importar ou integrar o laboratório com 16, 32, 48, 96, 128 ou qualquer outro valor deve falhar imediatamente com:
+Qualquer outro valor falha imediatamente com:
 
 ```text
 KAGE_GRID_CELL_SIZE_IMMUTABLE
@@ -24,13 +22,23 @@ A distância usa Chebyshev sobre o grid canônico de 64px.
 
 | Distância | Regra |
 |---|---|
-| `D=0` | Um único pulso direcional `VERY_SHORT` na direção visual do alvo. H proibido. Sem direção visual, segura tudo. |
-| `D=1` | Um único pulso direcional `VERY_SHORT` na direção do alvo. H proibido. |
-| `D=2` | Aguarda e pressiona H somente com confirmação visual limpa no frame atual. |
-| `D=3` | Pressiona H com confirmação visual limpa e emite pulso `APPROACH` para tentar chegar a D2. |
-| `D>=4` | Regra ainda não definida; segura tudo de forma fail-closed. |
+| `D=0` | Pulso direcional de 50 ms na direção visual do alvo. H proibido. Sem direção visual, HOLD. |
+| `D=1` | Pulso direcional de 50 ms na direção do alvo. H proibido. |
+| `D=2` | Mantém posição, mira no alvo e toca H por 50 ms quando o cooldown estiver livre. |
+| `D=3–50` | Mira, toca H por 50 ms quando disponível e depois aproxima por 100 ms rumo a D2. |
+| `D>50` | Fora do alcance de H; aproxima por 100 ms com confirmação visual limpa. |
 
-Os perfis `VERY_SHORT` e `APPROACH` são semânticos. A duração física em milissegundos será calibrada somente no futuro adapter de teclado; a estratégia não controla teclado diretamente.
+Regras globais:
+
+- H exige confirmação visual limpa no frame atual;
+- cooldown mínimo de H: 5 segundos;
+- R permanece em `pressed down`, com heartbeat de key-down a cada 250 ms;
+- após cada ação, observa novamente por 150 ms;
+- dois frames limpos são necessários para o primeiro lock;
+- oclusão curta preserva a identidade por até 1 segundo;
+- 2 segundos sem visão limpa abandonam o alvo;
+- o primeiro teste usa apenas um Trainer;
+- KO, F12, perda de foco, timeout ou encerramento liberam todas as teclas.
 
 ## Execução
 
@@ -45,42 +53,43 @@ Executar todos os cenários:
 .\run_kage_combat_lab.ps1 -RunAll
 ```
 
-Cenários individuais:
+Mostrar o contrato do primeiro teste real:
 
 ```powershell
-.\run_kage_combat_lab.ps1 -Interactive -Scenario distance_0_overlap
-.\run_kage_combat_lab.ps1 -Interactive -Scenario distance_1_adjacent
-.\run_kage_combat_lab.ps1 -Interactive -Scenario distance_2_hold_h
-.\run_kage_combat_lab.ps1 -Interactive -Scenario distance_3_h_approach
+.\run_kage_combat_lab.ps1 -LiveChecklist
 ```
+
+## Primeiro teste físico
+
+Defaults conservadores:
+
+```text
+Janela: Shinobi Story Online
+Alvo: um único Trainer
+Shadow mode inicial: 10 s
+Duração armada máxima: 45 s
+Parada de emergência: F12
+```
+
+O laboratório ainda não envia teclas ao jogo. O próximo estágio é criar um adapter físico separado que converta `CombatDecision` em comandos, sem alterar a estratégia ou o contrato de grid.
 
 ## Escopo
 
 Incluído:
 
-- aquisição de alvo;
-- identidade lógica por célula;
+- aquisição e identidade lógica por célula;
 - troca de track visual;
-- previsão limitada a célula adjacente;
-- contato diagonal por distância de Chebyshev;
-- regras D0, D1, D2 e D3;
-- direção visual interna para sobreposição D0;
-- suspensão e recuperação local;
+- direção, distância e cooldown;
+- R persistente;
+- pulso H e pulsos de aproximação;
+- suspensão, hard lost e KO;
 - rejeição de blobs multicélula;
-- encerramento por KO;
-- decisões neutras de direção, perfil de pulso e tecla H.
+- cenários e testes determinísticos.
 
-Excluído deliberadamente:
+Excluído deliberadamente nesta etapa:
 
-- captura do BYOND;
+- captura real do BYOND;
 - OpenCV real;
-- teclado e mouse;
-- Trainer;
-- HP/chakra;
-- meditação;
-- navegação de retorno;
+- envio real de teclado e mouse;
+- Trainer, meditação e retorno integrados;
 - UI do KageLink.
-
-## Regra de integração futura
-
-O KageLink deverá adaptar dados visuais reais para `CombatFrame`. A estratégia não poderá importar módulos de captura ou controle. A saída `CombatDecision` será convertida em teclas por outro adapter.

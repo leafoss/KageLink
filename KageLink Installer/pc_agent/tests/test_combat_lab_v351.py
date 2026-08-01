@@ -103,7 +103,7 @@ class CombatLabV351Tests(unittest.TestCase):
         first = replay.assert_deterministic("grid_focus_v2", repeats=5)
         second = replay.run("grid_focus_v2")
         self.assertEqual(first, second)
-        self.assertIsNotNone(second[-1].combat_target_id)
+        self.assertIsNotNone(second[-1]["combat_target_id"])
 
     def test_replay_round_trip_preserves_decisions(self):
         scenario = next(item for item in all_scenarios() if item.name == "enemy_crosses_player")

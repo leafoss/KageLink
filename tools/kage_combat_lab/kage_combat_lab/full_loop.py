@@ -48,6 +48,12 @@ def install_full_loop_round(validated_engine: Any) -> Callable[..., tuple[list[s
 
 
 def main() -> int:
+    # Install the canonical 64px day/night detector before the validated loop
+    # imports Trainer-search aliases by value.
+    from .dojo_multitemplate import install_day_night_dojo_detector
+
+    install_day_night_dojo_detector()
+
     # The PowerShell launcher adds the canonical PC Agent root to PYTHONPATH.
     import kage_pilot_loop as canonical_loop
 
@@ -57,6 +63,7 @@ def main() -> int:
 
     install_full_loop_round(validated_engine)
     print("KAGE COMBAT LAB - FULL DOJO LOOP")
+    print("TRAINER: multi-template 64px day/night detector enabled")
     print("FLOW: trainer -> one click -> dialog -> CHASE_ALWAYS_ON combat")
     print("FLOW: authoritative KO -> return to Trainer -> meditation -> READY")
     print("MEDITATION: second V is physically blocked for at least 5.25 seconds")

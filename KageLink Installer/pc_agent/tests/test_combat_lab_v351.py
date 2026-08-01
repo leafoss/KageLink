@@ -13,7 +13,8 @@ from pc_agent.kage_pilot.combat_lab.black_box import (
 )
 from pc_agent.kage_pilot.combat_lab.replay import CombatReplay
 from pc_agent.kage_pilot.combat_lab.runner import run_all_scenarios, run_scenario
-from pc_agent.kage_pilot.combat_lab.scenarios import all_scenarios, frame, observation
+from pc_agent.kage_pilot.combat_lab.scenarios import frame, observation
+from pc_agent.kage_pilot.combat_lab.scenarios_incremental_v351 import all_scenarios
 from pc_agent.kage_pilot.combat_strategy_v351 import GridFocusV2Strategy
 
 
@@ -31,7 +32,7 @@ class CombatLabV351Tests(unittest.TestCase):
             "enemy_diagonal_down_right",
             "enemy_stationary",
             "enemy_crosses_player",
-            "enemy_overlaps_player",
+            "confirmed_enemy_d0_overlap",
             "enemy_missing_three_frames",
             "enemy_missing_ten_frames",
             "horizontal_effect_covers_player_and_enemy",
@@ -46,6 +47,14 @@ class CombatLabV351Tests(unittest.TestCase):
             "ko_ends_round",
             "new_blob_after_ko",
             "second_enemy_after_real_first_loss",
+            "visible_tracker_without_combat_lock",
+            "rejected_primary_valid_secondary",
+            "player_only_d0",
+            "false_blob_near_player_far_from_prediction",
+            "same_track_short_occlusion",
+            "same_track_impossible_cell_jump",
+            "missing_appearance_evidence",
+            "incident_20260731_lock_starvation_approximation",
         }
         self.assertTrue(required.issubset(names))
 
@@ -83,6 +92,18 @@ class CombatLabV351Tests(unittest.TestCase):
         first = replay.assert_deterministic("grid_focus_v2", repeats=4)
         second = replay.run("grid_focus_v2")
         self.assertEqual(first, second)
+
+    def test_incident_approximation_replay_is_repeatable(self):
+        scenario = next(
+            item
+            for item in all_scenarios()
+            if item.name == "incident_20260731_lock_starvation_approximation"
+        )
+        replay = CombatReplay(scenario.frames)
+        first = replay.assert_deterministic("grid_focus_v2", repeats=5)
+        second = replay.run("grid_focus_v2")
+        self.assertEqual(first, second)
+        self.assertIsNotNone(second[-1].combat_target_id)
 
     def test_replay_round_trip_preserves_decisions(self):
         scenario = next(item for item in all_scenarios() if item.name == "enemy_crosses_player")

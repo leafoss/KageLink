@@ -87,6 +87,9 @@ def main() -> int:
         install_perception_integrity,
         install_round_geometry_lock,
     )
+    from pc_agent.kage_pilot.dojo_physical_floor_guard_v351 import (
+        install_physical_floor_guard,
+    )
     from pc_agent.kage_pilot.dojo_position_bridge import save_tracker_state
     from pc_agent.kage_pilot.dojo_resource_quantization_v351 import (
         install_resource_quantization_bridge,
@@ -111,6 +114,12 @@ def main() -> int:
     # compatibility chain remains available as the class base, but no second combat
     # bridge or hardening subclass may silently replace the selected strategy.
     install_combat_strategy_runtime(runtime)
+
+    # The round-7 physical capture exposed a remaining floor/effect identity path.
+    # Close it after the canonical classes exist and before any observer instance is
+    # created: camera shifts cannot allocate tracks, own attacks are quarantined and
+    # contaminated contact is a brief same-track/same-cell hold with no MOVE or H.
+    install_physical_floor_guard(runtime)
 
     # The RAW black box is opt-in until its performance gate is approved. Enabling the
     # environment flag constitutes an explicit debug/requested capture; normal rounds

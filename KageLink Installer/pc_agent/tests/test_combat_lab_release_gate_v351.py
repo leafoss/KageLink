@@ -70,8 +70,8 @@ class CombatLabReleaseGateV351Tests(unittest.TestCase):
                     repeats=3,
                 )
 
-    def test_08_default_remains_persistent_hardened_until_physical_approval(self):
-        self.assertEqual(load_combat_strategy_config().strategy, "persistent_hardened")
+    def test_08_default_uses_grid_focus_v2_for_floor_guard_preview(self):
+        self.assertEqual(load_combat_strategy_config().strategy, "grid_focus_v2")
 
     def test_09_all_three_strategies_remain_comparable(self):
         expected = len(self.scenarios)

@@ -16,31 +16,48 @@ Qualquer outro valor falha imediatamente com:
 KAGE_GRID_CELL_SIZE_IMMUTABLE
 ```
 
-## Regras de combate
+## Política atual: CHASE_ALWAYS_ON
 
-A distância usa Chebyshev sobre o grid canônico de 64px.
+O objetivo espacial deixou de ser D2. Enquanto existir um corpo limpo confirmado, o jogador tenta permanecer em **D=0** do alvo.
 
-| Distância | Regra |
-|---|---|
-| `D=0` | Com direção visual atual válida, pulsa essa direção e usa H quando o cooldown estiver livre. Durante cooldown, pode usar pulso direcional de 50 ms. |
-| `D=1` | Pulsa a direção atual e usa H quando o cooldown estiver livre. Durante cooldown, pode usar pulso direcional de 50 ms. |
-| `D=2` | Pulsa a direção atual e toca H por 50 ms quando o cooldown estiver livre. |
-| `D=3–50` | Pulsa a direção atual, toca H quando disponível e aproxima por 100 ms rumo a D2. |
-| `D>50` | Fora do alcance de H; aproxima por 100 ms com visão limpa. |
+| Distância | Perseguição | H |
+|---|---|---|
+| `D=0` | Microcorreção de 50 ms pela posição interna atual do alvo | Usa H quando visão, direção e cooldown permitem |
+| `D>=1` | Pulso de aproximação de 100 ms em todo frame limpo rumo a D0 | Usa H entre D0 e D50 quando o cooldown permite |
+| `D>50` | Continua perseguindo rumo a D0 | H bloqueado por alcance |
 
-Regras globais:
+Regras centrais:
 
-- H é tentado em toda oportunidade visual limpa entre D0 e D50, respeitando cooldown mínimo de 5 segundos;
-- cada H exige um pulso cardinal novo calculado pelo alvo do frame atual imediatamente antes do disparo;
-- uma orientação anterior nunca autoriza H;
-- alvo abaixo gera `DOWN`, acima gera `UP`, à esquerda gera `LEFT` e à direita gera `RIGHT`;
-- em D0, sem `face_hint` atual confiável, o sistema não usa H;
-- R usa o padrão BYOND de key-down repetido a cada 250 ms;
-- dois frames limpos são necessários para o primeiro lock;
-- o alvo pode mudar uma célula de 64 px entre frames sem perder identidade;
-- oclusão curta preserva identidade por 1 segundo, mas apaga autoridade de mira e ataque;
+- não existe mais espera em D1 ou D2;
+- H não interrompe a perseguição;
+- cada H recebe uma orientação cardinal nova antes do disparo;
+- alvo abaixo gera `DOWN`, acima `UP`, à esquerda `LEFT` e à direita `RIGHT`;
+- cooldown de H: 5 segundos;
+- R usa key-down repetido a cada 250 ms;
+- dois frames limpos são necessários para o lock inicial;
+- mudança de uma célula adjacente mantém identidade e chase;
+- perda visual apaga direção, movimento e autoridade de H;
+- oclusão curta preserva somente a identidade por 1 segundo;
 - hard lost após 2 segundos;
 - F12, KO, timeout, perda de foco ou exceção liberam todas as teclas.
+
+A sequência física em um frame com H é:
+
+```text
+R mantido
+→ direção atual por 50 ms
+→ H por 50 ms
+→ chase rumo a D0
+→ nova observação
+```
+
+Sem H disponível:
+
+```text
+R mantido
+→ chase rumo a D0
+→ nova observação
+```
 
 ## Testes determinísticos
 
@@ -51,64 +68,27 @@ cd tools\kage_combat_lab
 
 ## Combate real com input
 
-O shadow mode foi removido por decisão explícita do usuário. `-LiveInput` envia teclas reais para **Shinobi Story Online**.
-
-Antes de executar:
-
-1. abra o jogo;
-2. deixe o personagem já no combate contra um único Trainer;
-3. mantenha a janela visível e sem menus sobrepostos;
-4. deixe a mão preparada sobre F12.
-
-Execute:
+`-LiveInput` envia teclas reais para **Shinobi Story Online**.
 
 ```powershell
 cd "C:\Users\Rafael\Desktop\Powershell\Kagelink2\tools\kage_combat_lab"
-.\run_kage_combat_lab.ps1 -LiveInput
+.\run_kage_combat_lab.ps1 -LiveInput -MaxSeconds 80 -NoPreview
 ```
 
-Defaults:
+Defaults e segurança:
 
 ```text
 Contagem para armar: 3 s
 Duração máxima: 80 s
 Frequência de visão: 8 FPS
-Preview OpenCV: ligado
 Parada de emergência: F12
 ```
 
-Para executar o teste completo de 80 segundos:
-
-```powershell
-.\run_kage_combat_lab.ps1 -LiveInput -MaxSeconds 80
-```
-
-Sem janela de preview:
-
-```powershell
-.\run_kage_combat_lab.ps1 -LiveInput -MaxSeconds 80 -NoPreview
-```
-
-A sequência de H é obrigatoriamente:
+Cada decisão é registrada em:
 
 ```text
-R mantido
-→ direção cardinal recalculada no frame atual
-→ pulso direcional de 50 ms
-→ H por 50 ms
-→ aproximação, quando aplicável
-→ nova observação
+tools\kage_combat_lab\reports\live_input_*.jsonl
 ```
-
-O modo real:
-
-- reutiliza `WindowsGameController` e o padrão de R já validado no KageLink;
-- captura exclusivamente a janela do jogo;
-- converte os pés de cada corpo visual para uma célula 64px;
-- mantém a identidade lógica na `GridFocusStrategy`;
-- recalcula a mira pelo alvo atual antes de cada H;
-- mantém R durante as ações;
-- registra cada decisão em `tools\kage_combat_lab\reports\live_input_*.jsonl`.
 
 ## Dependências
 

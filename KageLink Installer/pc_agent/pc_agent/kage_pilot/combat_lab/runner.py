@@ -10,7 +10,7 @@ from ..combat_strategy_v351 import (
     CombatTargetSnapshotV2,
     create_combat_target_strategy,
 )
-from .scenarios import CombatLabScenario, all_scenarios
+from .scenarios_incremental_v351 import CombatLabScenario, all_scenarios
 
 
 STRATEGIES = ("legacy_safe", "persistent_hardened", "grid_focus_v2")
@@ -146,9 +146,6 @@ def _evaluate(
                 elif expected == "DOWN" and dy < 0 and abs(dy) > abs(dx):
                     direction_errors += 1
 
-        # Prediction continuity belongs to one logical opponent. A target that was
-        # genuinely hard-lost and followed by a new combat_target_id starts a new
-        # lifecycle and must not be counted as a multi-cell prediction jump.
         if decision.combat_target_id != previous_combat_target_id:
             previous_prediction = None
             previous_combat_target_id = decision.combat_target_id
@@ -209,11 +206,9 @@ def run_scenario(
 ) -> StrategyScenarioResult:
     settings = config or CombatStrategyConfig(strategy=strategy_name)
     strategy = create_combat_target_strategy(strategy_name, settings)
-    decisions = tuple(strategy.update(frame) for frame in scenario.frames)
+    decisions = tuple(strategy.update(item) for item in scenario.frames)
     metrics = strategy.metrics_snapshot()
 
-    # Add independently measured metrics so an unsafe strategy cannot hide a failure
-    # by failing to increment its own counters.
     false_targets = sum(
         1
         for decision in decisions

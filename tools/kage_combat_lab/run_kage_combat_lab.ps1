@@ -73,5 +73,17 @@ else {
     if ($LiveChecklist) { $Arguments += "--live-checklist" }
 }
 
+if ($FullLoop) {
+    Push-Location $PcAgentRoot
+    try {
+        & $Python.Source @Arguments
+        $ExitCode = $LASTEXITCODE
+    }
+    finally {
+        Pop-Location
+    }
+    exit $ExitCode
+}
+
 & $Python.Source @Arguments
 exit $LASTEXITCODE

@@ -69,24 +69,21 @@ def run_scenario(scenario: Scenario, *, interactive: bool, delay: float) -> bool
             print(f"Frame: {frame.frame_index}")
             print(f"Time: {frame.effective_time_seconds:.2f}s")
             print(f"State: {last.target_state.value}")
-            print(f"Combat target: {last.combat_target_id or '-'}")
-            print(f"Confirmed cell: {last.confirmed_cell or '-'}")
-            print(f"Predicted cell: {last.predicted_cell or '-'}")
-            print(
-                f"Grid distance: "
-                f"{last.grid_distance if last.grid_distance is not None else '-'}"
-            )
+            print(f"Logical target: {last.combat_target_id or '-'}")
+            print(f"Visual track: {last.visual_track_id or '-'}")
+            print(f"Grid distance: {last.grid_distance if last.grid_distance is not None else '-'}")
             print(f"Face: {last.face or '-'}")
+            print(f"Identity: {last.identity_score:.2f}")
+            print(f"Appearance: {last.appearance_score:.2f}")
+            print(f"Background: {last.background_probability:.2f}")
+            print(f"Reidentified: {last.reidentified}")
             print(f"R held: {last.hold_r}")
-            print(f"R key-down heartbeat: {last.r_keydown_heartbeat_ms or '-'} ms")
             print(f"Direction pulse: {last.move or '-'}")
             print(
                 f"Pulse profile: "
                 f"{last.move_pulse_profile.value if last.move_pulse_profile else '-'}"
             )
-            print(f"Pulse duration: {last.move_pulse_ms or '-'} ms")
             print(f"Press H: {last.press_h}")
-            print(f"H pulse: {last.h_pulse_ms or '-'} ms")
             print(f"H cooldown remaining: {last.h_cooldown_remaining_seconds:.2f}s")
             print(
                 "Action sequence: "
@@ -105,7 +102,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Kage Combat Lab — deterministic 64px grid"
     )
-    parser.add_argument("--scenario", default="distance_1_adjacent")
+    parser.add_argument("--scenario", default="distance_1_chase_h")
     parser.add_argument("--run-all", action="store_true")
     parser.add_argument("--interactive", action="store_true")
     parser.add_argument("--live-checklist", action="store_true")

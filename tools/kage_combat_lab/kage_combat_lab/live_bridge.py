@@ -6,11 +6,15 @@ from dataclasses import dataclass
 from typing import Any, Callable, Protocol
 
 from .domain import (
-    AIM_SETTLE_MS,
     CELL_SIZE_PX,
     H_PULSE_MS,
-    MAX_AIM_CORRECTIONS,
+    POST_OK_SETTLE_MS,
     POST_PULSE_OBSERVE_MS,
+    START_RIGHT_PULSE_MS,
+    START_RIGHT_SETTLE_MS,
+    TURN_PRE_RELEASE_MS,
+    TURN_PULSE_MS,
+    TURN_SETTLE_MS,
     CandidateObservation,
     CombatDecision,
     CombatFrame,
@@ -19,9 +23,6 @@ from .domain import (
     TargetState,
     require_canonical_cell_size,
 )
-
-
-AIM_PULSE_MS = 50
 
 
 def _clamp01(value: float) -> float:
@@ -121,14 +122,6 @@ def combat_frame_from_observer_state(
     frame_bgr: Any | None = None,
     target_memory: Any | None = None,
 ) -> CombatFrame:
-    """Translate KageLink vision into the neutral PR25 combat domain.
-
-    Visual track IDs remain disposable evidence. When a TargetCapsuleMemory is
-    provided, every candidate receives appearance, predicted-position and
-    background scores before the strategy decides which visual track belongs to
-    the persistent logical target.
-    """
-
     now = time.monotonic() if timestamp_seconds is None else float(timestamp_seconds)
     player_point = (float(state.player_center[0]), float(state.player_center[1]))
     raw_origin = getattr(observer, "grid_origin", (0.0, 0.0))
@@ -212,26 +205,17 @@ class InputController(Protocol):
     def release_all(self) -> None: ...
 
 
-AimConfirmation = Callable[[str], str | None]
-
-
 class PhysicalCombatInput:
-    """Execute CombatDecision using closed-loop aim and the proven controller."""
+    """Execute only actions already authorized by the facing state machine."""
 
     def __init__(
         self,
         controller: InputController,
         *,
         sleep_fn: Callable[[float], None] = time.sleep,
-        aim_pulse_ms: int = AIM_PULSE_MS,
-        aim_settle_ms: int = AIM_SETTLE_MS,
-        max_aim_corrections: int = MAX_AIM_CORRECTIONS,
     ) -> None:
         self.controller = controller
         self.sleep_fn = sleep_fn
-        self.aim_pulse_ms = max(20, min(100, int(aim_pulse_ms)))
-        self.aim_settle_ms = max(30, min(150, int(aim_settle_ms)))
-        self.max_aim_corrections = max(1, min(3, int(max_aim_corrections)))
         self._active = False
 
     def activate(self) -> None:
@@ -241,6 +225,7 @@ class PhysicalCombatInput:
         self._active = True
 
     def start_combat_hold(self) -> None:
+        """Compatibility helper; FullLoop no longer calls this before target lock."""
         if not self._active:
             raise RuntimeError("LIVE_INPUT_NOT_ACTIVE")
         self.controller.apply_keys(("r",))
@@ -248,83 +233,90 @@ class PhysicalCombatInput:
     def _apply_base(self) -> None:
         self.controller.apply_keys(("r",))
 
-    def _pulse(self, key: str, duration_ms: int) -> None:
+    def _pulse_with_r(self, key: str, duration_ms: int) -> None:
         normalized = str(key).strip().lower()
         self.controller.apply_keys(tuple(sorted({"r", normalized})))
         self.sleep_fn(max(0.01, float(duration_ms) / 1000.0))
         self._apply_base()
 
-    def _closed_loop_h(
+    def startup_face_right(
         self,
-        decision: CombatDecision,
         *,
-        confirm_aim: AimConfirmation | None,
-        actions: list[str],
-    ) -> bool:
-        if decision.face is None:
-            raise RuntimeError("H_REQUIRES_CARDINAL_AIM")
-        current = decision.face
-
-        # Fail closed when the decision explicitly requires verification but no
-        # fresh-frame callback is available.
-        if decision.aim_requires_confirmation and confirm_aim is None:
-            actions.append("H_SKIPPED_NO_AIM_CONFIRMATION")
-            return False
-
-        for attempt in range(self.max_aim_corrections):
-            self._pulse(current, self.aim_pulse_ms)
-            actions.append(f"AIM_{current}_{self.aim_pulse_ms}MS")
-            if confirm_aim is None:
-                confirmed = current
-            else:
-                self.sleep_fn(float(self.aim_settle_ms) / 1000.0)
-                actions.append(f"AIM_REOBSERVE_{self.aim_settle_ms}MS")
-                confirmed = confirm_aim(current)
-
-            if confirmed == current:
-                actions.append(f"AIM_CONFIRMED_{current}")
-                self._pulse("h", decision.h_pulse_ms or H_PULSE_MS)
-                actions.append(f"H_{decision.h_pulse_ms or H_PULSE_MS}MS")
-                return True
-
-            if confirmed is None:
-                actions.append(f"AIM_UNCONFIRMED_ATTEMPT_{attempt + 1}")
-                continue
-
-            actions.append(f"AIM_CORRECT_{current}_TO_{confirmed}")
-            current = confirmed
-
-        actions.append("H_SKIPPED_AIM_UNCONFIRMED")
-        return False
-
-    def execute(
-        self,
-        decision: CombatDecision,
-        *,
-        confirm_aim: AimConfirmation | None = None,
+        post_ok_settle_ms: int = POST_OK_SETTLE_MS,
+        pulse_ms: int = START_RIGHT_PULSE_MS,
+        settle_ms: int = START_RIGHT_SETTLE_MS,
     ) -> tuple[str, ...]:
         if not self._active:
             raise RuntimeError("LIVE_INPUT_NOT_ACTIVE")
-        if not decision.hold_r or decision.target_state is TargetState.ENDED:
+        actions: list[str] = []
+        self.controller.release_all()
+        try:
+            self.sleep_fn(max(0.0, float(post_ok_settle_ms) / 1000.0))
+            actions.append(f"POST_OK_SETTLE_{int(post_ok_settle_ms)}MS")
+            self.controller.apply_keys(("right",))
+            self.sleep_fn(max(0.01, float(pulse_ms) / 1000.0))
+            actions.append(f"STARTUP_RIGHT_PULSE_{int(pulse_ms)}MS")
+        finally:
             self.controller.release_all()
-            return ("RELEASE_ALL",)
+        self.sleep_fn(max(0.0, float(settle_ms) / 1000.0))
+        actions.append(f"STARTUP_RIGHT_SETTLE_{int(settle_ms)}MS")
+        return tuple(actions)
+
+    def execute_turn(
+        self,
+        direction: str,
+        *,
+        pre_release_ms: int = TURN_PRE_RELEASE_MS,
+        pulse_ms: int = TURN_PULSE_MS,
+        settle_ms: int = TURN_SETTLE_MS,
+    ) -> tuple[str, ...]:
+        if not self._active:
+            raise RuntimeError("LIVE_INPUT_NOT_ACTIVE")
+        normalized = str(direction).strip().lower()
+        if normalized not in {"left", "right", "up", "down"}:
+            raise ValueError(f"TURN_DIRECTION_INVALID:{direction!r}")
+        actions: list[str] = []
+        self.controller.release_all()
+        try:
+            self.sleep_fn(max(0.0, float(pre_release_ms) / 1000.0))
+            actions.append(f"TURN_PRE_RELEASE_{int(pre_release_ms)}MS")
+            self.controller.apply_keys((normalized,))
+            self.sleep_fn(max(0.01, float(pulse_ms) / 1000.0))
+            actions.append(f"TURN_{normalized.upper()}_{int(pulse_ms)}MS")
+        finally:
+            self.controller.release_all()
+        self.sleep_fn(max(0.0, float(settle_ms) / 1000.0))
+        actions.append(f"TURN_SETTLE_{int(settle_ms)}MS")
+        return tuple(actions)
+
+    def execute(self, decision: CombatDecision) -> tuple[str, ...]:
+        if not self._active:
+            raise RuntimeError("LIVE_INPUT_NOT_ACTIVE")
+        if (
+            decision.target_state is TargetState.ENDED
+            or not decision.hold_r
+            or not decision.r_authorized
+        ):
+            self.controller.release_all()
+            return ("RELEASE_ALL", "WAIT_FOR_TARGET_OR_ALIGNMENT")
 
         actions: list[str] = []
         self._apply_base()
+        actions.append("R_AUTHORIZED")
 
         if decision.press_h:
-            self._closed_loop_h(
-                decision,
-                confirm_aim=confirm_aim,
-                actions=actions,
-            )
+            if not decision.h_authorized:
+                actions.append("H_SKIPPED_NOT_AUTHORIZED")
+            else:
+                self._pulse_with_r("h", decision.h_pulse_ms or H_PULSE_MS)
+                actions.append(f"H_{decision.h_pulse_ms or H_PULSE_MS}MS")
 
         if decision.move is not None and decision.move_pulse_profile is not None:
             duration = decision.move_pulse_ms or decision.move_pulse_profile.duration_ms
-            self._pulse(decision.move, duration)
+            self._pulse_with_r(decision.move, duration)
             actions.append(f"MOVE_{decision.move.upper()}_{duration}MS")
 
-        if actions:
+        if len(actions) > 1:
             observe_ms = max(0, int(decision.post_pulse_observe_ms or POST_PULSE_OBSERVE_MS))
             if observe_ms:
                 self.sleep_fn(float(observe_ms) / 1000.0)
@@ -334,8 +326,7 @@ class PhysicalCombatInput:
     @staticmethod
     def h_fired(actions: tuple[str, ...]) -> bool:
         return any(
-            action.startswith("H_")
-            and not action.startswith("H_SKIPPED")
+            action.startswith("H_") and not action.startswith("H_SKIPPED")
             for action in actions
         )
 

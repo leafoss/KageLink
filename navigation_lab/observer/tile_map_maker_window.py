@@ -50,6 +50,48 @@ class _TileScanHotkey:
             listener.stop()
 
 
+class _ScrollablePanel(ttk.Frame):
+    """Vertical scroll container that keeps all classification controls reachable."""
+
+    def __init__(self, parent: tk.Misc) -> None:
+        super().__init__(parent)
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
+
+        self.canvas = tk.Canvas(self, highlightthickness=0, borderwidth=0)
+        self.scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
+        self.content = ttk.Frame(self.canvas, padding=(8, 0, 4, 0))
+        self._window_id = self.canvas.create_window((0, 0), window=self.content, anchor="nw")
+
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+        self.canvas.grid(row=0, column=0, sticky="nsew")
+        self.scrollbar.grid(row=0, column=1, sticky="ns")
+
+        self.content.bind("<Configure>", self._sync_scrollregion)
+        self.canvas.bind("<Configure>", self._sync_content_width)
+        self.canvas.bind("<Enter>", self._bind_wheel)
+        self.canvas.bind("<Leave>", self._unbind_wheel)
+        self.content.bind("<Enter>", self._bind_wheel)
+        self.content.bind("<Leave>", self._unbind_wheel)
+
+    def _sync_scrollregion(self, _event: tk.Event[Any]) -> None:
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+
+    def _sync_content_width(self, event: tk.Event[Any]) -> None:
+        self.canvas.itemconfigure(self._window_id, width=max(1, int(event.width)))
+
+    def _bind_wheel(self, _event: tk.Event[Any]) -> None:
+        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+
+    def _unbind_wheel(self, _event: tk.Event[Any]) -> None:
+        self.canvas.unbind_all("<MouseWheel>")
+
+    def _on_mousewheel(self, event: tk.Event[Any]) -> None:
+        delta = int(getattr(event, "delta", 0))
+        if delta:
+            self.canvas.yview_scroll(-1 if delta > 0 else 1, "units")
+
+
 class TileMapMakerWindow:
     """Human-in-the-loop semantic classifier for every calibrated screen tile."""
 
@@ -76,8 +118,8 @@ class TileMapMakerWindow:
 
         self.root = tk.Tk()
         self.root.title("Kage Semantic Tile MapMaker — PR 24")
-        self.root.geometry("1540x920")
-        self.root.minsize(1120, 720)
+        self.root.geometry("1600x980")
+        self.root.minsize(1180, 760)
         self._queue: queue.Queue[tuple[str, Any]] = queue.Queue()
         self._capture_lock = threading.Lock()
         self._hotkey = _TileScanHotkey(self._request_hotkey_scan)
@@ -131,7 +173,11 @@ class TileMapMakerWindow:
         body = ttk.Panedwindow(self.root, orient="horizontal")
         body.grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 8))
 
-        preview = ttk.LabelFrame(body, text="Janela do jogo + classificação / Game window + classification", padding=6)
+        preview = ttk.LabelFrame(
+            body,
+            text="Janela do jogo + classificação / Game window + classification",
+            padding=6,
+        )
         preview.columnconfigure(0, weight=1)
         preview.rowconfigure(0, weight=1)
         self.canvas = tk.Canvas(preview, background="#111111", highlightthickness=0)
@@ -140,14 +186,25 @@ class TileMapMakerWindow:
         self.canvas.bind("<Button-1>", self._select_from_canvas)
         body.add(preview, weight=4)
 
-        right = ttk.Frame(body, padding=(8, 0, 0, 0))
+        scroll_panel = _ScrollablePanel(body)
+        body.add(scroll_panel, weight=2)
+        right = scroll_panel.content
         right.columnconfigure(0, weight=1)
-        right.rowconfigure(1, weight=2)
-        right.rowconfigure(3, weight=1)
-        body.add(right, weight=2)
+
+        ttk.Label(
+            right,
+            text="Menu de classificação",
+            font=("Segoe UI", 11, "bold"),
+        ).grid(row=0, column=0, sticky="w", pady=(0, 8))
+        ttk.Label(
+            right,
+            text="Use a roda do mouse ou a barra lateral para acessar todas as opções.",
+            wraplength=410,
+            justify="left",
+        ).grid(row=1, column=0, sticky="w", pady=(0, 8))
 
         threshold_frame = ttk.LabelFrame(right, text="Reconhecimento", padding=8)
-        threshold_frame.grid(row=0, column=0, sticky="ew")
+        threshold_frame.grid(row=2, column=0, sticky="ew")
         threshold_frame.columnconfigure(1, weight=1)
         ttk.Label(threshold_frame, text="Similaridade mínima").grid(row=0, column=0, sticky="w")
         threshold = ttk.Scale(
@@ -164,33 +221,37 @@ class TileMapMakerWindow:
         ttk.Label(
             threshold_frame,
             text="Maior = mais perguntas e menos classificações automáticas incorretas.",
-            wraplength=360,
+            wraplength=390,
             justify="left",
         ).grid(row=1, column=0, columnspan=3, sticky="w", pady=(6, 0))
         self._threshold_changed(rescan=False)
 
         unknown_frame = ttk.LabelFrame(right, text="Fila de células desconhecidas", padding=8)
-        unknown_frame.grid(row=1, column=0, sticky="nsew", pady=(8, 0))
+        unknown_frame.grid(row=3, column=0, sticky="ew", pady=(8, 0))
         unknown_frame.columnconfigure(0, weight=1)
-        unknown_frame.rowconfigure(0, weight=1)
-        self.unknown_list = tk.Listbox(unknown_frame, exportselection=False, font=("Consolas", 10))
-        self.unknown_list.grid(row=0, column=0, sticky="nsew")
+        self.unknown_list = tk.Listbox(
+            unknown_frame,
+            exportselection=False,
+            font=("Consolas", 10),
+            height=10,
+        )
+        self.unknown_list.grid(row=0, column=0, sticky="ew")
         scrollbar = ttk.Scrollbar(unknown_frame, orient="vertical", command=self.unknown_list.yview)
         scrollbar.grid(row=0, column=1, sticky="ns")
         self.unknown_list.configure(yscrollcommand=scrollbar.set)
         self.unknown_list.bind("<<ListboxSelect>>", self._select_from_unknown_list)
 
         selected_frame = ttk.LabelFrame(right, text="Célula selecionada", padding=8)
-        selected_frame.grid(row=2, column=0, sticky="ew", pady=(8, 0))
+        selected_frame.grid(row=4, column=0, sticky="ew", pady=(8, 0))
         selected_frame.columnconfigure(0, weight=1)
         self.crop_label = ttk.Label(selected_frame, anchor="center")
         self.crop_label.grid(row=0, column=0, sticky="ew")
-        ttk.Label(selected_frame, textvariable=self.selected_var, justify="left", wraplength=370).grid(
+        ttk.Label(selected_frame, textvariable=self.selected_var, justify="left", wraplength=400).grid(
             row=1, column=0, sticky="w", pady=(6, 0)
         )
 
         teaching = ttk.LabelFrame(right, text="Ensinar classificação", padding=8)
-        teaching.grid(row=3, column=0, sticky="nsew", pady=(8, 0))
+        teaching.grid(row=5, column=0, sticky="ew", pady=(8, 0))
         teaching.columnconfigure(0, weight=1)
         teaching.columnconfigure(1, weight=1)
         categories = [
@@ -198,6 +259,7 @@ class TileMapMakerWindow:
             TileClass.WALL,
             TileClass.WALKABLE_WITH_JUTSU,
             TileClass.BLOCKING_OBJECT,
+            TileClass.PLAYER,
             TileClass.NPC,
             TileClass.TRANSITION,
             TileClass.DANGER,
@@ -213,22 +275,24 @@ class TileMapMakerWindow:
                 column=index % 2,
                 sticky="ew",
                 padx=(0, 4) if index % 2 == 0 else (4, 0),
-                pady=3,
+                pady=4,
+                ipady=3,
             )
         ttk.Label(
             teaching,
             text=(
-                "Parede = terreno estrutural. Bloqueia caminho = objeto físico ocupando a célula. "
-                "NPC = entidade viva/móvel; não torna o terreno inferior uma parede permanente. "
-                "Ignorar/dinâmico = jogador, efeito ou animação que não deve virar exemplo de terreno."
+                "Jogador / Player = seu personagem e futura âncora de posição. "
+                "NPC = entidade viva diferente do jogador. "
+                "Bloqueia caminho = objeto físico. "
+                "Ignorar/dinâmico = efeito ou animação sem identidade útil."
             ),
             justify="left",
-            wraplength=370,
-        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(8, 0))
+            wraplength=400,
+        ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(10, 0))
 
         stats = ttk.LabelFrame(right, text="Resumo", padding=8)
-        stats.grid(row=4, column=0, sticky="ew", pady=(8, 0))
-        ttk.Label(stats, textvariable=self.stats_var, justify="left", wraplength=380).grid(sticky="w")
+        stats.grid(row=6, column=0, sticky="ew", pady=(8, 12))
+        ttk.Label(stats, textvariable=self.stats_var, justify="left", wraplength=400).grid(sticky="w")
 
         ttk.Label(self.root, textvariable=self.status_var, padding=(8, 5), anchor="w").grid(
             row=2, column=0, sticky="ew"
@@ -268,7 +332,8 @@ class TileMapMakerWindow:
                     self._scan = result
                     self._selected = None
                     self.status_var.set(
-                        f"Captura {source}: {bounds.width}×{bounds.height}; {len(result.cells)} células analisadas."
+                        f"Captura {source}: {bounds.width}×{bounds.height}; "
+                        f"{len(result.cells)} células; backend={bounds.capture_backend}."
                     )
                     self._refresh_unknown_list()
                     self._refresh_stats()
@@ -320,7 +385,8 @@ class TileMapMakerWindow:
             if category == TileClass.UNKNOWN:
                 continue
             lines.append(
-                f"{TILE_CLASS_LABELS_PT_BR[category]}: tela={counts.get(category, 0)} | exemplos={examples.get(category, 0)}"
+                f"{TILE_CLASS_LABELS_PT_BR[category]}: "
+                f"tela={counts.get(category, 0)} | exemplos={examples.get(category, 0)}"
             )
         self.stats_var.set("\n".join(lines))
 
@@ -400,7 +466,8 @@ class TileMapMakerWindow:
         if current_frame is not None:
             self._scan = self.engine.scan(current_frame)
         self.status_var.set(
-            f"Aprendido: {selected.crop.id} → {TILE_CLASS_LABELS_PT_BR[category]}. Células semelhantes reavaliadas."
+            f"Aprendido: {selected.crop.id} → {TILE_CLASS_LABELS_PT_BR[category]}. "
+            "Células semelhantes reavaliadas."
         )
         self._selected = None
         self._refresh_unknown_list()
@@ -421,7 +488,8 @@ class TileMapMakerWindow:
             TileClass.WALL: (40, 40, 230),
             TileClass.WALKABLE_WITH_JUTSU: (230, 210, 40),
             TileClass.BLOCKING_OBJECT: (30, 130, 240),
-            TileClass.NPC: (220, 120, 40),
+            TileClass.PLAYER: (255, 255, 255),
+            TileClass.NPC: (180, 90, 255),
             TileClass.TRANSITION: (210, 60, 210),
             TileClass.DANGER: (20, 230, 230),
             TileClass.IGNORE_DYNAMIC: (150, 150, 150),
@@ -432,6 +500,7 @@ class TileMapMakerWindow:
             TileClass.WALL: "#",
             TileClass.WALKABLE_WITH_JUTSU: "J",
             TileClass.BLOCKING_OBJECT: "B",
+            TileClass.PLAYER: "P",
             TileClass.NPC: "N",
             TileClass.TRANSITION: "T",
             TileClass.DANGER: "!",

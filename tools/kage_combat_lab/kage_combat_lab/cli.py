@@ -26,10 +26,24 @@ def _render_grid(player: GridCell, target: GridCell | None, predicted: GridCell 
             if cell == target:
                 symbol = "E"
             if cell == player:
-                symbol = "P"
+                symbol = "P" if cell != target else "P/E"
             row.append(symbol)
         lines.append(" ".join(row))
     return "\n".join(lines)
+
+
+def _matches_expectation(scenario: Scenario, decision) -> bool:
+    expected = scenario.expected
+    return all(
+        (
+            decision.target_state is expected.target_state,
+            (decision.combat_target_id is not None) is expected.target_present,
+            decision.grid_distance == expected.grid_distance,
+            decision.move == expected.move,
+            decision.move_pulse_profile is expected.move_pulse_profile,
+            decision.press_h is expected.press_h,
+        )
+    )
 
 
 def run_scenario(scenario: Scenario, *, interactive: bool, delay: float) -> bool:
@@ -51,25 +65,23 @@ def run_scenario(scenario: Scenario, *, interactive: bool, delay: float) -> bool
             print(f"Combat target: {last.combat_target_id or '-'}")
             print(f"Confirmed cell: {last.confirmed_cell or '-'}")
             print(f"Predicted cell: {last.predicted_cell or '-'}")
+            print(f"Grid distance: {last.grid_distance if last.grid_distance is not None else '-'}")
             print(f"Face: {last.face or '-'}")
-            print(f"Move: {last.move or '-'}")
-            print(f"Primary attack: {last.attack_primary}")
+            print(f"Direction pulse: {last.move or '-'}")
+            print(f"Pulse profile: {last.move_pulse_profile.value if last.move_pulse_profile else '-'}")
+            print(f"Press H: {last.press_h}")
             print(f"Reason: {last.reason}")
             if delay > 0:
                 time.sleep(delay)
             else:
                 input("Enter para avançar...")
     assert last is not None
-    if scenario.name == "multi_cell_effect":
-        return last.combat_target_id is None
-    if scenario.name == "ko_disables_combat":
-        return last.combat_target_id is None and last.target_state.value == "ENDED"
-    return True
+    return _matches_expectation(scenario, last)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Kage Combat Lab — deterministic 64px grid")
-    parser.add_argument("--scenario", default="enemy_right")
+    parser.add_argument("--scenario", default="distance_1_adjacent")
     parser.add_argument("--run-all", action="store_true")
     parser.add_argument("--interactive", action="store_true")
     parser.add_argument("--delay", type=float, default=0.4)

@@ -1,194 +1,162 @@
 # Kage Combat Lab
 
-Laboratório determinístico, adapter de combate real e teste completo do Dojo da PR #25.
+Laboratório determinístico, adapter de combate real e loop completo do Dojo da PR #25.
 
-## Contrato protegido do grid
-
-**Cada célula lógica possui exatamente 64×64 pixels.**
+## Contratos protegidos
 
 ```text
-CELL_SIZE_PX = 64
+1 célula lógica = 64×64 pixels
+posição desejada = D0
+R = key-down renovado a cada 250 ms
+H = toque de 50 ms, cooldown mínimo de 5 s
+F12 = parada imediata e liberação de todas as teclas
 ```
 
-Qualquer outro valor falha imediatamente com:
-
-```text
-KAGE_GRID_CELL_SIZE_IMMUTABLE
-```
-
-## Política atual: CHASE_ALWAYS_ON
-
-O objetivo espacial deixou de ser D2. Enquanto existir um corpo limpo confirmado, o jogador tenta permanecer em **D=0** do alvo.
+## CHASE_ALWAYS_ON
 
 | Distância | Perseguição | H |
 |---|---|---|
-| `D=0` | Microcorreção de 50 ms pela posição interna atual do alvo | Usa H quando visão, direção e cooldown permitem |
-| `D>=1` | Pulso de aproximação de 100 ms em todo frame limpo rumo a D0 | Usa H entre D0 e D50 quando o cooldown permite |
-| `D>50` | Continua perseguindo rumo a D0 | H bloqueado por alcance |
+| `D=0` | Microcorreção de 50 ms com deadzone e histerese | Somente após confirmação fechada da direção |
+| `D>=1` | Aproximação de 100 ms em todo frame confiável | Permitido até D50 |
+| `D>50` | Continua perseguindo | Bloqueado por alcance |
 
-Regras centrais:
+## Target Capsule por rodada
 
-- não existe mais espera em D1 ou D2;
-- H não interrompe a perseguição;
-- cada H recebe uma orientação cardinal nova antes do disparo;
-- alvo abaixo gera `DOWN`, acima `UP`, à esquerda `LEFT` e à direita `RIGHT`;
-- cooldown de H: 5 segundos;
-- R usa key-down repetido a cada 250 ms;
-- dois frames limpos são necessários para o lock inicial;
-- mudança de uma célula adjacente mantém identidade e chase;
-- perda visual apaga direção, movimento e autoridade de H;
-- oclusão curta preserva somente a identidade por 1 segundo;
-- hard lost após 2 segundos;
-- F12, KO, timeout, perda de foco ou exceção liberam todas as teclas.
-
-A sequência física em um frame com H é:
+O `track_id` do OpenCV é descartável. A rodada mantém um `logical_target_id` e salva uma memória visual temporária do inimigo:
 
 ```text
-R mantido
-→ direção atual por 50 ms
-→ H por 50 ms
-→ chase rumo a D0
-→ nova observação
+kage_pilot_loop_logs\target_cache\round_001\
+├── target_session.json
+├── exemplar_001.png
+├── descriptor_001.npz
+└── ...
 ```
 
-## Trainer 64×64 em dia e noite
-
-O modo `FullLoop` possui duas referências oficiais do Dojo Trainer:
+Somente frames limpos e confiáveis alimentam a cápsula. Cada candidato posterior recebe um score híbrido:
 
 ```text
-night-64
-day-64
+35% aparência
+25% posição prevista
+15% tamanho e formato
+15% movimento independente da câmera
+10% evidência de foreground
 ```
 
-As imagens anexadas foram normalizadas para canvas 64×64 com proporção preservada e nearest-neighbour. Ambas são avaliadas em cada captura:
+Um novo `track_id` pode ser religado ao mesmo alvo lógico quando aparência, posição e forma forem compatíveis.
+
+## Memória negativa do ambiente
+
+Regiões rejeitadas repetidamente e alinhadas pelo movimento global da câmera tornam-se evidência de fundo. Isso reduz a chance de chão, água, decoração animada e partículas serem promovidos a inimigo.
+
+A memória negativa nunca é aprendida sobre o alvo confirmado e não classifica algo como chão por apenas um frame parado.
+
+## Perda visual e ReID
 
 ```text
-final_score = max(score_night_64, score_day_64, demais_templates_configurados)
+LOCKED
+→ OCCLUDED_COAST por até 0,45 s
+→ REID_LOCAL por até 6 s
+→ SEARCH somente após hard lost
 ```
 
-Qualquer template que alcance o threshold pode confirmar o Trainer. Uma falha do template diurno não interrompe o loop quando o noturno é válido, e vice-versa. O mesmo detector é instalado:
+- `OCCLUDED_COAST`: preserva identidade, permite somente microchase previsto e proíbe H.
+- `REID_LOCAL`: procura perto da posição prevista usando a Target Capsule; não persegue nem ataca às cegas.
+- Um ReID bem-sucedido mantém o mesmo `logical_target_id`, mesmo que o raw `track_id` mude.
 
-- antes da busca inicial do Trainer;
-- dentro de cada processo isolado de rodada;
-- durante o retorno pós-combate;
-- antes da confirmação visual que autoriza a meditação.
+## Controle fechado de orientação
 
-Diagnóstico no terminal:
+H não é mais enviado imediatamente após o comando direcional:
 
 ```text
-TRAINER_TEMPLATE_SCORES day-64=0.913 night-64=0.742 best=0.913 winner=day-64
-TRAINER_TEMPLATE_MATCH template=day-64 mode=64 score=0.913 scale=1.000
+calcular direção atual
+→ pulso direcional de 50 ms
+→ aguardar 75 ms
+→ capturar um novo frame
+→ confirmar/corrigir a direção
+→ H somente quando confirmado
 ```
 
-A telemetria de busca também mostra:
+São permitidas no máximo duas correções. Se a confirmação falhar, H é cancelado e o cooldown de cinco segundos não é consumido.
+
+Em D0:
 
 ```text
-day64=<score> night64=<score> best=<score> winner=<template>
+deadzone = 12 px
+mudança de direção/eixo = 2 frames consistentes
+margem para trocar de eixo = 6 px
 ```
 
-## Testes determinísticos
+Isso reduz oscilações `LEFT ↔ RIGHT` e trocas horizontais/verticais causadas por ruído do bounding box.
+
+## Vídeos de eventos críticos
+
+O loop não grava continuamente. Ele mantém um buffer circular e salva clipes com aproximadamente cinco segundos antes e cinco depois de:
+
+```text
+TARGET_HARD_LOST
+REID_SUCCESS
+DIRECTION_FLIP
+AIM_UNCONFIRMED
+```
+
+Local:
+
+```text
+KageLink Installer\pc_agent\kage_pilot_loop_logs\event_videos\round_001\
+```
+
+Os vídeos possuem overlay com estado, alvo lógico, raw track, D, direção, scores e inputs enviados.
+
+## Trainer dia/noite
+
+As referências oficiais `day-64` e `night-64` continuam ativas na busca inicial, retorno pós-combate e autorização visual da meditação:
+
+```text
+final_score = max(score_day_64, score_night_64, demais_templates_configurados)
+```
+
+## Testes
 
 ```powershell
-cd tools\kage_combat_lab
+cd "C:\Users\Rafael\Desktop\Powershell\Kagelink2\tools\kage_combat_lab"
 .\run_kage_combat_lab.ps1 -RunAll
 ```
 
-## Combate isolado com input
-
-`-LiveInput` inicia somente o combate contra um Trainer já invocado.
-
-```powershell
-cd "C:\Users\Rafael\Desktop\Powershell\Kagelink2\tools\kage_combat_lab"
-.\run_kage_combat_lab.ps1 -LiveInput -MaxSeconds 80 -NoPreview
-```
-
-## Loop completo do Dojo
-
-`-FullLoop` reutiliza o loop validado do Kage Pilot e substitui somente a rodada de combate pelo `CHASE_ALWAYS_ON`.
-
-Fluxo executado:
-
-```text
-buscar o Dojo Trainer
-→ confirmar visualmente com day-64 ou night-64
-→ clicar uma única vez
-→ aguardar e confirmar o diálogo
-→ clicar OK
-→ aguardar o adversário nascer
-→ combater com CHASE_ALWAYS_ON
-→ aceitar KO autoritativo pelo chat
-→ liberar R, H e direcionais
-→ localizar/retornar ao Trainer com day-64 ou night-64
-→ iniciar meditação com V
-→ usar Y rápido quando o motor validado autorizar
-→ atingir HP >= 90% e Chakra >= 50%
-→ aguardar no mínimo 5,25 s desde a entrada na meditação
-→ sair da meditação com V
-→ emitir READY
-```
-
-Comece recuperado, dentro do Dojo e sem estar meditando.
-
-Uma rodada:
-
-```powershell
-cd "C:\Users\Rafael\Desktop\Powershell\Kagelink2\tools\kage_combat_lab"
-.\run_kage_combat_lab.ps1 -FullLoop -Rounds 1
-```
-
-Dez rodadas:
+## Loop completo
 
 ```powershell
 .\run_kage_combat_lab.ps1 -FullLoop -Rounds 10
 ```
 
-Parâmetros padrão:
+Fluxo:
 
 ```text
-Combate máximo por rodada: 120 s
-Retorno + recuperação: 240 s
-Espera do diálogo: 5 s
-Espera de nascimento: 5 s
+buscar Trainer
+→ diálogo e OK
+→ spawn
+→ combate com Target Capsule e CHASE_ALWAYS_ON
+→ KO pelo chat
+→ retorno ao Trainer
+→ meditação e recuperação
+→ READY
+→ próxima rodada
+```
+
+Defaults:
+
+```text
+Combate máximo: 120 s por rodada
+Retorno/recuperação: 240 s
 Busca do Trainer: 90 s
 HP para READY: 90%
 Chakra para READY: 50%
 Meditação mínima antes do segundo V: 5,25 s
-Parada de emergência: F12
 ```
 
-Sinais esperados no terminal:
-
-```text
-TRAINER_TEMPLATE_MATCH template=day-64|night-64
-DOJO_REQUEST_ACCEPTED
-PR25_FULL_ROUND=CHASE_ALWAYS_ON
-FULL ROUND COMBAT ARMED
-VICTORY_CHAT / VITORIA_CHAT
-POST_COMBAT / POS-COMBATE
-POST V_TAP state=START_MEDITATION
-READY / PRONTO
-result=ready
-ROUND N: COMPLETE / CONCLUIDA
-DOJO_LOOP_FINISHED ... completed=10 ... failed=0
-```
-
-Use F12 imediatamente se ocorrer qualquer uma destas condições:
-
-- perseguir um objeto que não seja o adversário;
-- caminhar sem corpo limpo visível;
-- continuar enviando R ou H depois do KO;
-- não retornar ao Trainer;
-- tentar sair da meditação antes do prazo físico;
-- iniciar uma nova luta ainda meditando.
-
-Os logs são gravados em:
+Logs:
 
 ```text
 KageLink Installer\pc_agent\kage_pilot_loop_logs\round_001.jsonl
-...
-KageLink Installer\pc_agent\kage_pilot_loop_logs\round_010.jsonl
 ```
 
-## Dependências
-
-Os modos `-LiveInput` e `-FullLoop` exigem o checkout completo do KageLink e o ambiente Python que já executa o Kage Pilot, incluindo OpenCV, NumPy, Pillow e pywin32. O modo `-FullLoop` é intencionalmente restrito ao checkout fonte e não tenta alterar o executável instalado.
+Use F12 se o sistema perseguir um objeto incorreto, continuar atacando depois do KO ou apresentar qualquer sequência de input inesperada.

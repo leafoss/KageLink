@@ -4,11 +4,18 @@ param(
     [switch]$Interactive,
     [switch]$LiveChecklist,
     [switch]$LiveInput,
+    [switch]$FullLoop,
     [string]$Scenario = "distance_1_adjacent",
     [double]$Delay = 0.4,
-    [double]$MaxSeconds = 45,
+    [double]$MaxSeconds = 80,
     [double]$Fps = 8,
     [double]$Countdown = 3,
+    [int]$Rounds = 1,
+    [double]$CombatSeconds = 120,
+    [double]$PostCombatTimeout = 240,
+    [double]$DialogDelay = 5,
+    [double]$SpawnDelay = 5,
+    [double]$TrainerSearchTimeout = 90,
     [switch]$NoPreview
 )
 
@@ -17,7 +24,11 @@ $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = (Resolve-Path (Join-Path $Root "..\..")).Path
 $PcAgentRoot = Join-Path $RepoRoot "KageLink Installer\pc_agent"
 
-if ($LiveInput -and -not (Test-Path $PcAgentRoot)) {
+if ($LiveInput -and $FullLoop) {
+    throw "Choose only one armed mode: -LiveInput or -FullLoop."
+}
+
+if (($LiveInput -or $FullLoop) -and -not (Test-Path $PcAgentRoot)) {
     throw "Full KageLink checkout required. Missing: $PcAgentRoot"
 }
 
@@ -35,7 +46,18 @@ if (-not $Python) {
     throw "Python 3 was not found. Install Python or add it to PATH."
 }
 
-if ($LiveInput) {
+if ($FullLoop) {
+    $Arguments = @(
+        "-m", "kage_combat_lab.full_loop",
+        "--rounds", "$([Math]::Max(1, $Rounds))",
+        "--combat-seconds", "$([Math]::Max(10, $CombatSeconds))",
+        "--post-combat-timeout", "$([Math]::Max(30, $PostCombatTimeout))",
+        "--dialog-delay", "$([Math]::Max(0, $DialogDelay))",
+        "--spawn-delay", "$([Math]::Max(0, $SpawnDelay))",
+        "--trainer-search-timeout", "$([Math]::Max(10, $TrainerSearchTimeout))"
+    )
+}
+elif ($LiveInput) {
     $Arguments = @(
         "-m", "kage_combat_lab.live_input",
         "--max-seconds", "$MaxSeconds",

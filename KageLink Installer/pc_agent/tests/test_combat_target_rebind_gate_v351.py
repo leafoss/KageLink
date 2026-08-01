@@ -69,8 +69,9 @@ class CombatTargetRebindGateV351Tests(unittest.TestCase):
 
     def test_candidate_near_player_but_far_from_prediction_is_rejected(self):
         memory = self.acquired_memory()
-        # Feet at (100, 95): close to player, but far from the target feet near (135,105).
-        spurious = _Track(9, bbox=(85, 45, 30, 55), score=99.0)
+        # Feet at roughly (75,100): only 25px from PLAYER but over 60px from the
+        # target feet near (135,105). This is the exact OR-gate regression.
+        spurious = _Track(9, bbox=(60, 50, 30, 55), score=99.0)
         tracker = _Tracker({9: self.context()})
         observer = _Observer({9: self.metrics(1)})
 
@@ -145,7 +146,7 @@ class CombatTargetRebindGateV351Tests(unittest.TestCase):
     def test_spurious_candidate_does_not_renew_timeout(self):
         memory = self.acquired_memory()
         last_seen = memory._last_seen_at
-        spurious = _Track(9, bbox=(85, 45, 30, 55), score=99.0)
+        spurious = _Track(9, bbox=(60, 50, 30, 55), score=99.0)
         tracker = _Tracker({9: self.context()})
         observer = _Observer({9: self.metrics(1)})
         selected, _score = memory.choose_local_rebind(

@@ -5,7 +5,7 @@
 
 ## Objetivo
 
-Manter as configurações básicas do treinamento em um único local fácil de editar, revisar e futuramente apresentar na aba Game do KageLink.
+Manter as configurações básicas do treinamento em um único local fácil de editar, revisar e apresentar na aba Dojo do KageLink.
 
 O arquivo JSON controla:
 
@@ -37,7 +37,7 @@ A lógica de segurança não é configurável por esse arquivo.
   },
   "recovery": {
     "hp_percent": 90.0,
-    "chakra_percent": 50.0
+    "chakra_percent": 40.0
   },
   "combat": {
     "h_enabled": true
@@ -77,9 +77,9 @@ A lógica de segurança não é configurável por esse arquivo.
 | Campo | Faixa permitida | Padrão |
 |---|---:|---:|
 | `hp_percent` | `90` a `100` | `90` |
-| `chakra_percent` | `50` a `100` | `50` |
+| `chakra_percent` | `40` a `100` | `40` |
 
-Os pisos `90% HP` e `50% Chakra` são invariantes de segurança da baseline validada. A configuração pode aumentar esses valores, mas não reduzi-los.
+Os pisos são `HP >= 90%` e `Chakra >= 40%`. A configuração pode aumentar esses valores, mas não reduzi-los.
 
 ### Combate e detecção
 
@@ -87,6 +87,27 @@ Os pisos `90% HP` e `50% Chakra` são invariantes de segurança da baseline vali
 |---|---|
 | `h_enabled` | `true` permite o uso guardado de `H`; `false` mantém somente ataque base/orientação. Deve ser booleano JSON real, sem aspas. |
 | `leader_threshold` | Confiança mínima do template visual do treinador. |
+
+## Integração com a aba Dojo
+
+Ao abrir a aba, o Desktop busca os valores atuais no backend e preenche os campos. Enquanto o usuário estiver editando um campo, as atualizações periódicas de status não podem restaurar o valor anterior.
+
+Os valores editados são aplicados quando **Iniciar** é clicado:
+
+```text
+backend preenche a interface
+→ usuário altera localmente
+→ polling preserva o campo alterado
+→ Iniciar envia todos os valores visíveis
+→ backend salva o debug e inicia o runtime com a configuração enviada
+```
+
+A opacidade é mostrada como percentual inteiro de `10` a `100` e convertida na fronteira da API:
+
+```text
+85 → 0,85
+10 → 0,10
+```
 
 ## Uso
 
@@ -117,13 +138,13 @@ Sobrescrever temporariamente valores sem editar o JSON:
   --dialog-delay 4 `
   --spawn-delay 5 `
   --recovery-hp-percent 95 `
-  --recovery-chakra-percent 60
+  --recovery-chakra-percent 40
 ```
 
 A precedência é:
 
 ```text
-argumento do PowerShell
+valor enviado pela interface ou argumento do PowerShell
 → arquivo JSON
 → padrão interno do DojoTrainingConfig
 ```
@@ -138,7 +159,8 @@ O programa não inicia quando encontra:
 - versão de schema não suportada;
 - `h_enabled` que não seja `true` ou `false` real;
 - HP abaixo de 90% ou acima de 100%;
-- Chakra abaixo de 50% ou acima de 100%.
+- Chakra abaixo de 40% ou acima de 100%;
+- opacidade do overlay abaixo de 10% ou acima de 100%.
 
 Erros de configuração terminam com código `2` e uma mensagem `DOJO_CONFIG_ERROR / ERRO_CONFIG_DOJO`.
 
@@ -157,8 +179,6 @@ O JSON não pode alterar:
 - `MAP_SAVE_RESYNC`, `H_SETTLE_HOLD` e demais gates de segurança;
 - F12 como parada de emergência.
 
-## Integração futura
+O app não deve ler o JSON e reproduzir a lógica por conta própria. A aba Dojo constrói um `DojoTrainingConfig` e chama exclusivamente `DojoTrainingService`.
 
-O app não deve ler o JSON e reproduzir a lógica por conta própria. A aba Game deverá alterar/criar um `DojoTrainingConfig` e chamar exclusivamente `DojoTrainingService`.
-
-Textos visíveis da futura interface deverão passar pelo sistema de internacionalização PT-BR/EN-US; nomes de campos JSON são identificadores técnicos estáveis.
+Todos os textos visíveis devem passar pelo sistema de internacionalização PT-BR/EN-US; nomes de campos JSON são identificadores técnicos estáveis.

@@ -145,7 +145,7 @@ class KagePilotV35PackagingTests(unittest.TestCase):
             round_startup_delay=1.0,
             chat_poll_seconds=0.15,
             recovery_hp_percent=90.0,
-            recovery_chakra_percent=50.0,
+            recovery_chakra_percent=40.0,
             leader_threshold=0.88,
             disable_h=False,
         )
@@ -158,6 +158,8 @@ class KagePilotV35PackagingTests(unittest.TestCase):
         self.assertEqual(command[0], str(Path("C:/Program Files/KageLink/KagePilotRound.exe")))
         self.assertEqual(cwd, Path("C:/Program Files/KageLink"))
         self.assertIn(str(Path("logs/round_003.jsonl")), command)
+        chakra_index = command.index("--recovery-chakra") + 1
+        self.assertEqual(command[chakra_index], "0.4")
 
     def test_source_loop_uses_canonical_round_script(self):
         args = Namespace(
@@ -167,7 +169,7 @@ class KagePilotV35PackagingTests(unittest.TestCase):
             round_startup_delay=1.0,
             chat_poll_seconds=0.15,
             recovery_hp_percent=90.0,
-            recovery_chakra_percent=50.0,
+            recovery_chakra_percent=40.0,
             leader_threshold=0.88,
             disable_h=False,
         )
@@ -179,11 +181,12 @@ class KagePilotV35PackagingTests(unittest.TestCase):
         config = DojoStartRequest(
             rounds=10,
             recovery_hp_percent=90,
-            recovery_chakra_percent=50,
+            recovery_chakra_percent=40,
+            debug_overlay_opacity=0.10,
         ).to_config()
         self.assertEqual(config.rounds, 10)
         self.assertEqual(config.recovery_hp_percent, 90.0)
-        self.assertEqual(config.recovery_chakra_percent, 50.0)
+        self.assertEqual(config.recovery_chakra_percent, 40.0)
 
     def test_manual_game_control_is_blocked_while_dojo_runs(self):
         service = mock.Mock()
@@ -202,7 +205,7 @@ class KagePilotV35PackagingTests(unittest.TestCase):
         self.assertEqual(runtime.apply_keys(["r"]), ["r"])
         self.assertTrue(runtime.click_game_center())
 
-    def test_status_payload_exposes_installation_and_progress(self):
+    def test_status_payload_exposes_installation_progress_and_backend_settings(self):
         with tempfile.TemporaryDirectory() as temporary:
             project = Path(temporary)
             (project / "kage_pilot_loop.py").write_text("# test", encoding="utf-8")
@@ -212,6 +215,8 @@ class KagePilotV35PackagingTests(unittest.TestCase):
         self.assertFalse(payload["running"])
         self.assertEqual(payload["phase"], "idle")
         self.assertIn("defaults", payload)
+        self.assertEqual(payload["defaults"]["recovery"]["chakra_percent"], 40.0)
+        self.assertEqual(payload["recovery_chakra_percent"], 40.0)
 
 
 if __name__ == "__main__":

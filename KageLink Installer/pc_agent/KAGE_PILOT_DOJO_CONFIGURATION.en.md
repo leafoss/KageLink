@@ -5,7 +5,7 @@
 
 ## Purpose
 
-Keep the basic training settings in one place that is easy to edit, review and later expose in KageLink's Game tab.
+Keep the basic training settings in one place that is easy to edit, review and expose in KageLink's Dojo tab.
 
 The JSON file controls:
 
@@ -37,7 +37,7 @@ Safety logic is not configurable through this file.
   },
   "recovery": {
     "hp_percent": 90.0,
-    "chakra_percent": 50.0
+    "chakra_percent": 40.0
   },
   "combat": {
     "h_enabled": true
@@ -77,9 +77,9 @@ Safety logic is not configurable through this file.
 | Field | Allowed range | Default |
 |---|---:|---:|
 | `hp_percent` | `90` to `100` | `90` |
-| `chakra_percent` | `50` to `100` | `50` |
+| `chakra_percent` | `40` to `100` | `40` |
 
-The `90% HP` and `50% Chakra` floors are validated baseline safety invariants. Configuration may increase them but cannot lower them.
+The floors are `HP >= 90%` and `Chakra >= 40%`. Configuration may increase them but cannot lower them.
 
 ### Combat and detection
 
@@ -87,6 +87,27 @@ The `90% HP` and `50% Chakra` floors are validated baseline safety invariants. C
 |---|---|
 | `h_enabled` | `true` enables guarded `H`; `false` keeps base attack/facing only. It must be a real JSON boolean without quotes. |
 | `leader_threshold` | Minimum trainer-template visual confidence. |
+
+## Dojo-tab integration
+
+When the tab opens, the Desktop reads current values from the backend and fills the fields. While the user is editing a field, periodic status updates must not restore the old value.
+
+Edited values are applied when **Start** is clicked:
+
+```text
+backend fills the UI
+→ user edits locally
+→ polling preserves the edited field
+→ Start submits every visible value
+→ backend stores debug settings and starts the runtime with the submitted configuration
+```
+
+Opacity is shown as an integer percentage from `10` to `100` and converted at the API boundary:
+
+```text
+85 → 0.85
+10 → 0.10
+```
 
 ## Usage
 
@@ -117,13 +138,13 @@ Temporarily override values without editing JSON:
   --dialog-delay 4 `
   --spawn-delay 5 `
   --recovery-hp-percent 95 `
-  --recovery-chakra-percent 60
+  --recovery-chakra-percent 40
 ```
 
 Precedence:
 
 ```text
-PowerShell argument
+value submitted by the UI or PowerShell argument
 → JSON file
 → DojoTrainingConfig internal default
 ```
@@ -138,7 +159,8 @@ The program does not start when it finds:
 - an unsupported schema version;
 - `h_enabled` that is not a real `true` or `false`;
 - HP below 90% or above 100%;
-- Chakra below 50% or above 100%.
+- Chakra below 40% or above 100%;
+- overlay opacity below 10% or above 100%.
 
 Configuration errors exit with code `2` and `DOJO_CONFIG_ERROR / ERRO_CONFIG_DOJO`.
 
@@ -157,8 +179,6 @@ The JSON cannot change:
 - `MAP_SAVE_RESYNC`, `H_SETTLE_HOLD` and other safety gates;
 - F12 emergency stop.
 
-## Future integration
+The app must not parse the JSON and duplicate runtime logic. The Dojo tab builds a `DojoTrainingConfig` and calls only `DojoTrainingService`.
 
-The app must not parse the JSON and duplicate runtime logic. The Game tab should build/update a `DojoTrainingConfig` and call only `DojoTrainingService`.
-
-Visible future UI text must use the PT-BR/EN-US internationalization system; JSON field names are stable technical identifiers.
+All visible text must use the PT-BR/EN-US internationalization system; JSON field names are stable technical identifiers.

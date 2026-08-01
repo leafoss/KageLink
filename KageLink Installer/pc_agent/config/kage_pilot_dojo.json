@@ -4,16 +4,16 @@
   "timing": {
     "after_trainer_click_seconds": 5.0,
     "dialog_find_timeout_seconds": 6.0,
-    "after_dialog_ok_seconds": 5.0,
+    "after_dialog_ok_seconds": 1.0,
     "combat_timeout_seconds": 120.0,
     "post_combat_timeout_seconds": 240.0,
     "trainer_search_timeout_seconds": 90.0,
-    "round_startup_delay_seconds": 1.0,
+    "round_startup_delay_seconds": 0.15,
     "chat_poll_seconds": 0.15
   },
   "recovery": {
     "hp_percent": 90.0,
-    "chakra_percent": 50.0
+    "chakra_percent": 40.0
   },
   "combat": {
     "h_enabled": true

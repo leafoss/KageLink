@@ -3,7 +3,6 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
-import cv2
 import numpy as np
 
 from pc_agent.kage_pilot.post_combat_v03 import (
@@ -78,15 +77,18 @@ class KagePilotV03PostCombatTests(unittest.TestCase):
         self.assertIsNotNone(signal)
         self.assertIn("Jounin: A", signal.text)
 
-    def test_real_supplied_leader_template_matches_when_embedded(self):
-        detector = DojoLeaderDetector(threshold=0.90)
-        th, tw = detector.template.shape[:2]
+    def test_supplied_raw_trainer_reference_matches_without_processing(self):
+        detector = DojoLeaderDetector(threshold=0.99)
+        template = next(item for item in detector._raw_templates if item.mode == "64")
         frame = np.zeros((300, 400, 3), dtype=np.uint8)
-        frame[80:80 + th, 120:120 + tw] = detector.template
+        x, y = 120, 80
+        frame[y:y + template.height, x:x + template.width] = template.pixels[:, :, :3]
         match = detector.find(frame)
         self.assertIsNotNone(match)
-        self.assertGreaterEqual(match.score, 0.99)
-        self.assertEqual(match.bbox[:2], (120, 80))
+        self.assertGreaterEqual(match.score, 0.999)
+        self.assertEqual(match.bbox, (x, y, 61, 64))
+        self.assertEqual(match.scale, 1.0)
+        self.assertEqual(detector.last_accepted_template_mode, "64")
 
     def test_hud_reader_estimates_requested_thresholds_from_synthetic_bars(self):
         reader = HudResourceReader()
@@ -94,6 +96,7 @@ class KagePilotV03PostCombatTests(unittest.TestCase):
 
         def paint(region, width, bgr):
             x, y, rw, rh = region
+            del rw, rh
             x0 = round(x * 960)
             y0 = round(y * 540)
             frame[y0 + 8:y0 + 14, x0 + 4:x0 + 4 + width] = bgr
@@ -105,8 +108,6 @@ class KagePilotV03PostCombatTests(unittest.TestCase):
         self.assertGreaterEqual(levels.chakra, 0.50)
 
     def test_postcombat_moves_to_adjacent_then_toggles_v_once(self):
-        # Player full-frame center is (160,160) => cell (5,5). Leader foot at (240,160)
-        # => cell (7,5), so first decision moves right. Then the leader appears adjacent.
         detector = FakeLeaderDetector([
             LeaderMatch(0.95, (210, 120, 68, 73), (240.0, 160.0)),
             LeaderMatch(0.95, (210, 120, 68, 73), (240.0, 160.0)),

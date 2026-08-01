@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
-from PyInstaller.utils.hooks import collect_all, collect_submodules
+from PyInstaller.utils.hooks import collect_submodules
 
 root = os.path.abspath(os.path.join(SPECPATH, '..'))
 agent = os.path.join(root, 'pc_agent')
@@ -14,12 +14,11 @@ hiddenimports = collect_submodules('pc_agent') + [
     'win32con',
     'win32process',
 ]
-for package in ['numpy', 'cv2', 'mss', 'PIL']:
-    d, b, h = collect_all(package)
-    datas += d
-    binaries += b
-    hiddenimports += h
 
+# Standard PyInstaller hooks already collect the runtime binaries required by
+# numpy, OpenCV, MSS and Pillow. collect_all() also bundled their test suites,
+# distutils helpers and unrelated plugins, making this one-file helper roughly
+# 78 MB and adding several seconds of extraction before the game was focused.
 a = Analysis(
     [os.path.join(agent, 'kage_pilot_loop.py')],
     pathex=[agent],
@@ -29,7 +28,14 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=[
+        'numpy.tests',
+        'numpy.testing.tests',
+        'numpy.distutils',
+        'numpy.f2py.tests',
+        'PIL.ImageQt',
+        'tkinter.test',
+    ],
     noarchive=False,
 )
 pyz = PYZ(a.pure)

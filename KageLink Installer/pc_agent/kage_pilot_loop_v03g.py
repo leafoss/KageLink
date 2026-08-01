@@ -16,7 +16,7 @@ ROUND_SCRIPT_NAME = "kage_pilot_live_v03g_round.py"
 REQUEST_DOJO_FIGHT = request_taijutsu_dojo_spar
 DIALOG_RETRY_POLICY_ENABLED = False
 MIN_SAFE_RECOVERY_HP_PERCENT = 90.0
-MIN_SAFE_RECOVERY_CHAKRA_PERCENT = 50.0
+MIN_SAFE_RECOVERY_CHAKRA_PERCENT = 40.0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -44,7 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--round-startup-delay", type=float, default=1.0)
     parser.add_argument("--chat-poll-seconds", type=float, default=0.15)
     parser.add_argument("--recovery-hp-percent", type=float, default=90.0)
-    parser.add_argument("--recovery-chakra-percent", type=float, default=50.0)
+    parser.add_argument("--recovery-chakra-percent", type=float, default=40.0)
     parser.add_argument("--leader-threshold", type=float, default=0.88)
     parser.add_argument("--log-dir", type=Path, default=Path("kage_pilot_loop_logs"))
     parser.add_argument("--disable-h", action="store_true")

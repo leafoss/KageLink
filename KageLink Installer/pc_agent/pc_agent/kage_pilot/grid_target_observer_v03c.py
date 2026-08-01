@@ -11,11 +11,13 @@ from .grid_target_observer_v03b import StrictGridTargetObserver
 
 
 class FrameAlignedGridTargetObserver(StrictGridTargetObserver):
-    """Strict grid observer aligned to the captured-frame lattice.
+    """Strict grid observer aligned to the captured-frame tile lattice.
 
-    The arena crop starts inside the captured frame, so treating its top-left corner as
-    grid origin shifts every cell. This layer maps arena-local track coordinates back to
-    captured-frame coordinates before quantising them into the fixed tile lattice.
+    Navigation belongs to the map tile under a character's feet. Sprite centres are
+    presentation coordinates and can sit half a cell above the occupied tile,
+    especially in 64px mode. All distance and direction metrics therefore use a foot
+    anchor while preserving the existing arena-local/full-frame conversion exactly
+    once.
     """
 
     grid_origin_x: float = 0.0
@@ -28,6 +30,26 @@ class FrameAlignedGridTargetObserver(StrictGridTargetObserver):
         full_y = float(point[1]) + float(y0) - self.grid_origin_y
         return int(max(0.0, full_x) // size), int(max(0.0, full_y) // size)
 
+    def _player_anchor(self, state) -> tuple[float, float]:
+        center_x, center_y = (float(value) for value in state.player_center)
+        height = max(0.0, float(getattr(self.config, "player_box_height", 0.0) or 0.0))
+        return center_x, center_y + height * 0.50
+
+    @staticmethod
+    def _track_anchor(track) -> tuple[float, float]:
+        x, y, width, height = (float(value) for value in track.bbox)
+        # Motion contours can include a small shadow beneath the body. Ninety per
+        # cent keeps the anchor at the feet without allowing the shadow edge to move
+        # the logical tile on every animation frame.
+        return x + width * 0.50, y + height * 0.90
+
+    @staticmethod
+    def _history_anchor(point, track) -> tuple[float, float]:
+        # Track history stores sprite centres. Convert it to the same approximate
+        # foot coordinate used for the current bbox.
+        height = max(1.0, float(track.bbox[3]))
+        return float(point[0]), float(point[1]) + height * 0.40
+
     def _compress_frame_cells(self, points, state) -> list[tuple[int, int]]:
         cells: list[tuple[int, int]] = []
         for point in points:
@@ -37,11 +59,13 @@ class FrameAlignedGridTargetObserver(StrictGridTargetObserver):
         return cells
 
     def _metrics(self, track, state) -> GridTrackMetrics:
-        player_cell = self._frame_cell(state.player_center, state)
-        cells = self._compress_frame_cells(track.history, state)
+        player_cell = self._frame_cell(self._player_anchor(state), state)
+        history_anchors = [self._history_anchor(point, track) for point in track.history]
+        cells = self._compress_frame_cells(history_anchors, state)
+        current_anchor = self._track_anchor(track)
         if not cells:
-            cells = [self._frame_cell(track.center, state)]
-        current_cell = self._frame_cell(track.center, state)
+            cells = [self._frame_cell(current_anchor, state)]
+        current_cell = self._frame_cell(current_anchor, state)
         if cells[-1] != current_cell:
             cells.append(current_cell)
         cells = cells[-10:]
@@ -134,7 +158,7 @@ class FrameAlignedGridTargetObserver(StrictGridTargetObserver):
                 1,
             )
 
-        player_cell = self._frame_cell(state.player_center, state)
+        player_cell = self._frame_cell(self._player_anchor(state), state)
         px = int(self.grid_origin_x + player_cell[0] * size)
         py = int(self.grid_origin_y + player_cell[1] * size)
         cv2.rectangle(preview, (px, py), (px + size, py + size), (255, 255, 255), 1)

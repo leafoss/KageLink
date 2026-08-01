@@ -9,29 +9,33 @@ from typing import Any, Iterable
 import unified_launcher as launcher
 from pc_agent.config import load_config
 from pc_agent.history import HistoryStore
+from pc_agent.kage_pilot.dojo_meditation_timeout_v351 import (
+    ensure_safe_meditation_timeout,
+)
 from pc_agent.leafos_interpreter_v321 import LeafOSInterpreter, OllamaInterpreterProvider
 from pc_agent.leafos_ollama import OllamaManager
 from pc_agent.primary_character import resolve_primary_character
+from unified_dojo_debug_v351 import install_dojo_debug_desktop
+from unified_dojo_responsive_v351 import install_dojo_responsive_order
+from unified_dojo_stop_v351 import install_dojo_stop_desktop
 from unified_dojo_templates_ui_v35 import install_dojo_templates_desktop
 from unified_dojo_ui import install_dojo_desktop
+from unified_dojo_ui_v351 import install_dojo_reliability_desktop
+from unified_dojo_user_templates_v351 import install_dojo_user_owned_desktop
 
+
+# Upgrade legacy/unsafe 120-second recovery settings before the Dojo settings
+# page reads them, keeping the UI and the round runtime on the same 180s value.
+ensure_safe_meditation_timeout()
 
 # unified_launcher remains source-compatible, but every Interpreter path reached
 # through the packaged unified entry uses the v3.2.1 durable-revelation layer.
-# The validated v3.1 implementation remains intact in leafos_interpreter_v31.py,
-# and v3.2 remains intact in leafos_interpreter_v32.py.
 launcher.LeafOSInterpreter = LeafOSInterpreter
 launcher.OllamaInterpreterProvider = OllamaInterpreterProvider
 
 
 class UnifiedKageLinkAgentUI(launcher.UnifiedKageLinkAgentUI):
-    """Production entry UI with session-targeted Interpreter diagnostics.
-
-    The base unified launcher remains source-compatible while the packaged EXE uses
-    this class to make Finalize + Review deterministic: the freshly closed session
-    is interpreted by itself, historical failures remain retryable, and a failed
-    interpretation never opens an empty Reviewer as though it had succeeded.
-    """
+    """Production entry UI with session-targeted Interpreter diagnostics."""
 
     def _finalize_review_worker(self) -> None:
         try:
@@ -190,16 +194,25 @@ class UnifiedKageLinkAgentUI(launcher.UnifiedKageLinkAgentUI):
             self.ui(self.open_reviewer)
 
 
-# Layer the template UI over the validated Dojo page. The outer layer also
-# enforces the canonical sidebar rule that Settings is always the final item.
-launcher.UnifiedKageLinkAgentUI = install_dojo_templates_desktop(
-    install_dojo_desktop(UnifiedKageLinkAgentUI)
+# The established Dojo and template layers remain intact. The user-owned layer
+# makes the Images tab authoritative; reliability/debug wrappers preserve the
+# validated RAW capture, bbox and click flow.
+launcher.UnifiedKageLinkAgentUI = install_dojo_stop_desktop(
+    install_dojo_responsive_order(
+        install_dojo_debug_desktop(
+            install_dojo_reliability_desktop(
+                install_dojo_user_owned_desktop(
+                    install_dojo_templates_desktop(
+                        install_dojo_desktop(UnifiedKageLinkAgentUI)
+                    )
+                )
+            )
+        )
+    )
 )
 
 
 def main() -> int:
-    # Import the existing backend first, then install the v3.5 wrapper under the
-    # canonical module name resolved by unified_launcher.main().
     import unified_app  # noqa: F401
     import unified_app_v35
 

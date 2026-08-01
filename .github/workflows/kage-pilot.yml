@@ -93,6 +93,16 @@ jobs:
           python -m unittest discover -s tests -v 2>&1 | Tee-Object -FilePath full-python-suite.txt
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Print full-suite failure summary
+        if: failure()
+        run: |
+          if (Test-Path full-python-suite.txt) {
+            Write-Host "===== FULL PYTHON SUITE FAILURE TAIL ====="
+            Get-Content full-python-suite.txt -Tail 350
+          } else {
+            Write-Host "full-python-suite.txt was not produced"
+          }
+
       - name: Upload full-suite log
         if: always()
         uses: actions/upload-artifact@v4

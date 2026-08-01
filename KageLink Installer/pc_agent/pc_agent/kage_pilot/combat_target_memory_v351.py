@@ -13,7 +13,12 @@ _CARDINAL = {"LEFT", "RIGHT", "UP", "DOWN"}
 
 
 class PersistentCombatTargetMemory:
-    """Logical combat identity independent from disposable visual track IDs."""
+    """Logical combat identity independent from disposable visual track IDs.
+
+    This compatibility memory is not the authority used by grid_focus_v2, but it
+    remains a selectable fallback and must never rebind a logical enemy merely because
+    an unrelated blob happens to be close to the player.
+    """
 
     def __init__(
         self,
@@ -88,6 +93,15 @@ class PersistentCombatTargetMemory:
 
     @staticmethod
     def _track_position(track: Any) -> tuple[float, float]:
+        # Compatibility memory still works in pixels, but the position represents the
+        # body anchor at the feet instead of the visual centre of the sprite.
+        bbox = getattr(track, "bbox", None)
+        if bbox is not None:
+            try:
+                x, y, width, height = (float(value) for value in bbox)
+                return x + width * 0.50, y + height * 0.90
+            except Exception:
+                pass
         center = getattr(track, "center", (0.0, 0.0))
         return float(center[0]), float(center[1])
 
@@ -221,7 +235,9 @@ class PersistentCombatTargetMemory:
         position = self._track_position(track)
         previous_position = self._last_position
         previous_seen = self._last_seen_at
-        if previous_position is not None and previous_seen > -1e8:
+        previous_track = self._visual_track_id
+        visual_changed = previous_track not in {None, int(getattr(track, "track_id", 0) or 0)}
+        if not visual_changed and previous_position is not None and previous_seen > -1e8:
             dt = max(1e-3, float(now) - previous_seen)
             measured = (
                 (position[0] - previous_position[0]) / dt,
@@ -231,7 +247,9 @@ class PersistentCombatTargetMemory:
                 0.72 * self._velocity[0] + 0.28 * measured[0],
                 0.72 * self._velocity[1] + 0.28 * measured[1],
             )
-        previous_track = self._visual_track_id
+        elif visual_changed:
+            # A new track ID is not a measured teleport and cannot donate velocity.
+            self._velocity = (0.0, 0.0)
         self._visual_track_id = int(getattr(track, "track_id", 0) or 0)
         self._last_position = position
         self._predicted_position = position
@@ -301,6 +319,12 @@ class PersistentCombatTargetMemory:
             state = CombatTargetState.LOST
             self._visual_track_id = None
             self._confidence = 0.0
+            self._predicted_position = None
+            self._velocity = (0.0, 0.0)
+            self._movement_mode = "NONE"
+            self._last_direction = "-"
+            self._pending_direction = "-"
+            self._pending_direction_hits = 0
         self._set_state(state, now=now)
         if state == CombatTargetState.LOST:
             self._emit(
@@ -308,24 +332,34 @@ class PersistentCombatTargetMemory:
                 {"frames_since_last_seen": max(0, int(frame_index) - self._last_seen_frame)},
             )
 
-    def _size_score(self, track: Any) -> float:
+    def _size_evidence(self, track: Any) -> tuple[float, bool]:
         if self._target_size is None:
-            return 0.5
+            return 0.0, False
         width, height = self._track_size(track)
         previous_area = max(1.0, self._target_size[0] * self._target_size[1])
         current_area = max(1.0, width * height)
-        return math.exp(-abs(math.log(current_area / previous_area)))
+        return math.exp(-abs(math.log(current_area / previous_area))), True
 
-    def _appearance_score(self, context: Any) -> float:
+    def _appearance_evidence(self, context: Any) -> tuple[float, bool]:
         current = self._context_appearance(context)
         if not self._appearance or not current:
-            return 0.45
+            return 0.0, False
         try:
             from .entity_tracker_v03 import appearance_similarity
 
-            return float(appearance_similarity(self._appearance, current))
+            return float(appearance_similarity(self._appearance, current)), True
         except Exception:
-            return 0.0
+            return 0.0, False
+
+    def _movement_evidence(
+        self,
+        point: tuple[float, float],
+        player_center: tuple[float, float],
+    ) -> tuple[float, bool]:
+        direction = self._direction_for(point, player_center)
+        if self._last_direction not in _CARDINAL or direction not in _CARDINAL:
+            return 0.0, False
+        return (1.0 if direction == self._last_direction else 0.35), True
 
     def rebind_score(
         self,
@@ -339,21 +373,26 @@ class PersistentCombatTargetMemory:
         predicted = self._predicted_position or self._last_position or player_center
         distance = math.dist(point, predicted)
         distance_score = max(0.0, 1.0 - distance / max(1.0, self.config.local_rebind_radius))
-        size_score = self._size_score(track)
-        appearance_score = self._appearance_score(context)
-        direction = self._direction_for(point, player_center)
-        movement_score = 0.65
-        if self._last_direction in _CARDINAL and direction in _CARDINAL:
-            movement_score = 1.0 if direction == self._last_direction else 0.35
-        context_state = str(getattr(context, "state", "") or "").upper()
-        if context_state == "OCCLUDED":
-            movement_score = max(movement_score, 0.85)
-        score = (
-            self.config.distance_weight * distance_score
-            + self.config.size_weight * size_score
-            + self.config.appearance_weight * appearance_score
-            + self.config.movement_weight * movement_score
-        )
+        size_score, size_available = self._size_evidence(track)
+        appearance_score, appearance_available = self._appearance_evidence(context)
+        movement_score, movement_available = self._movement_evidence(point, player_center)
+
+        # Missing evidence is not favourable evidence. Only available features enter
+        # the denominator, so a missing appearance vector neither gives a bonus nor
+        # makes a valid spatial/size match impossible to reach.
+        weighted_sum = self.config.distance_weight * distance_score
+        weight_sum = self.config.distance_weight
+        if size_available:
+            weighted_sum += self.config.size_weight * size_score
+            weight_sum += self.config.size_weight
+        if appearance_available:
+            weighted_sum += self.config.appearance_weight * appearance_score
+            weight_sum += self.config.appearance_weight
+        if movement_available:
+            weighted_sum += self.config.movement_weight * movement_score
+            weight_sum += self.config.movement_weight
+        score = weighted_sum / max(1e-9, weight_sum)
+
         grid_distance = int(getattr(metrics, "grid_distance", 99) or 99)
         if self._movement_mode == "MELEE_LOCK" and grid_distance > 2:
             score *= 0.30
@@ -378,10 +417,14 @@ class PersistentCombatTargetMemory:
             if metrics is None:
                 continue
             point = self._track_position(track)
-            predicted = self._predicted_position or self._last_position or player_center
-            if math.dist(point, predicted) > self.config.local_rebind_radius:
-                if math.dist(point, player_center) > self.config.local_rebind_radius:
+            predicted = self._predicted_position or self._last_position
+            if predicted is not None:
+                if math.dist(point, predicted) > self.config.local_rebind_radius:
                     continue
+            elif math.dist(point, player_center) > self.config.local_rebind_radius:
+                # Player proximity is a fallback only when no historical target
+                # position exists. It is never an OR-condition beside a prediction.
+                continue
             score = self.rebind_score(
                 track,
                 context,

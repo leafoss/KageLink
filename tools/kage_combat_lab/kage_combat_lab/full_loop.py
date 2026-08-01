@@ -7,10 +7,11 @@ from typing import Any
 
 
 ROUND_MODULE = "kage_combat_lab.full_round_daynight"
+POST_OK_GATE_ARG = "--pr25-post-ok"
 
 
 def replace_source_round_command(command: list[str]) -> list[str]:
-    """Replace the validated source round script while preserving every argument."""
+    """Replace the validated source round after the outer loop accepted OK/spawn."""
 
     if len(command) < 2:
         raise ValueError("FULL_LOOP_ROUND_COMMAND_INVALID")
@@ -21,7 +22,7 @@ def replace_source_round_command(command: list[str]) -> list[str]:
             "FULL_LOOP_SOURCE_CHECKOUT_ONLY: expected a Python round script, "
             f"got {round_entry!r}"
         )
-    return [executable, "-m", ROUND_MODULE, *command[2:]]
+    return [executable, "-m", ROUND_MODULE, POST_OK_GATE_ARG, *command[2:]]
 
 
 def install_full_loop_round(validated_engine: Any) -> Callable[..., tuple[list[str], Path]]:
@@ -38,8 +39,8 @@ def install_full_loop_round(validated_engine: Any) -> Callable[..., tuple[list[s
             )
         replaced = replace_source_round_command(list(command))
         print(
-            f"ROUND {round_number}: PR25_FULL_ROUND=CHASE_ALWAYS_ON "
-            "POST=VALIDATED_DOJO_RECOVERY"
+            f"ROUND {round_number}: PR25_FULL_ROUND=FACING_AUTHORITY "
+            "POST_OK_GATE=CONFIRMED POST=VALIDATED_DOJO_RECOVERY"
         )
         return replaced, cwd
 
@@ -48,13 +49,9 @@ def install_full_loop_round(validated_engine: Any) -> Callable[..., tuple[list[s
 
 
 def main() -> int:
-    # Install the canonical 64px day/night detector before the validated loop
-    # imports Trainer-search aliases by value.
     from .dojo_multitemplate import install_day_night_dojo_detector
 
     install_day_night_dojo_detector()
-
-    # The PowerShell launcher adds the canonical PC Agent root to PYTHONPATH.
     import kage_pilot_loop as canonical_loop
 
     validated_engine = getattr(canonical_loop, "_validated_engine", None)
@@ -64,10 +61,11 @@ def main() -> int:
     install_full_loop_round(validated_engine)
     print("KAGE COMBAT LAB - FULL DOJO LOOP")
     print("TRAINER: multi-template 64px day/night detector enabled")
-    print("FLOW: trainer -> one click -> dialog -> CHASE_ALWAYS_ON combat")
+    print("FLOW: trainer -> dialog/OK -> post-OK RIGHT -> acquire -> align -> combat")
+    print("AUTHORITY: SEARCH/REID/TURN_ALIGN never hold R or fire H")
     print("FLOW: authoritative KO -> return to Trainer -> meditation -> READY")
     print("MEDITATION: second V is physically blocked for at least 5.25 seconds")
-    print("F12: emergency stop remains active in search, combat and recovery")
+    print("F12: emergency stop remains active in search, startup, combat and recovery")
     return int(canonical_loop.main())
 
 

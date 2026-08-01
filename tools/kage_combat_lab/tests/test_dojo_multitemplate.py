@@ -96,7 +96,7 @@ def test_highest_score_wins_and_diagnostics_expose_both_scores() -> None:
     assert "winner=day-64" in diagnostics
 
 
-def test_windows_adapter_declares_winner_logs_and_installs_before_both_flows() -> None:
+def test_windows_adapter_installs_day_night_before_loop_and_facing_runtime() -> None:
     package_root = Path(__file__).resolve().parents[1] / "kage_combat_lab"
     detector_source = (package_root / "dojo_multitemplate.py").read_text(encoding="utf-8")
     full_loop_source = (package_root / "full_loop.py").read_text(encoding="utf-8")
@@ -110,5 +110,8 @@ def test_windows_adapter_declares_winner_logs_and_installs_before_both_flows() -
         "import kage_pilot_loop as canonical_loop"
     )
     assert full_round_source.index("install_day_night_dojo_detector()") < full_round_source.index(
-        "from .full_round import main as full_round_main"
+        "install_runtime_facing_patch(full_round_module)"
+    )
+    assert full_round_source.index("extract_post_ok_gate(sys.argv[1:])") < full_round_source.index(
+        "install_runtime_facing_patch(full_round_module)"
     )

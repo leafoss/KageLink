@@ -188,15 +188,19 @@ class LockStarvationTrackerAdhesionV351Tests(unittest.TestCase):
         self.assertEqual(visible_again.combat_target_id, logical_id)
         self.assertEqual(visible_again.current_visual_track_id, 12)
 
-    def test_same_track_impossible_jump_does_not_move_confirmed_cell(self):
+    def test_same_track_impossible_jump_keeps_prior_clean_authority(self):
         strategy = self.strategy()
         locked = self.confirm_target(strategy)
         logical_id = locked.combat_target_id
         jumped = strategy.update(frame(3, [clean_observation(3, 12, (7, 2))]))
         self.assertEqual(jumped.combat_target_id, logical_id)
         self.assertEqual(jumped.confirmed_target_cell, (3, 2))
-        self.assertNotEqual(jumped.current_visual_track_id, 12)
+        # The impossible observation is rejected; the last clean tracker remains the
+        # logical identity, but it has no current visual movement/attack authority.
+        self.assertEqual(jumped.current_visual_track_id, 12)
         self.assertFalse(jumped.movement_authority)
+        self.assertFalse(jumped.attack_authority)
+        self.assertIn("impossible multi-cell jump", jumped.reason)
 
     def test_new_track_same_cell_is_quarantined_for_two_hits(self):
         strategy = self.strategy()

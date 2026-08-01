@@ -7,7 +7,6 @@ from .domain import (
     H_COOLDOWN_SECONDS,
     H_PULSE_MS,
     MAX_H_RANGE_CELLS,
-    MOVEMENT_REPEAT_INTERVAL_SECONDS,
     POST_PULSE_OBSERVE_MS,
     R_KEYDOWN_HEARTBEAT_MS,
     SHORT_OCCLUSION_SECONDS,
@@ -19,7 +18,6 @@ from .domain import (
     ObservationKind,
     TargetState,
     cardinal_face,
-    cardinal_move,
 )
 
 
@@ -31,7 +29,12 @@ class _AttentionHypothesis:
 
 
 class GridFocusStrategy:
-    """Deterministic combat policy whose identity authority is the 64px grid."""
+    """Deterministic combat policy whose identity authority is the 64px grid.
+
+    Once a target is locked and visually clean, chase is always active. Every
+    decision attempts to converge toward D=0. H is an independent action gated
+    only by clean current-frame aim, range, and its minimum cooldown.
+    """
 
     def __init__(
         self,
@@ -60,7 +63,6 @@ class GridFocusStrategy:
         self._last_clean_at: float | None = None
         self._last_face: str | None = None
         self._last_h_at: float | None = None
-        self._last_move_at: float | None = None
 
     def end_combat(self) -> None:
         self._state = TargetState.ENDED
@@ -71,15 +73,14 @@ class GridFocusStrategy:
         self._last_clean_at = None
         self._last_face = None
         self._last_h_at = None
-        self._last_move_at = None
 
     def _focused_cells(self) -> set[GridCell] | None:
         if self._confirmed_cell is None:
             return None
 
         # A clean target may move one canonical 64px cell between frames. The
-        # identity focus therefore follows a bounded 3x3 neighbourhood around
-        # the confirmed/predicted cells instead of freezing on the old cell.
+        # identity focus follows a bounded 3x3 neighbourhood around the latest
+        # confirmed and predicted cells instead of freezing on the old cell.
         origins = {self._confirmed_cell}
         if self._predicted_cell is not None:
             origins.add(self._predicted_cell)
@@ -118,12 +119,7 @@ class GridFocusStrategy:
         return valid[0] if valid else None
 
     def _update_face(self, frame: CombatFrame, clean: CandidateObservation | None) -> str | None:
-        """Recompute aim exclusively from the current clean visual frame.
-
-        A previous direction is never allowed to authorize H. In D=0 the
-        same-cell visual must provide a fresh face_hint. In every other cell,
-        cardinal direction is recalculated from current player/target cells.
-        """
+        """Recompute direction exclusively from the current clean frame."""
 
         if clean is None:
             self._last_face = None
@@ -133,12 +129,6 @@ class GridFocusStrategy:
             return self._last_face
         self._last_face = cardinal_face(frame.player_cell, clean.anchor_cell, None)
         return self._last_face
-
-    def _movement_due(self, now: float) -> bool:
-        return (
-            self._last_move_at is None
-            or now - self._last_move_at >= MOVEMENT_REPEAT_INTERVAL_SECONDS
-        )
 
     def _h_remaining(self, now: float) -> float:
         if self._last_h_at is None:
@@ -151,16 +141,28 @@ class GridFocusStrategy:
         self._last_h_at = now
         return True
 
-    def _consume_move_if_ready(
-        self,
-        now: float,
+    @staticmethod
+    def _chase(
         *,
         direction: str | None,
-        profile: MovementPulseProfile,
+        distance: int,
     ) -> tuple[str | None, MovementPulseProfile | None]:
-        if direction is None or not self._movement_due(now):
+        """Return one chase pulse for every clean frame with usable direction.
+
+        D=0 uses a 50ms sub-cell correction. Every D>=1 uses the 100ms
+        APPROACH pulse because the desired combat position is always D=0.
+        There is intentionally no distance-based waiting state or movement
+        cooldown here; PhysicalCombatInput serializes the pulses and observe
+        windows, preventing overlapping keyboard commands.
+        """
+
+        if direction is None:
             return None, None
-        self._last_move_at = now
+        profile = (
+            MovementPulseProfile.VERY_SHORT
+            if distance == 0
+            else MovementPulseProfile.APPROACH
+        )
         return direction.lower(), profile
 
     def _decision(
@@ -189,7 +191,7 @@ class GridFocusStrategy:
             sequence.append(f"AIM_CURRENT_{self._last_face}_50MS")
             sequence.append(f"H_TAP_{H_PULSE_MS}MS")
         if move is not None and move_pulse_profile is not None:
-            sequence.append(f"MOVE_{move.upper()}_{move_pulse_ms}MS")
+            sequence.append(f"CHASE_{move.upper()}_{move_pulse_ms}MS")
         if press_h or move is not None:
             sequence.append(f"OBSERVE_{POST_PULSE_OBSERVE_MS}MS")
         return CombatDecision(
@@ -237,12 +239,11 @@ class GridFocusStrategy:
                 reason="combat already ended",
             )
 
-        allowed = self._focused_cells()
         clean = self._best_clean(
             frame.candidates,
             player_cell=frame.player_cell,
             confirmed_cell=self._confirmed_cell,
-            allowed_cells=allowed,
+            allowed_cells=self._focused_cells(),
         )
 
         if self._target_id is None:
@@ -327,99 +328,42 @@ class GridFocusStrategy:
                 move=None,
                 move_pulse_profile=None,
                 press_h=False,
-                reason=f"target suspended ({phase}) for {missing_seconds:.2f}s; no H or movement",
+                reason=(
+                    f"target suspended ({phase}) for {missing_seconds:.2f}s; "
+                    "identity retained but chase and H require clean vision"
+                ),
             )
 
         assert clean is not None
         assert self._confirmed_cell is not None
         distance = frame.player_cell.chebyshev_distance(self._confirmed_cell)
         current_face = self._last_face
-        in_h_range = distance <= MAX_H_RANGE_CELLS
+        move, pulse = self._chase(direction=current_face, distance=distance)
         press_h = self._consume_h_if_ready(
             now,
-            allowed=in_h_range and current_face is not None,
+            allowed=distance <= MAX_H_RANGE_CELLS and current_face is not None,
         )
 
-        if distance in {0, 1}:
-            if press_h:
-                return self._decision(
-                    frame,
-                    move=None,
-                    move_pulse_profile=None,
-                    press_h=True,
-                    reason=(
-                        f"D={distance}: clean target; mandatory current-frame {current_face} "
-                        "orientation pulse, then H 50ms"
-                    ),
-                )
-            move, pulse = self._consume_move_if_ready(
-                now,
-                direction=current_face,
-                profile=MovementPulseProfile.VERY_SHORT,
-            )
-            return self._decision(
-                frame,
-                move=move,
-                move_pulse_profile=pulse,
-                press_h=False,
-                reason=(
-                    f"D={distance}: H cooldown {self._h_remaining(now):.2f}s; "
-                    "VERY_SHORT current-target direction pulse"
-                    if move is not None
-                    else f"D={distance}: waiting for fresh direction or H cooldown {self._h_remaining(now):.2f}s"
-                ),
-            )
-
-        if distance == 2:
+        if current_face is None:
             return self._decision(
                 frame,
                 move=None,
                 move_pulse_profile=None,
-                press_h=press_h,
+                press_h=False,
                 reason=(
-                    f"D=2: mandatory current-frame {current_face} orientation pulse, then H 50ms"
-                    if press_h
-                    else f"D=2: hold with clean target; H cooldown {self._h_remaining(now):.2f}s"
+                    f"D={distance}: clean overlap lacks a current sub-cell direction; "
+                    "fail closed until the target/player offset becomes measurable"
                 ),
             )
 
-        if 3 <= distance <= MAX_H_RANGE_CELLS:
-            direction = cardinal_move(
-                frame.player_cell,
-                self._confirmed_cell,
-                None,
-            )
-            move, pulse = self._consume_move_if_ready(
-                now,
-                direction=direction,
-                profile=MovementPulseProfile.APPROACH,
-            )
-            return self._decision(
-                frame,
-                move=move,
-                move_pulse_profile=pulse,
-                press_h=press_h,
-                reason=(
-                    f"D={distance}: clean target; mandatory current-frame {current_face} aim, "
-                    f"H={'fire' if press_h else f'cooldown {self._h_remaining(now):.2f}s'}, "
-                    "then APPROACH 100ms toward D=2"
-                ),
-            )
-
-        direction = cardinal_move(
-            frame.player_cell,
-            self._confirmed_cell,
-            None,
-        )
-        move, pulse = self._consume_move_if_ready(
-            now,
-            direction=direction,
-            profile=MovementPulseProfile.APPROACH,
-        )
         return self._decision(
             frame,
             move=move,
             move_pulse_profile=pulse,
-            press_h=False,
-            reason=f"D={distance}: outside H range D=50; approach 100ms with clean visual confirmation",
+            press_h=press_h,
+            reason=(
+                f"D={distance}: CHASE_ALWAYS_ON toward D=0 with "
+                f"{pulse.value if pulse else 'NO'} pulse; "
+                f"H={'fire' if press_h else ('out of range' if distance > MAX_H_RANGE_CELLS else f'cooldown {self._h_remaining(now):.2f}s')}"
+            ),
         )

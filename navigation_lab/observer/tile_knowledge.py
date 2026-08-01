@@ -13,6 +13,7 @@ class TileClass(str, Enum):
     WALL = "wall"
     WALKABLE_WITH_JUTSU = "walkable_with_jutsu"
     BLOCKING_OBJECT = "blocking_object"
+    NPC = "npc"
     TRANSITION = "transition"
     DANGER = "danger"
     IGNORE_DYNAMIC = "ignore_dynamic"
@@ -24,6 +25,7 @@ TILE_CLASS_LABELS_PT_BR: dict[TileClass, str] = {
     TileClass.WALL: "Parede",
     TileClass.WALKABLE_WITH_JUTSU: "Caminhável com jutsu",
     TileClass.BLOCKING_OBJECT: "Bloqueia caminho",
+    TileClass.NPC: "NPC",
     TileClass.TRANSITION: "Transição",
     TileClass.DANGER: "Perigoso",
     TileClass.IGNORE_DYNAMIC: "Ignorar / dinâmico",

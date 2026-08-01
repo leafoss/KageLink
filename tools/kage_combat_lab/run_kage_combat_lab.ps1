@@ -59,7 +59,7 @@ if ($FullLoop) {
 }
 elseif ($LiveInput) {
     $Arguments = @(
-        "-m", "kage_combat_lab.live_input",
+        "-m", "kage_combat_lab.live_input_facing",
         "--max-seconds", "$MaxSeconds",
         "--fps", "$Fps",
         "--countdown", "$Countdown"

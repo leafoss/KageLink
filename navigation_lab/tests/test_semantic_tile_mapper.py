@@ -56,6 +56,21 @@ class TileKnowledgeTests(unittest.TestCase):
         self.assertEqual(restored.examples[0].notes, "stone wall")
         self.assertAlmostEqual(restored.similarity_threshold, 0.94)
 
+    def test_npc_category_is_taught_and_restored_separately(self) -> None:
+        crop = np.zeros((60, 60, 3), dtype=np.uint8)
+        crop[12:52, 20:42] = (180, 70, 40)
+        knowledge = TileKnowledgeBase(similarity_threshold=0.99)
+        knowledge.add_example(crop, TileClass.NPC, notes="village NPC")
+
+        recognized = knowledge.classify(crop)
+        self.assertTrue(recognized.known)
+        self.assertEqual(recognized.category, TileClass.NPC)
+
+        restored = TileKnowledgeBase.from_dict(knowledge.to_dict())
+        self.assertEqual(restored.examples[0].category, TileClass.NPC)
+        self.assertEqual(restored.counts()[TileClass.NPC], 1)
+        self.assertEqual(restored.counts()[TileClass.BLOCKING_OBJECT], 0)
+
 
 class SemanticTileMapEngineTests(unittest.TestCase):
     def test_one_example_reclassifies_matching_screen_cells(self) -> None:

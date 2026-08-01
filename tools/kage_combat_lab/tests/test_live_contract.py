@@ -9,7 +9,7 @@ from kage_combat_lab.domain import (
 from kage_combat_lab.live_contract import DEFAULT_LIVE_TEST_CONTRACT
 
 
-def test_first_live_test_contract_is_conservative() -> None:
+def test_first_live_test_contract_arms_direct_input_safely() -> None:
     contract = DEFAULT_LIVE_TEST_CONTRACT
     assert contract.target_mode == "single_trainer"
     assert contract.emergency_stop_key == EMERGENCY_STOP_KEY == "F12"
@@ -22,4 +22,6 @@ def test_first_live_test_contract_is_conservative() -> None:
     assert contract.require_foreground_window
     assert contract.release_all_keys_on_exit
     assert contract.ignore_new_targets_after_ko
-    assert contract.first_test_shadow_seconds == 10.0
+    assert contract.shadow_mode_seconds == 0.0
+    assert contract.startup_countdown_seconds == 3.0
+    assert contract.direct_input_enabled

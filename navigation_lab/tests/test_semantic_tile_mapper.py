@@ -71,6 +71,23 @@ class TileKnowledgeTests(unittest.TestCase):
         self.assertEqual(restored.counts()[TileClass.NPC], 1)
         self.assertEqual(restored.counts()[TileClass.BLOCKING_OBJECT], 0)
 
+    def test_player_category_is_separate_from_npc_and_dynamic_content(self) -> None:
+        crop = np.zeros((60, 60, 3), dtype=np.uint8)
+        crop[8:55, 18:44] = (210, 120, 35)
+        knowledge = TileKnowledgeBase(similarity_threshold=0.99)
+        knowledge.add_example(crop, TileClass.PLAYER, notes="controlled character")
+
+        recognized = knowledge.classify(crop)
+        self.assertTrue(recognized.known)
+        self.assertEqual(recognized.category, TileClass.PLAYER)
+
+        restored = TileKnowledgeBase.from_dict(knowledge.to_dict())
+        counts = restored.counts()
+        self.assertEqual(restored.examples[0].category, TileClass.PLAYER)
+        self.assertEqual(counts[TileClass.PLAYER], 1)
+        self.assertEqual(counts[TileClass.NPC], 0)
+        self.assertEqual(counts[TileClass.IGNORE_DYNAMIC], 0)
+
 
 class SemanticTileMapEngineTests(unittest.TestCase):
     def test_one_example_reclassifies_matching_screen_cells(self) -> None:

@@ -22,8 +22,6 @@ class _ActiveClip:
 
 
 class CombatEventVideoRecorder:
-    """Save compact 5s-before/5s-after diagnostic clips for critical events."""
-
     def __init__(
         self,
         output_dir: Path | str,
@@ -51,7 +49,20 @@ class CombatEventVideoRecorder:
         return cleaned.strip("_") or "event"
 
     @staticmethod
+    def _orientation_state(decision: CombatDecision) -> str:
+        if decision.turn_direction:
+            return "TURN_ALIGN"
+        if decision.contact_deadzone_active and decision.r_authorized:
+            return "CONTACT_LOCK"
+        if decision.r_authorized:
+            return "LOCKED_ALIGNED"
+        if decision.target_state.value == "LOCKED":
+            return "LOCKED_UNALIGNED"
+        return decision.target_state.value
+
+    @classmethod
     def _annotate(
+        cls,
         frame_bgr: np.ndarray,
         *,
         decision: CombatDecision,
@@ -73,16 +84,16 @@ class CombatEventVideoRecorder:
                 (255, 255, 255),
                 1,
             )
-
         lines = [
-            f"state={decision.target_state.value} logical={decision.combat_target_id or '-'} visual={decision.visual_track_id or '-'}",
-            f"D={decision.grid_distance} face={decision.face or '-'} move={decision.move or '-'} H={decision.press_h}",
+            f"state={cls._orientation_state(decision)} logical={decision.combat_target_id or '-'} visual={decision.visual_track_id or '-'}",
+            f"D={decision.grid_distance} raw={decision.raw_target_bearing or '-'} stable={decision.stable_target_bearing or '-'}",
+            f"cmd={decision.commanded_facing or '-'} confirmed={decision.confirmed_facing or '-'} conf={decision.facing_confidence:.2f}",
+            f"turn={decision.turn_attempt} R={decision.r_authorized} H={decision.h_authorized} invalid={decision.orientation_invalidated_reason or '-'}",
             f"id={decision.identity_score:.2f} app={decision.appearance_score:.2f} bg={decision.background_probability:.2f} reid={decision.reidentified}",
-            f"actions={','.join(actions) if actions else 'HOLD_R'}",
+            f"actions={','.join(actions) if actions else 'WAIT'}",
         ]
         if event_text:
             lines.insert(0, f"EVENT={event_text}")
-
         y = 22
         for line in lines:
             cv2.putText(
@@ -90,7 +101,7 @@ class CombatEventVideoRecorder:
                 line,
                 (10, y),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.48,
+                0.46,
                 (0, 0, 0),
                 3,
                 cv2.LINE_AA,
@@ -100,7 +111,7 @@ class CombatEventVideoRecorder:
                 line,
                 (10, y),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.48,
+                0.46,
                 (255, 255, 255),
                 1,
                 cv2.LINE_AA,
@@ -129,7 +140,6 @@ class CombatEventVideoRecorder:
             actions=actions,
             arena_rect=arena_rect,
         )
-
         completed: list[_ActiveClip] = []
         for clip in self._active:
             clip.frames.append(annotated.copy())
@@ -139,31 +149,23 @@ class CombatEventVideoRecorder:
         for clip in completed:
             self._active.remove(clip)
             self._write_clip(clip)
-
         for raw_event in events:
             event = self._sanitize(raw_event)
             if now - self._last_event_at.get(event, -1e9) < 2.0:
                 continue
             self._last_event_at[event] = now
             pre = [frame.copy() for frame in self._buffer]
-            event_frame = self._annotate(
-                frame_bgr,
-                decision=decision,
-                candidate=candidate,
-                actions=actions,
-                event_text=event,
-                arena_rect=arena_rect,
-            )
-            pre.append(event_frame)
-            self._active.append(
-                _ActiveClip(
-                    event=event,
-                    started_at=now,
-                    frames=pre,
-                    remaining_post_frames=self.post_frames,
+            pre.append(
+                self._annotate(
+                    frame_bgr,
+                    decision=decision,
+                    candidate=candidate,
+                    actions=actions,
+                    event_text=event,
+                    arena_rect=arena_rect,
                 )
             )
-
+            self._active.append(_ActiveClip(event, now, pre, self.post_frames))
         self._buffer.append(annotated)
 
     def _write_clip(self, clip: _ActiveClip) -> None:
@@ -177,7 +179,6 @@ class CombatEventVideoRecorder:
         while path.exists():
             path = self.output_dir / f"{base.name}_{index}.mp4"
             index += 1
-
         writer = cv2.VideoWriter(
             str(path),
             cv2.VideoWriter_fourcc(*"mp4v"),
@@ -190,7 +191,11 @@ class CombatEventVideoRecorder:
             for frame in clip.frames:
                 current = frame
                 if current.shape[1] != width or current.shape[0] != height:
-                    current = cv2.resize(current, (width, height), interpolation=cv2.INTER_AREA)
+                    current = cv2.resize(
+                        current,
+                        (width, height),
+                        interpolation=cv2.INTER_AREA,
+                    )
                 writer.write(current)
         finally:
             writer.release()

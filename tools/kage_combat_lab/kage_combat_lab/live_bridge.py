@@ -26,22 +26,32 @@ def _clamp01(value: float) -> float:
     return max(0.0, min(1.0, float(value)))
 
 
-def _cell_for_point(point: tuple[float, float]) -> GridCell:
+def _cell_for_point(
+    point: tuple[float, float],
+    *,
+    origin: tuple[float, float] = (0.0, 0.0),
+) -> GridCell:
     require_canonical_cell_size(CELL_SIZE_PX)
     return GridCell(
-        math.floor(float(point[0]) / CELL_SIZE_PX),
-        math.floor(float(point[1]) / CELL_SIZE_PX),
+        math.floor((float(point[0]) - float(origin[0])) / CELL_SIZE_PX),
+        math.floor((float(point[1]) - float(origin[1])) / CELL_SIZE_PX),
     )
 
 
-def _bbox_cells(bbox: tuple[int, int, int, int]) -> frozenset[GridCell]:
+def _bbox_cells(
+    bbox: tuple[int, int, int, int],
+    *,
+    origin: tuple[float, float] = (0.0, 0.0),
+) -> frozenset[GridCell]:
     left, top, width, height = bbox
     right = max(left, left + max(1, width) - 1)
     bottom = max(top, top + max(1, height) - 1)
+    start = _cell_for_point((left, top), origin=origin)
+    end = _cell_for_point((right, bottom), origin=origin)
     return frozenset(
         GridCell(x, y)
-        for x in range(math.floor(left / CELL_SIZE_PX), math.floor(right / CELL_SIZE_PX) + 1)
-        for y in range(math.floor(top / CELL_SIZE_PX), math.floor(bottom / CELL_SIZE_PX) + 1)
+        for x in range(start.x, end.x + 1)
+        for y in range(start.y, end.y + 1)
     )
 
 
@@ -115,7 +125,9 @@ def combat_frame_from_observer_state(
 
     now = time.monotonic() if timestamp_seconds is None else float(timestamp_seconds)
     player_point = (float(state.player_center[0]), float(state.player_center[1]))
-    player_cell = _cell_for_point(player_point)
+    raw_origin = getattr(observer, "grid_origin", (0.0, 0.0))
+    origin = (float(raw_origin[0]), float(raw_origin[1]))
+    player_cell = _cell_for_point(player_point, origin=origin)
     candidates: list[CandidateObservation] = []
     tracker: _Tracker = observer.tracker
 
@@ -124,8 +136,8 @@ def combat_frame_from_observer_state(
         visible = str(getattr(context, "state", "")).upper() == "VISIBLE"
         left, top, width, height = (int(value) for value in track.bbox)
         foot = (float(left) + float(width) * 0.5, float(top) + float(height))
-        anchor_cell = _cell_for_point(foot)
-        covered = _bbox_cells((left, top, width, height))
+        anchor_cell = _cell_for_point(foot, origin=origin)
+        covered = _bbox_cells((left, top, width, height), origin=origin)
         plausible_body = visible and _body_like(track, policy)
         clearly_multicell = (
             width > policy.maximum_width

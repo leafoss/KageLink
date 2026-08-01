@@ -19,6 +19,7 @@ def test_first_live_test_contract_arms_direct_input_safely() -> None:
     assert contract.r_keydown_heartbeat_ms == R_KEYDOWN_HEARTBEAT_MS == 250
     assert contract.hard_lost_seconds == HARD_LOST_SECONDS == 2.0
     assert contract.require_clean_visual_for_h
+    assert contract.require_fresh_cardinal_pulse_before_each_h
     assert contract.require_foreground_window
     assert contract.release_all_keys_on_exit
     assert contract.ignore_new_targets_after_ko

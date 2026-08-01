@@ -195,9 +195,11 @@ class LockStarvationTrackerAdhesionV351Tests(unittest.TestCase):
         jumped = strategy.update(frame(3, [clean_observation(3, 12, (7, 2))]))
         self.assertEqual(jumped.combat_target_id, logical_id)
         self.assertEqual(jumped.confirmed_target_cell, (3, 2))
-        # The impossible observation is rejected; the last clean tracker remains the
-        # logical identity, but it has no current visual movement/attack authority.
-        self.assertEqual(jumped.current_visual_track_id, 12)
+        # The impossible observation is rejected. The logical identity keeps the
+        # previously confirmed tracker, while the snapshot exposes no current clean
+        # visual authority for movement or attack.
+        self.assertIsNone(jumped.current_visual_track_id)
+        self.assertEqual(strategy._target.clean_visual_track_id, 12)
         self.assertFalse(jumped.movement_authority)
         self.assertFalse(jumped.attack_authority)
         self.assertIn("impossible multi-cell jump", jumped.reason)
@@ -220,12 +222,14 @@ class LockStarvationTrackerAdhesionV351Tests(unittest.TestCase):
         strategy = self.strategy()
         locked = self.confirm_target(strategy)
         logical_id = locked.combat_target_id
-        first = strategy.update(frame(3, [clean_observation(3, 55, (4, 2))]))
-        second = strategy.update(frame(4, [clean_observation(4, 55, (4, 2))]))
+        # Adjacent-cell rebind begins only after the short clean-visual grace has
+        # expired and local grid recovery is active. It then requires three clean hits.
+        first = strategy.update(frame(5, [clean_observation(5, 55, (4, 2))]))
+        second = strategy.update(frame(6, [clean_observation(6, 55, (4, 2))]))
         self.assertEqual(first.pending_rebind_hits, 1)
         self.assertEqual(second.pending_rebind_hits, 2)
         self.assertEqual(second.confirmed_target_cell, (3, 2))
-        third = strategy.update(frame(5, [clean_observation(5, 55, (4, 2))]))
+        third = strategy.update(frame(7, [clean_observation(7, 55, (4, 2))]))
         self.assertEqual(third.combat_target_id, logical_id)
         self.assertEqual(third.confirmed_target_cell, (4, 2))
         self.assertEqual(third.current_visual_track_id, 55)

@@ -7,6 +7,7 @@ from .domain import (
     CombatDecision,
     CombatFrame,
     GridCell,
+    MovementPulseProfile,
     ObservationKind,
     TargetState,
     cardinal_face,
@@ -22,12 +23,7 @@ class _AttentionHypothesis:
 
 
 class GridFocusStrategy:
-    """Deterministic combat policy whose identity authority is the 64px grid.
-
-    Visual track IDs are evidence only. They never own identity. After confirmation,
-    only the confirmed cell, one predicted adjacent cell, and a bounded 3×3 recovery
-    neighborhood may influence the logical target.
-    """
+    """Deterministic combat policy whose identity authority is the 64px grid."""
 
     def __init__(
         self,
@@ -84,7 +80,6 @@ class GridFocusStrategy:
             candidate
             for candidate in candidates
             if candidate.is_clean_body
-            and candidate.anchor_cell != player_cell
             and (allowed_cells is None or candidate.anchor_cell in allowed_cells)
         ]
         valid.sort(
@@ -98,31 +93,42 @@ class GridFocusStrategy:
         )
         return valid[0] if valid else None
 
+    def _update_face(self, frame: CombatFrame, clean: CandidateObservation | None) -> None:
+        if clean is None:
+            return
+        if clean.anchor_cell == frame.player_cell:
+            if clean.face_hint is not None:
+                self._last_face = clean.face_hint
+            return
+        current = cardinal_face(frame.player_cell, clean.anchor_cell, self._last_face)
+        if current is not None:
+            self._last_face = current
+
     def _decision(
         self,
         frame: CombatFrame,
         *,
-        attack: bool,
         move: str | None,
+        move_pulse_profile: MovementPulseProfile | None,
+        press_h: bool,
         reason: str,
     ) -> CombatDecision:
-        face = (
-            cardinal_face(frame.player_cell, self._confirmed_cell, self._last_face)
+        distance = (
+            frame.player_cell.chebyshev_distance(self._confirmed_cell)
             if self._confirmed_cell is not None
-            else self._last_face
+            else None
         )
-        if face is not None:
-            self._last_face = face
         return CombatDecision(
             frame_index=frame.frame_index,
             target_state=self._state,
             combat_target_id=self._target_id,
             confirmed_cell=self._confirmed_cell,
             predicted_cell=self._predicted_cell,
-            face=face,
+            grid_distance=distance,
+            face=self._last_face,
             move=move,
-            attack_primary=attack,
-            attack_secondary=False,
+            move_pulse_profile=move_pulse_profile,
+            press_h=press_h,
             reason=reason,
         )
 
@@ -133,16 +139,18 @@ class GridFocusStrategy:
             self.end_combat()
             return self._decision(
                 frame,
-                attack=False,
                 move=None,
+                move_pulse_profile=None,
+                press_h=False,
                 reason="KO confirmed; combat authority disabled",
             )
 
         if self._state is TargetState.ENDED:
             return self._decision(
                 frame,
-                attack=False,
                 move=None,
+                move_pulse_profile=None,
+                press_h=False,
                 reason="combat already ended",
             )
 
@@ -159,11 +167,13 @@ class GridFocusStrategy:
                 self._attention = None
                 return self._decision(
                     frame,
-                    attack=False,
                     move=None,
+                    move_pulse_profile=None,
+                    press_h=False,
                     reason="global discovery: no clean single-cell body",
                 )
 
+            self._update_face(frame, clean)
             if self._attention is not None and self._attention.cell == clean.anchor_cell:
                 self._attention.hits += 1
                 self._attention.last_frame = frame.frame_index
@@ -176,8 +186,9 @@ class GridFocusStrategy:
                 self._predicted_cell = clean.anchor_cell
                 return self._decision(
                     frame,
-                    attack=False,
                     move=None,
+                    move_pulse_profile=None,
+                    press_h=False,
                     reason=f"attention hypothesis {self._attention.hits}/{self.acquire_hits}",
                 )
 
@@ -198,6 +209,7 @@ class GridFocusStrategy:
                 self._predicted_cell = previous.step_toward(clean.anchor_cell)
                 self._last_clean_frame = frame.frame_index
                 self._state = TargetState.LOCKED
+                self._update_face(frame, clean)
 
         if clean is None and self._target_id is not None:
             assert self._last_clean_frame is not None
@@ -212,30 +224,62 @@ class GridFocusStrategy:
                 self._state = TargetState.SEARCH
                 return self._decision(
                     frame,
-                    attack=False,
                     move=None,
+                    move_pulse_profile=None,
+                    press_h=False,
                     reason=f"target #{old_id} hard lost after {missing} frames",
                 )
             self._state = TargetState.SUSPENDED
             return self._decision(
                 frame,
-                attack=False,
                 move=None,
+                move_pulse_profile=None,
+                press_h=False,
                 reason=f"target suspended; local 3x3 recovery frame {missing}",
             )
 
+        assert clean is not None
         assert self._confirmed_cell is not None
         distance = frame.player_cell.chebyshev_distance(self._confirmed_cell)
-        if distance <= 1:
+
+        if distance in {0, 1}:
+            direction = self._last_face
             return self._decision(
                 frame,
-                attack=True,
-                move=None,
-                reason="clean target in adjacent 64px grid cell",
+                move=direction.lower() if direction is not None else None,
+                move_pulse_profile=(
+                    MovementPulseProfile.VERY_SHORT if direction is not None else None
+                ),
+                press_h=False,
+                reason=(
+                    f"D={distance}: one VERY_SHORT direction pulse toward confirmed target; H forbidden"
+                    if direction is not None
+                    else f"D={distance}: target confirmed but no visual direction; hold fail-closed"
+                ),
             )
+
+        if distance == 2:
+            return self._decision(
+                frame,
+                move=None,
+                move_pulse_profile=None,
+                press_h=True,
+                reason="D=2: hold position and press H with current clean visual confirmation",
+            )
+
+        if distance == 3:
+            return self._decision(
+                frame,
+                move=cardinal_move(frame.player_cell, self._confirmed_cell),
+                move_pulse_profile=MovementPulseProfile.APPROACH,
+                press_h=True,
+                reason="D=3: press H with clean visual confirmation and approach toward D=2",
+            )
+
         return self._decision(
             frame,
-            attack=False,
-            move=cardinal_move(frame.player_cell, self._confirmed_cell),
-            reason="clean target outside contact; one-cell pursuit intention",
+            move=None,
+            move_pulse_profile=None,
+            press_h=False,
+            reason=f"D={distance}: rule not defined; hold fail-closed",
         )

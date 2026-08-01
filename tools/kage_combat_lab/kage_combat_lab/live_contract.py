@@ -15,7 +15,7 @@ from .domain import (
 
 @dataclass(frozen=True, slots=True)
 class LiveTestContract:
-    """Conservative defaults for the first real combat integration."""
+    """Direct-input defaults for the first real combat integration."""
 
     window_title: str = "Shinobi Story Online"
     target_mode: str = "single_trainer"
@@ -30,7 +30,9 @@ class LiveTestContract:
     require_clean_visual_for_h: bool = True
     release_all_keys_on_exit: bool = True
     ignore_new_targets_after_ko: bool = True
-    first_test_shadow_seconds: float = 10.0
+    shadow_mode_seconds: float = 0.0
+    startup_countdown_seconds: float = 3.0
+    direct_input_enabled: bool = True
 
 
 DEFAULT_LIVE_TEST_CONTRACT = LiveTestContract()
@@ -42,7 +44,8 @@ def checklist_lines() -> tuple[str, ...]:
         "FIRST LIVE COMBAT CONTRACT",
         f"Window: {c.window_title}",
         f"Target mode: {c.target_mode}",
-        f"Shadow validation before input: {c.first_test_shadow_seconds:.0f}s",
+        "Shadow mode: DISABLED by explicit user decision",
+        f"Direct input startup countdown: {c.startup_countdown_seconds:.0f}s",
         f"Maximum armed duration: {c.max_duration_seconds:.0f}s",
         f"Emergency stop: {c.emergency_stop_key}",
         f"H: {c.h_pulse_ms}ms tap, minimum cooldown {c.h_minimum_cooldown_seconds:.1f}s",
@@ -51,6 +54,6 @@ def checklist_lines() -> tuple[str, ...]:
         f"Hard lost timeout: {c.hard_lost_seconds:.1f}s",
         "H requires a clean target in the current frame and a cardinal aim direction.",
         "The first live test is single-target Trainer only.",
-        "All keys must be released on KO, F12, timeout, focus loss, or process exit.",
-        "This checklist does not itself send keyboard input.",
+        "All keys are released on KO, F12, timeout, focus loss, exception, or process exit.",
+        "Use -LiveInput to send real keyboard input.",
     )

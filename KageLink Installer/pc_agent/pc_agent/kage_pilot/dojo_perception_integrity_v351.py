@@ -86,10 +86,64 @@ def motion_candidate_body_rejection_reason(
     player_box_size: tuple[float, float],
     frame_shape: tuple[int, int] | None,
 ) -> str | None:
-    """Reject motion-only scenery before it can become an EntityTrack."""
+    """Reject motion-only scenery before it can become an EntityTrack.
+
+    The established strategy body gate intentionally remains compatible with its
+    deterministic spatial tests. This earlier boundary is stricter because it sees
+    raw motion proposals: floor texture, shadows and short attack fragments must be
+    discarded before the tracker allocates an identity.
+    """
+
+    x, y, width, height = candidate_bbox(candidate)
+    width_f = max(1.0, float(width))
+    height_f = max(1.0, float(height))
+    tile = max(16.0, float(tile_size))
+    horizontal_aspect = width_f / height_f
+    vertical_aspect = height_f / width_f
+
+    if width_f < max(6.0, tile * 0.16):
+        return "BODY_TOO_NARROW"
+    if height_f < max(16.0, tile * 0.50):
+        return "BODY_TOO_SHORT"
+    if width_f > tile * 1.10:
+        return "BODY_TOO_WIDE"
+    if height_f > tile * 1.35:
+        return "BODY_TOO_TALL"
+    if horizontal_aspect > 1.55:
+        return "BODY_FLOOR_OR_HORIZONTAL_EFFECT"
+    if vertical_aspect > 3.00:
+        return "BODY_VERTICAL_EFFECT"
+    if width_f * height_f > tile * tile * 1.20:
+        return "BODY_AREA_TOO_LARGE"
+
+    shape_score = getattr(candidate, "shape_score", None)
+    if shape_score is not None:
+        try:
+            if float(shape_score) < 0.42:
+                return "BODY_SHAPE_WEAK"
+        except (TypeError, ValueError):
+            return "BODY_SHAPE_INVALID"
+
+    edge_density = getattr(candidate, "edge_density", None)
+    if edge_density is not None:
+        try:
+            if float(edge_density) < 0.025:
+                return "BODY_EDGE_STRUCTURE_WEAK"
+        except (TypeError, ValueError):
+            return "BODY_EDGE_STRUCTURE_INVALID"
+
+    contour_area = getattr(candidate, "contour_area", None)
+    if contour_area is not None:
+        try:
+            fill = float(contour_area) / max(1.0, width_f * height_f)
+            if fill < 0.14:
+                return "BODY_CONTOUR_TOO_SPARSE"
+            if fill > 0.94:
+                return "BODY_CONTOUR_TOO_SOLID"
+        except (TypeError, ValueError):
+            return "BODY_CONTOUR_INVALID"
 
     center = _candidate_center(candidate)
-    tile = max(16.0, float(tile_size))
     grid_distance = int(
         round(
             max(

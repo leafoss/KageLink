@@ -28,6 +28,7 @@ class LiveTestContract:
     hard_lost_seconds: float = HARD_LOST_SECONDS
     require_foreground_window: bool = True
     require_clean_visual_for_h: bool = True
+    require_fresh_cardinal_pulse_before_each_h: bool = True
     release_all_keys_on_exit: bool = True
     ignore_new_targets_after_ko: bool = True
     shadow_mode_seconds: float = 0.0
@@ -49,10 +50,12 @@ def checklist_lines() -> tuple[str, ...]:
         f"Maximum armed duration: {c.max_duration_seconds:.0f}s",
         f"Emergency stop: {c.emergency_stop_key}",
         f"H: {c.h_pulse_ms}ms tap, minimum cooldown {c.h_minimum_cooldown_seconds:.1f}s",
+        "H is attempted at every clean visual opportunity from D=0 through D=50 when cooldown is ready.",
+        "Every H requires a fresh cardinal direction pulse from the current frame immediately before firing.",
         f"R: repeated key-down heartbeat every {c.r_keydown_heartbeat_ms}ms",
         f"Observe after each action: {c.post_action_observe_ms}ms",
         f"Hard lost timeout: {c.hard_lost_seconds:.1f}s",
-        "H requires a clean target in the current frame and a cardinal aim direction.",
+        "No clean current-frame direction means no H.",
         "The first live test is single-target Trainer only.",
         "All keys are released on KO, F12, timeout, focus loss, exception, or process exit.",
         "Use -LiveInput to send real keyboard input.",

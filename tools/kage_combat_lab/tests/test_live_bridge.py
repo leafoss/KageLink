@@ -61,6 +61,29 @@ def test_live_bridge_uses_feet_anchor_on_64px_grid() -> None:
     assert frame.candidates[0].cells_touched == frozenset({GridCell(1, 1)})
 
 
+def test_live_bridge_respects_observer_grid_origin() -> None:
+    track = SimpleNamespace(
+        track_id=8,
+        bbox=(112, 64, 32, 64),
+        observations=3,
+        enemy_score=80.0,
+        shape_score=0.5,
+    )
+    observer = SimpleNamespace(
+        tracker=FakeTracker({8: "VISIBLE"}),
+        grid_origin=(32.0, 32.0),
+    )
+    state = SimpleNamespace(player_center=(64.0, 64.0), tracks=(track,))
+    frame = combat_frame_from_observer_state(
+        observer=observer,
+        state=state,
+        frame_index=1,
+        timestamp_seconds=1.0,
+    )
+    assert frame.player_cell == GridCell(0, 0)
+    assert frame.candidates[0].anchor_cell == GridCell(1, 1)
+
+
 def test_live_bridge_marks_large_effect_multicell() -> None:
     track = SimpleNamespace(
         track_id=9,

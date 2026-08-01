@@ -5,7 +5,7 @@ import unittest
 
 from pc_agent.kage_pilot.combat_lab.replay import CombatReplay
 from pc_agent.kage_pilot.combat_lab.runner import run_all_scenarios
-from pc_agent.kage_pilot.combat_lab.scenarios import all_scenarios
+from pc_agent.kage_pilot.combat_lab.scenarios_incremental_v351 import all_scenarios
 from pc_agent.kage_pilot.combat_strategy_v351 import load_combat_strategy_config
 
 
@@ -78,6 +78,12 @@ class CombatLabReleaseGateV351Tests(unittest.TestCase):
         self.assertEqual(len(self.report.by_strategy("legacy_safe")), expected)
         self.assertEqual(len(self.report.by_strategy("persistent_hardened")), expected)
         self.assertEqual(len(self.report.by_strategy("grid_focus_v2")), expected)
+
+    def test_10_incident_approximation_is_part_of_the_gate(self):
+        names = {scenario.name for scenario in self.scenarios}
+        self.assertIn("incident_20260731_lock_starvation_approximation", names)
+        self.assertIn("visible_tracker_without_combat_lock", names)
+        self.assertIn("player_only_d0", names)
 
 
 if __name__ == "__main__":

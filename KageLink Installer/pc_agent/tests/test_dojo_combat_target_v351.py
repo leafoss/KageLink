@@ -21,11 +21,20 @@ class _Track:
         self,
         track_id: int,
         center=(140.0, 100.0),
-        bbox=(122, 72, 36, 56),
+        bbox=None,
         velocity=(0.0, 0.0),
     ) -> None:
         self.track_id = track_id
         self.center = center
+        # Test geometry must move with the requested visual centre now that combat
+        # position is correctly anchored to the bbox feet instead of track.center.
+        if bbox is None:
+            bbox = (
+                int(round(float(center[0]) - 18.0)),
+                int(round(float(center[1]) - 28.0)),
+                36,
+                56,
+            )
         self.bbox = bbox
         self.residual_velocity = velocity
         self.enemy_score = 80.0

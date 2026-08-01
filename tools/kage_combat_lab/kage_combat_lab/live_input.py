@@ -15,15 +15,29 @@ from .strategy import GridFocusStrategy
 
 
 VK_F12 = 0x7B
+_user32 = ctypes.WinDLL("user32", use_last_error=True) if os.name == "nt" else None
+if _user32 is not None:
+    _user32.GetAsyncKeyState.argtypes = [ctypes.c_int]
+    _user32.GetAsyncKeyState.restype = ctypes.c_short
+
+
+class EmergencyStop(RuntimeError):
+    pass
 
 
 def f12_pressed() -> bool:
-    if os.name != "nt":
-        return False
-    user32 = ctypes.WinDLL("user32", use_last_error=True)
-    user32.GetAsyncKeyState.argtypes = [ctypes.c_int]
-    user32.GetAsyncKeyState.restype = ctypes.c_short
-    return bool(user32.GetAsyncKeyState(VK_F12) & 0x8000)
+    return bool(_user32 is not None and (_user32.GetAsyncKeyState(VK_F12) & 0x8000))
+
+
+def _interruptible_sleep(seconds: float) -> None:
+    deadline = time.monotonic() + max(0.0, float(seconds))
+    while True:
+        if f12_pressed():
+            raise EmergencyStop("F12_STOP")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0.0:
+            return
+        time.sleep(min(0.01, remaining))
 
 
 def _close_controller(controller: Any) -> None:
@@ -178,7 +192,7 @@ def main(argv: list[str] | None = None) -> int:
     ) = _build_runtime()
 
     strategy = GridFocusStrategy()
-    physical = PhysicalCombatInput(controller)
+    physical = PhysicalCombatInput(controller, sleep_fn=_interruptible_sleep)
     reports = Path(__file__).resolve().parents[1] / "reports"
     reports.mkdir(parents=True, exist_ok=True)
     log_path = (
@@ -203,12 +217,11 @@ def main(argv: list[str] | None = None) -> int:
         physical.activate()
         watcher.prime()
 
-        for remaining in range(int(countdown), 0, -1):
-            if f12_pressed():
-                exit_reason = "F12_BEFORE_ARM"
-                return 130
+        remaining = int(countdown)
+        while remaining > 0:
             print(f"LIVE INPUT ARMING IN {remaining}...")
-            time.sleep(1.0)
+            _interruptible_sleep(1.0)
+            remaining -= 1
 
         physical.start_combat_hold()
         started = time.monotonic()
@@ -218,8 +231,7 @@ def main(argv: list[str] | None = None) -> int:
             loop_started = time.monotonic()
             now = loop_started
             if f12_pressed():
-                exit_reason = "F12_STOP"
-                break
+                raise EmergencyStop("F12_STOP")
             if now - started >= max_seconds:
                 exit_reason = "TIMEOUT"
                 break
@@ -281,9 +293,12 @@ def main(argv: list[str] | None = None) -> int:
             frame_index += 1
             elapsed = time.monotonic() - loop_started
             if elapsed < interval:
-                time.sleep(interval - elapsed)
+                _interruptible_sleep(interval - elapsed)
 
         return 0
+    except EmergencyStop:
+        exit_reason = "F12_STOP"
+        return 130
     except KeyboardInterrupt:
         exit_reason = "CTRL_C"
         return 130

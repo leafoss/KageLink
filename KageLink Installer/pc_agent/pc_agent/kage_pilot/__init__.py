@@ -27,12 +27,14 @@ from .dojo_stop_reliability_v351 import install_dojo_stop_reliability
 
 install_dojo_stop_reliability(DojoTrainingService)
 
-# Register the concrete experimental strategy through the explicit strategy registry.
-# This import changes only the registry entry; it does not replace runtime classes or
-# install a compatibility bridge. The configured default remains persistent_hardened.
+# Register concrete strategies through the explicit registry. These imports do not
+# replace runtime classes or install combat monkeypatches. The configured default
+# remains persistent_hardened until a physical BYOND validation authorizes promotion.
 from .grid_focus_v2_strategy_v351 import register_grid_focus_v2_strategy
+from .persistent_hardened_strategy_v351 import register_persistent_hardened_strategy
 
 register_grid_focus_v2_strategy()
+register_persistent_hardened_strategy()
 
 from .learning import BehaviorCloner, Prediction
 from .learning_v2 import CombatPrediction, PolicyPrediction, TemporalCombatModel

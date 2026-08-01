@@ -39,9 +39,10 @@ def combat_body_rejection_reason(
 ) -> str | None:
     """Return why a contour must not own combat movement or identity.
 
-    This boundary is intentionally stricter than the diagnostic tracker. Attack
-    effects, shadows and map strips may remain visible for debugging, but only a
-    currently VISIBLE, body-sized contour may acquire or rebind the logical enemy.
+    Motion is proposal evidence only. A candidate must also have a plausible
+    body-sized vertical silhouette in the authoritative RAW 32/64 grid. This gate
+    deliberately rejects floor patches and short attack fragments even when their
+    movement score is high.
     """
 
     state = str(context_state or "").upper()
@@ -55,14 +56,24 @@ def combat_body_rejection_reason(
     horizontal_aspect = width_f / height_f
     vertical_aspect = height_f / width_f
 
-    if width_f < max(6.0, tile * 0.10) or height_f < max(12.0, tile * 0.22):
-        return "BODY_TOO_SMALL"
+    # A clean character body occupies a meaningful vertical fraction of one RAW
+    # cell. The historical 12/14-pixel minimum admitted shadows and ground texture.
+    minimum_width = max(6.0, tile * 0.16)
+    minimum_height = max(16.0, tile * 0.50)
+    if width_f < minimum_width:
+        return "BODY_TOO_NARROW"
+    if height_f < minimum_height:
+        return "BODY_TOO_SHORT"
+
     if width_f > tile * 1.10:
         return "BODY_TOO_WIDE"
     if height_f > tile * 1.35:
         return "BODY_TOO_TALL"
-    if horizontal_aspect > 2.40:
-        return "BODY_HORIZONTAL_EFFECT"
+
+    # Wide, low silhouettes are floor/effect evidence. Transitional combat frames
+    # may be ignored temporarily; target memory provides the grace period.
+    if horizontal_aspect > 1.55:
+        return "BODY_FLOOR_OR_HORIZONTAL_EFFECT"
     if vertical_aspect > 3.00:
         return "BODY_VERTICAL_EFFECT"
     if width_f * height_f > tile * tile * 1.20:
@@ -71,10 +82,31 @@ def combat_body_rejection_reason(
     shape_score = getattr(candidate, "shape_score", None)
     if shape_score is not None:
         try:
-            if float(shape_score) < 0.28:
+            minimum_shape = 0.42 if for_acquire else 0.32
+            if float(shape_score) < minimum_shape:
                 return "BODY_SHAPE_WEAK"
         except (TypeError, ValueError):
             return "BODY_SHAPE_INVALID"
+
+    edge_density = getattr(candidate, "edge_density", None)
+    if edge_density is not None:
+        try:
+            minimum_edges = 0.025 if for_acquire else 0.018
+            if float(edge_density) < minimum_edges:
+                return "BODY_EDGE_STRUCTURE_WEAK"
+        except (TypeError, ValueError):
+            return "BODY_EDGE_STRUCTURE_INVALID"
+
+    contour_area = getattr(candidate, "contour_area", None)
+    if contour_area is not None:
+        try:
+            fill = float(contour_area) / max(1.0, width_f * height_f)
+            if fill < 0.14:
+                return "BODY_CONTOUR_TOO_SPARSE"
+            if fill > 0.94:
+                return "BODY_CONTOUR_TOO_SOLID"
+        except (TypeError, ValueError):
+            return "BODY_CONTOUR_INVALID"
 
     distance = None if grid_distance is None else int(grid_distance)
     if for_acquire and distance == 0:

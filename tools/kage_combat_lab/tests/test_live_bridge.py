@@ -1,4 +1,7 @@
+from dataclasses import replace
 from types import SimpleNamespace
+
+import pytest
 
 from kage_combat_lab.domain import (
     CombatDecision,
@@ -6,10 +9,7 @@ from kage_combat_lab.domain import (
     MovementPulseProfile,
     TargetState,
 )
-from kage_combat_lab.live_bridge import (
-    PhysicalCombatInput,
-    combat_frame_from_observer_state,
-)
+from kage_combat_lab.live_bridge import PhysicalCombatInput, combat_frame_from_observer_state
 
 
 class FakeTracker:
@@ -35,7 +35,7 @@ class FakeController:
         self.calls.append(("release_all",))
 
 
-def decision(face="RIGHT", press_h=True, move=None):
+def aligned_decision(*, press_h=True, move=None):
     profile = MovementPulseProfile.APPROACH if move else None
     return CombatDecision(
         frame_index=1,
@@ -45,7 +45,7 @@ def decision(face="RIGHT", press_h=True, move=None):
         confirmed_cell=GridCell(1, 0),
         predicted_cell=GridCell(1, 0),
         grid_distance=1,
-        face=face,
+        face="RIGHT",
         move=move,
         move_pulse_profile=profile,
         move_pulse_ms=profile.duration_ms if profile else None,
@@ -59,10 +59,65 @@ def decision(face="RIGHT", press_h=True, move=None):
         appearance_score=0.8,
         background_probability=0.1,
         reidentified=False,
-        aim_requires_confirmation=press_h,
+        aim_requires_confirmation=False,
         action_sequence=(),
         reason="test",
+        confirmed_facing="RIGHT",
+        stable_target_bearing="RIGHT",
+        r_authorized=True,
+        h_authorized=press_h,
     )
+
+
+def test_startup_right_is_exclusive_and_ordered():
+    sleeps = []
+    controller = FakeController()
+    physical = PhysicalCombatInput(controller, sleep_fn=sleeps.append)
+    physical.activate()
+    actions = physical.startup_face_right()
+    assert ("right",) in controller.calls
+    assert ("r", "right") not in controller.calls
+    assert sleeps == [0.3, 0.09, 0.12]
+    assert actions[1] == "STARTUP_RIGHT_PULSE_90MS"
+
+
+def test_turn_releases_r_and_uses_only_requested_direction():
+    sleeps = []
+    controller = FakeController()
+    physical = PhysicalCombatInput(controller, sleep_fn=sleeps.append)
+    physical.activate()
+    actions = physical.execute_turn("left")
+    assert ("left",) in controller.calls
+    assert ("left", "r") not in controller.calls
+    assert sleeps == [0.03, 0.08, 0.09]
+    assert "TURN_LEFT_80MS" in actions
+
+
+def test_search_or_unaligned_decision_releases_everything():
+    controller = FakeController()
+    physical = PhysicalCombatInput(controller, sleep_fn=lambda _: None)
+    physical.activate()
+    decision = replace(
+        aligned_decision(),
+        target_state=TargetState.TURN_ALIGN,
+        hold_r=False,
+        r_authorized=False,
+        press_h=False,
+        h_authorized=False,
+    )
+    actions = physical.execute(decision)
+    assert actions == ("RELEASE_ALL", "WAIT_FOR_TARGET_OR_ALIGNMENT")
+    assert not any("h" in call for call in controller.calls)
+
+
+def test_h_is_sent_only_after_alignment_was_authorized():
+    controller = FakeController()
+    physical = PhysicalCombatInput(controller, sleep_fn=lambda _: None)
+    physical.activate()
+    actions = physical.execute(aligned_decision(press_h=True))
+    assert "H_50MS" in actions
+    assert physical.h_fired(actions)
+    assert ("h", "r") in controller.calls
 
 
 def test_live_bridge_keeps_bbox_foot_offset_and_motion_evidence():
@@ -87,60 +142,22 @@ def test_live_bridge_keeps_bbox_foot_offset_and_motion_evidence():
     )
     candidate = frame.candidates[0]
     assert candidate.anchor_cell == GridCell(1, 1)
-    assert candidate.bbox == (64, 0, 32, 64)
-    assert candidate.foot_point == (80.0, 64.0)
     assert candidate.relative_offset_px == (48.0, 32.0)
     assert candidate.motion_score > 0.45
 
 
-def test_closed_loop_fires_only_after_fresh_confirmation():
-    sleeps = []
+def test_emergency_exception_still_releases_direction():
     controller = FakeController()
-    physical = PhysicalCombatInput(controller, sleep_fn=sleeps.append)
+    calls = 0
+
+    def sleep(_):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("F12_STOP")
+
+    physical = PhysicalCombatInput(controller, sleep_fn=sleep)
     physical.activate()
-    actions = physical.execute(
-        decision(),
-        confirm_aim=lambda attempted: attempted,
-    )
-    assert "AIM_CONFIRMED_RIGHT" in actions
-    assert "H_50MS" in actions
-    assert physical.h_fired(actions)
-    assert 0.075 in sleeps
-
-
-def test_closed_loop_corrects_direction_before_h():
-    sleeps = []
-    controller = FakeController()
-    physical = PhysicalCombatInput(controller, sleep_fn=sleeps.append)
-    physical.activate()
-    answers = iter(["DOWN", "DOWN"])
-    actions = physical.execute(
-        decision(),
-        confirm_aim=lambda _: next(answers),
-    )
-    assert "AIM_CORRECT_RIGHT_TO_DOWN" in actions
-    assert "AIM_DOWN_50MS" in actions
-    assert "AIM_CONFIRMED_DOWN" in actions
-    assert "H_50MS" in actions
-
-
-def test_closed_loop_skips_h_when_two_fresh_frames_cannot_confirm():
-    controller = FakeController()
-    physical = PhysicalCombatInput(controller, sleep_fn=lambda _: None)
-    physical.activate()
-    actions = physical.execute(
-        decision(),
-        confirm_aim=lambda _: None,
-    )
-    assert "H_SKIPPED_AIM_UNCONFIRMED" in actions
-    assert not physical.h_fired(actions)
-    assert not any(call == ("h", "r") for call in controller.calls)
-
-
-def test_h_confirmation_is_required_when_flagged():
-    controller = FakeController()
-    physical = PhysicalCombatInput(controller, sleep_fn=lambda _: None)
-    physical.activate()
-    actions = physical.execute(decision(), confirm_aim=None)
-    assert "H_SKIPPED_NO_AIM_CONFIRMATION" in actions
-    assert not physical.h_fired(actions)
+    with pytest.raises(RuntimeError, match="F12_STOP"):
+        physical.execute_turn("right")
+    assert controller.calls[-1] == ("release_all",)

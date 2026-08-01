@@ -1,6 +1,6 @@
 # Kage Combat Lab
 
-Laboratório determinístico e adapter de combate real da PR #25.
+Laboratório determinístico, adapter de combate real e teste completo do Dojo da PR #25.
 
 ## Contrato protegido do grid
 
@@ -51,14 +51,6 @@ R mantido
 → nova observação
 ```
 
-Sem H disponível:
-
-```text
-R mantido
-→ chase rumo a D0
-→ nova observação
-```
-
 ## Testes determinísticos
 
 ```powershell
@@ -66,30 +58,105 @@ cd tools\kage_combat_lab
 .\run_kage_combat_lab.ps1 -RunAll
 ```
 
-## Combate real com input
+## Combate isolado com input
 
-`-LiveInput` envia teclas reais para **Shinobi Story Online**.
+`-LiveInput` inicia somente o combate contra um Trainer já invocado.
 
 ```powershell
 cd "C:\Users\Rafael\Desktop\Powershell\Kagelink2\tools\kage_combat_lab"
 .\run_kage_combat_lab.ps1 -LiveInput -MaxSeconds 80 -NoPreview
 ```
 
-Defaults e segurança:
+## Loop completo do Dojo
+
+`-FullLoop` reutiliza o loop validado do Kage Pilot e substitui somente a rodada de combate pelo `CHASE_ALWAYS_ON`.
+
+Fluxo executado:
 
 ```text
-Contagem para armar: 3 s
-Duração máxima: 80 s
-Frequência de visão: 8 FPS
+buscar o Dojo Trainer
+→ confirmar visualmente
+→ clicar uma única vez
+→ aguardar e confirmar o diálogo
+→ clicar OK
+→ aguardar o adversário nascer
+→ combater com CHASE_ALWAYS_ON
+→ aceitar KO autoritativo pelo chat
+→ liberar R, H e direcionais
+→ localizar/retornar ao Trainer
+→ iniciar meditação com V
+→ usar Y rápido quando o motor validado autorizar
+→ atingir HP >= 90% e Chakra >= 50%
+→ aguardar no mínimo 5,25 s desde a entrada na meditação
+→ sair da meditação com V
+→ emitir READY
+```
+
+Para o primeiro teste, comece recuperado, dentro do Dojo e sem estar meditando. Execute apenas uma rodada:
+
+```powershell
+cd "C:\Users\Rafael\Desktop\Powershell\Kagelink2\tools\kage_combat_lab"
+.\run_kage_combat_lab.ps1 -FullLoop -Rounds 1
+```
+
+Parâmetros padrão do primeiro teste:
+
+```text
+Rodadas: 1
+Combate máximo por rodada: 120 s
+Retorno + recuperação: 240 s
+Espera do diálogo: 5 s
+Espera de nascimento: 5 s
+Busca do Trainer: 90 s
+HP para READY: 90%
+Chakra para READY: 50%
+Meditação mínima antes do segundo V: 5,25 s
 Parada de emergência: F12
 ```
 
-Cada decisão é registrada em:
+Comando explícito equivalente:
+
+```powershell
+.\run_kage_combat_lab.ps1 `
+  -FullLoop `
+  -Rounds 1 `
+  -CombatSeconds 120 `
+  -PostCombatTimeout 240 `
+  -DialogDelay 5 `
+  -SpawnDelay 5 `
+  -TrainerSearchTimeout 90
+```
+
+Sinais esperados no terminal:
 
 ```text
-tools\kage_combat_lab\reports\live_input_*.jsonl
+DOJO_REQUEST_ACCEPTED
+PR25_FULL_ROUND=CHASE_ALWAYS_ON
+FULL ROUND COMBAT ARMED
+VICTORY_CHAT / VITORIA_CHAT
+POST_COMBAT / POS-COMBATE
+POST V_TAP state=START_MEDITATION
+READY / PRONTO
+result=ready
+ROUND 1: COMPLETE / CONCLUIDA
+DOJO_LOOP_FINISHED ... completed=1 ... failed=0
+```
+
+Use F12 imediatamente se ocorrer qualquer uma destas condições:
+
+- perseguir um objeto que não seja o adversário;
+- caminhar sem corpo limpo visível;
+- continuar enviando R ou H depois do KO;
+- não retornar ao Trainer;
+- tentar sair da meditação antes do prazo físico;
+- iniciar uma nova luta ainda meditando.
+
+Os logs da rodada completa são gravados em:
+
+```text
+KageLink Installer\pc_agent\kage_pilot_loop_logs\round_001.jsonl
 ```
 
 ## Dependências
 
-O modo `-LiveInput` precisa do checkout completo do KageLink e do ambiente Python que já executa o Kage Pilot, incluindo OpenCV, NumPy e pywin32. Os testes determinísticos continuam independentes dessas dependências.
+Os modos `-LiveInput` e `-FullLoop` exigem o checkout completo do KageLink e o ambiente Python que já executa o Kage Pilot, incluindo OpenCV, NumPy e pywin32. O modo `-FullLoop` é intencionalmente restrito ao checkout fonte e não tenta alterar o executável instalado.

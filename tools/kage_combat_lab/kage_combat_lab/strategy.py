@@ -113,16 +113,22 @@ class GridFocusStrategy:
         )
         return valid[0] if valid else None
 
-    def _update_face(self, frame: CombatFrame, clean: CandidateObservation | None) -> None:
+    def _update_face(self, frame: CombatFrame, clean: CandidateObservation | None) -> str | None:
+        """Recompute aim exclusively from the current clean visual frame.
+
+        A previous direction is never allowed to authorize H. In D=0 the
+        same-cell visual must provide a fresh face_hint. In every other cell,
+        cardinal direction is recalculated from current player/target cells.
+        """
+
         if clean is None:
-            return
+            self._last_face = None
+            return None
         if clean.anchor_cell == frame.player_cell:
-            if clean.face_hint is not None:
-                self._last_face = clean.face_hint
-            return
-        current = cardinal_face(frame.player_cell, clean.anchor_cell, self._last_face)
-        if current is not None:
-            self._last_face = current
+            self._last_face = clean.face_hint
+            return self._last_face
+        self._last_face = cardinal_face(frame.player_cell, clean.anchor_cell, None)
+        return self._last_face
 
     def _movement_due(self, now: float) -> bool:
         return (
@@ -175,9 +181,8 @@ class GridFocusStrategy:
         sequence: list[str] = []
         if hold_r:
             sequence.append(f"R_KEYDOWN_HEARTBEAT_{R_KEYDOWN_HEARTBEAT_MS}MS")
-        if self._last_face is not None:
-            sequence.append(f"AIM_{self._last_face}")
-        if press_h:
+        if press_h and self._last_face is not None:
+            sequence.append(f"AIM_CURRENT_{self._last_face}_50MS")
             sequence.append(f"H_TAP_{H_PULSE_MS}MS")
         if move is not None and move_pulse_profile is not None:
             sequence.append(f"MOVE_{move.upper()}_{move_pulse_ms}MS")
@@ -240,6 +245,7 @@ class GridFocusStrategy:
             if clean is None:
                 self._state = TargetState.SEARCH
                 self._attention = None
+                self._update_face(frame, None)
                 return self._decision(
                     frame,
                     move=None,
@@ -279,6 +285,7 @@ class GridFocusStrategy:
             assert previous is not None
             if previous.chebyshev_distance(clean.anchor_cell) > 1:
                 clean = None
+                self._update_face(frame, None)
             else:
                 self._confirmed_cell = clean.anchor_cell
                 self._predicted_cell = previous.step_toward(clean.anchor_cell)
@@ -321,12 +328,28 @@ class GridFocusStrategy:
         assert clean is not None
         assert self._confirmed_cell is not None
         distance = frame.player_cell.chebyshev_distance(self._confirmed_cell)
+        current_face = self._last_face
+        in_h_range = distance <= MAX_H_RANGE_CELLS
+        press_h = self._consume_h_if_ready(
+            now,
+            allowed=in_h_range and current_face is not None,
+        )
 
         if distance in {0, 1}:
-            direction = self._last_face
+            if press_h:
+                return self._decision(
+                    frame,
+                    move=None,
+                    move_pulse_profile=None,
+                    press_h=True,
+                    reason=(
+                        f"D={distance}: clean target; mandatory current-frame {current_face} "
+                        "orientation pulse, then H 50ms"
+                    ),
+                )
             move, pulse = self._consume_move_if_ready(
                 now,
-                direction=direction,
+                direction=current_face,
                 profile=MovementPulseProfile.VERY_SHORT,
             )
             return self._decision(
@@ -335,26 +358,23 @@ class GridFocusStrategy:
                 move_pulse_profile=pulse,
                 press_h=False,
                 reason=(
-                    f"D={distance}: VERY_SHORT 50ms direction pulse toward confirmed target; H forbidden"
+                    f"D={distance}: H cooldown {self._h_remaining(now):.2f}s; "
+                    "VERY_SHORT current-target direction pulse"
                     if move is not None
-                    else f"D={distance}: hold until direction evidence or movement interval is ready; H forbidden"
+                    else f"D={distance}: waiting for fresh direction or H cooldown {self._h_remaining(now):.2f}s"
                 ),
             )
 
         if distance == 2:
-            press_h = self._consume_h_if_ready(
-                now,
-                allowed=self._last_face is not None and distance <= MAX_H_RANGE_CELLS,
-            )
             return self._decision(
                 frame,
                 move=None,
                 move_pulse_profile=None,
                 press_h=press_h,
                 reason=(
-                    "D=2: hold position, aim at clean target, then H 50ms"
+                    f"D=2: mandatory current-frame {current_face} orientation pulse, then H 50ms"
                     if press_h
-                    else f"D=2: hold and preserve aim; H cooldown {self._h_remaining(now):.2f}s"
+                    else f"D=2: hold with clean target; H cooldown {self._h_remaining(now):.2f}s"
                 ),
             )
 
@@ -362,29 +382,29 @@ class GridFocusStrategy:
             direction = cardinal_move(
                 frame.player_cell,
                 self._confirmed_cell,
-                self._last_face,
+                None,
             )
             move, pulse = self._consume_move_if_ready(
                 now,
                 direction=direction,
                 profile=MovementPulseProfile.APPROACH,
             )
-            press_h = self._consume_h_if_ready(
-                now,
-                allowed=self._last_face is not None,
-            )
             return self._decision(
                 frame,
                 move=move,
                 move_pulse_profile=pulse,
                 press_h=press_h,
-                reason=f"D={distance}: aim, H when cooldown is ready, then APPROACH 100ms toward D=2",
+                reason=(
+                    f"D={distance}: clean target; mandatory current-frame {current_face} aim, "
+                    f"H={'fire' if press_h else f'cooldown {self._h_remaining(now):.2f}s'}, "
+                    "then APPROACH 100ms toward D=2"
+                ),
             )
 
         direction = cardinal_move(
             frame.player_cell,
             self._confirmed_cell,
-            self._last_face,
+            None,
         )
         move, pulse = self._consume_move_if_ready(
             now,

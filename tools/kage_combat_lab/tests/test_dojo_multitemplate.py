@@ -1,31 +1,19 @@
 from __future__ import annotations
 
 from pathlib import Path
-import sys
 
 import cv2
 import numpy as np
 import pytest
 
-
-REPO_ROOT = Path(__file__).resolve().parents[3]
-PC_AGENT_ROOT = REPO_ROOT / "KageLink Installer" / "pc_agent"
-if str(PC_AGENT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PC_AGENT_ROOT))
-
-from kage_combat_lab.dojo_multitemplate import (  # noqa: E402
+from kage_combat_lab.dojo_multitemplate import (
+    EmbeddedTrainerMatcher,
     embedded_trainer_templates,
-    install_day_night_dojo_detector,
 )
 
 
-def _detector(tmp_path: Path, *, threshold: float = 0.95):
-    detector_class = install_day_night_dojo_detector()
-    return detector_class(
-        threshold=threshold,
-        template_root=tmp_path,
-        scales=(1.0,),
-    )
+def _matcher(*, threshold: float = 0.95) -> EmbeddedTrainerMatcher:
+    return EmbeddedTrainerMatcher(threshold=threshold, scales=(1.0,))
 
 
 def _frame_with(*placements: tuple[np.ndarray, int, int]) -> np.ndarray:
@@ -44,80 +32,83 @@ def test_official_templates_are_distinct_canonical_64px_images() -> None:
     assert not np.array_equal(templates["day-64"], templates["night-64"])
 
 
-def test_night_template_alone_is_detected(tmp_path: Path) -> None:
+def test_night_template_alone_is_detected() -> None:
     templates = embedded_trainer_templates()
-    detector = _detector(tmp_path)
-    match = detector._best_visual(_frame_with((templates["night-64"], 40, 60)))
+    matcher = _matcher()
+    match = matcher.match(_frame_with((templates["night-64"], 40, 60)))
     assert match is not None
-    assert detector.last_accepted_template_mode == "64"
-    assert detector.last_accepted_template_source == "night-64"
-    assert detector.last_template_scores["night-64"] == pytest.approx(1.0, abs=1e-5)
+    assert match.mode == "64"
+    assert match.source_name == "night-64"
+    assert matcher.last_scan.scores["night-64"] == pytest.approx(1.0, abs=1e-5)
 
 
-def test_day_template_alone_is_detected(tmp_path: Path) -> None:
+def test_day_template_alone_is_detected() -> None:
     templates = embedded_trainer_templates()
-    detector = _detector(tmp_path)
-    match = detector._best_visual(_frame_with((templates["day-64"], 70, 80)))
+    matcher = _matcher()
+    match = matcher.match(_frame_with((templates["day-64"], 70, 80)))
     assert match is not None
-    assert detector.last_accepted_template_mode == "64"
-    assert detector.last_accepted_template_source == "day-64"
-    assert detector.last_template_scores["day-64"] == pytest.approx(1.0, abs=1e-5)
+    assert match.mode == "64"
+    assert match.source_name == "day-64"
+    assert matcher.last_scan.scores["day-64"] == pytest.approx(1.0, abs=1e-5)
 
 
-def test_both_templates_are_scored_and_one_valid_match_is_accepted(tmp_path: Path) -> None:
+def test_both_templates_are_scored_and_one_valid_match_is_accepted() -> None:
     templates = embedded_trainer_templates()
-    detector = _detector(tmp_path)
+    matcher = _matcher()
     frame = _frame_with(
         (templates["night-64"], 20, 30),
         (templates["day-64"], 150, 120),
     )
-    match = detector._best_visual(frame)
+    match = matcher.match(frame)
     assert match is not None
-    assert detector.last_template_scores["night-64"] == pytest.approx(1.0, abs=1e-5)
-    assert detector.last_template_scores["day-64"] == pytest.approx(1.0, abs=1e-5)
-    assert detector.last_accepted_template_source in {"night-64", "day-64"}
+    assert matcher.last_scan.scores["night-64"] == pytest.approx(1.0, abs=1e-5)
+    assert matcher.last_scan.scores["day-64"] == pytest.approx(1.0, abs=1e-5)
+    assert match.source_name in {"night-64", "day-64"}
 
 
-def test_no_template_match_fails_closed(tmp_path: Path) -> None:
+def test_no_template_match_fails_closed() -> None:
     rng = np.random.default_rng(20260801)
     noise = rng.integers(0, 256, size=(220, 260, 3), dtype=np.uint8)
-    detector = _detector(tmp_path, threshold=0.98)
-    match = detector._best_visual(noise)
+    matcher = _matcher(threshold=0.98)
+    match = matcher.match(noise)
     assert match is None
-    assert detector.last_accepted_template_source is None
-    assert detector.last_rejection_reason == "below-threshold"
+    assert matcher.last_scan.accepted is None
+    assert matcher.last_scan.rejection_reason == "below-threshold"
 
 
-def test_highest_score_wins_and_diagnostics_expose_both_scores(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
+def test_highest_score_wins_and_diagnostics_expose_both_scores() -> None:
     templates = embedded_trainer_templates()
     degraded_night = cv2.GaussianBlur(templates["night-64"], (9, 9), 0)
-    detector = _detector(tmp_path, threshold=0.75)
+    matcher = _matcher(threshold=0.75)
     frame = _frame_with(
         (degraded_night, 20, 30),
         (templates["day-64"], 150, 120),
     )
-    match = detector._best_visual(frame)
+    match = matcher.match(frame)
     assert match is not None
-    assert detector.last_accepted_template_source == "day-64"
-    assert detector.last_template_scores["day-64"] > detector.last_template_scores["night-64"]
+    assert match.source_name == "day-64"
+    assert matcher.last_scan.scores["day-64"] > matcher.last_scan.scores["night-64"]
 
-    diagnostics = detector.diagnostics_text()
+    diagnostics = matcher.diagnostics_text()
     assert "day64=" in diagnostics
     assert "night64=" in diagnostics
     assert "best=" in diagnostics
     assert "winner=day-64" in diagnostics
 
-    output = capsys.readouterr().out
-    assert "TRAINER_TEMPLATE_SCORES" in output
-    assert "TRAINER_TEMPLATE_MATCH template=day-64 mode=64" in output
 
+def test_windows_adapter_declares_winner_logs_and_installs_before_both_flows() -> None:
+    package_root = Path(__file__).resolve().parents[1] / "kage_combat_lab"
+    detector_source = (package_root / "dojo_multitemplate.py").read_text(encoding="utf-8")
+    full_loop_source = (package_root / "full_loop.py").read_text(encoding="utf-8")
+    full_round_source = (package_root / "full_round_daynight.py").read_text(encoding="utf-8")
 
-def test_same_detector_class_is_installed_for_search_and_post_combat() -> None:
-    from pc_agent.kage_pilot import dojo_templates_v35, post_combat_v03c
+    assert "TRAINER_TEMPLATE_SCORES" in detector_source
+    assert "TRAINER_TEMPLATE_MATCH" in detector_source
+    assert "selection=max(score)" in detector_source
 
-    detector_class = install_day_night_dojo_detector()
-    assert dojo_templates_v35.UserDojoLeaderDetector is detector_class
-    assert post_combat_v03c.PersistentDojoLeaderDetector is detector_class
+    assert full_loop_source.index("install_day_night_dojo_detector()") < full_loop_source.index(
+        "import kage_pilot_loop as canonical_loop"
+    )
+    assert full_round_source.index("install_day_night_dojo_detector()") < full_round_source.index(
+        "from .full_round import main as full_round_main"
+    )

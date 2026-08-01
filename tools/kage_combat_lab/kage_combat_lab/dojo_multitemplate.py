@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from dataclasses import dataclass
 from pathlib import Path
 import tempfile
 import time
@@ -16,6 +17,34 @@ _EMBEDDED_SOURCES = (
     ("day-64", "trainer_day_64.b64"),
 )
 _DEFAULT_BUILTIN_SCALES = (0.80, 0.85, 0.90, 0.95, 1.00, 1.05, 1.10, 1.15, 1.20, 1.25)
+
+
+@dataclass(frozen=True, slots=True)
+class TemplateCandidate:
+    mode: str
+    source_name: str
+    template_gray: np.ndarray
+    threshold: float
+    scales: tuple[float, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class TemplateMatch:
+    score: float
+    bbox: tuple[int, int, int, int]
+    foot: tuple[float, float]
+    mode: str
+    source_name: str
+    scale: float
+
+
+@dataclass(frozen=True, slots=True)
+class TemplateScan:
+    accepted: TemplateMatch | None
+    raw_best: TemplateMatch | None
+    scores: dict[str, float]
+    scales: dict[str, float]
+    rejection_reason: str
 
 
 def _package_file(name: str) -> Path:
@@ -46,6 +75,137 @@ def embedded_trainer_templates() -> dict[str, np.ndarray]:
     }
 
 
+def _normalized_scales(values: Iterable[float]) -> tuple[float, ...]:
+    return tuple(sorted({max(0.70, min(1.30, float(value))) for value in values})) or (1.0,)
+
+
+def embedded_template_candidates(
+    *,
+    threshold: float = 0.88,
+    scales: Iterable[float] = _DEFAULT_BUILTIN_SCALES,
+) -> tuple[TemplateCandidate, ...]:
+    normalized = _normalized_scales(scales)
+    required = max(0.45, min(0.98, float(threshold)))
+    templates = embedded_trainer_templates()
+    return tuple(
+        TemplateCandidate(
+            mode="64",
+            source_name=source_name,
+            template_gray=cv2.cvtColor(templates[source_name], cv2.COLOR_BGR2GRAY),
+            threshold=required,
+            scales=normalized,
+        )
+        for source_name in ("night-64", "day-64")
+    )
+
+
+def _roi(frame_bgr: np.ndarray, arena_rect=None) -> tuple[np.ndarray, int, int]:
+    frame_h, frame_w = frame_bgr.shape[:2]
+    if arena_rect is None:
+        x0, y0, x1, y1 = 0, 0, frame_w, frame_h
+    else:
+        x0, y0, x1, y1 = (int(value) for value in arena_rect)
+        x0, y0 = max(0, x0), max(0, y0)
+        x1, y1 = min(frame_w, x1), min(frame_h, y1)
+    return frame_bgr[y0:y1, x0:x1], x0, y0
+
+
+def scan_templates(
+    frame_bgr: np.ndarray,
+    candidates: Iterable[TemplateCandidate],
+    *,
+    arena_rect=None,
+) -> TemplateScan:
+    roi, offset_x, offset_y = _roi(frame_bgr, arena_rect)
+    candidate_tuple = tuple(candidates)
+    if roi.size == 0:
+        return TemplateScan(None, None, {}, {}, "empty-roi")
+    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+
+    raw_best: TemplateMatch | None = None
+    accepted: list[TemplateMatch] = []
+    scores: dict[str, float] = {}
+    scales_by_source: dict[str, float] = {}
+
+    for candidate in candidate_tuple:
+        original_h, original_w = candidate.template_gray.shape[:2]
+        source_best: TemplateMatch | None = None
+        for scale in candidate.scales:
+            width = max(8, round(original_w * scale))
+            height = max(8, round(original_h * scale))
+            if width > gray.shape[1] or height > gray.shape[0]:
+                continue
+            interpolation = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_NEAREST
+            template = cv2.resize(candidate.template_gray, (width, height), interpolation=interpolation)
+            result = cv2.matchTemplate(gray, template, cv2.TM_CCOEFF_NORMED)
+            _, score, _, location = cv2.minMaxLoc(result)
+            left = offset_x + int(location[0])
+            top = offset_y + int(location[1])
+            match = TemplateMatch(
+                score=float(score),
+                bbox=(left, top, width, height),
+                foot=(left + width * 0.50, top + height * 0.88),
+                mode=candidate.mode,
+                source_name=candidate.source_name,
+                scale=float(scale),
+            )
+            if source_best is None or match.score > source_best.score:
+                source_best = match
+            if raw_best is None or match.score > raw_best.score:
+                raw_best = match
+
+        if source_best is None:
+            scores[candidate.source_name] = -1.0
+            scales_by_source[candidate.source_name] = 1.0
+            continue
+        scores[candidate.source_name] = source_best.score
+        scales_by_source[candidate.source_name] = source_best.scale
+        if source_best.score >= candidate.threshold:
+            accepted.append(source_best)
+
+    if raw_best is None:
+        return TemplateScan(None, None, scores, scales_by_source, "no-comparable-template")
+    if not accepted:
+        return TemplateScan(None, raw_best, scores, scales_by_source, "below-threshold")
+    winner = max(accepted, key=lambda match: match.score)
+    return TemplateScan(winner, raw_best, scores, scales_by_source, "")
+
+
+class EmbeddedTrainerMatcher:
+    """Pure OpenCV matcher used by both CI tests and the Windows adapter."""
+
+    def __init__(
+        self,
+        *,
+        threshold: float = 0.88,
+        scales: Iterable[float] = _DEFAULT_BUILTIN_SCALES,
+    ) -> None:
+        self.candidates = embedded_template_candidates(threshold=threshold, scales=scales)
+        self.threshold = max(candidate.threshold for candidate in self.candidates)
+        self.last_scan = TemplateScan(None, None, {}, {}, "not-run")
+
+    def match(self, frame_bgr: np.ndarray, *, arena_rect=None) -> TemplateMatch | None:
+        self.last_scan = scan_templates(frame_bgr, self.candidates, arena_rect=arena_rect)
+        return self.last_scan.accepted
+
+    def diagnostics_text(self) -> str:
+        day = self.last_scan.scores.get("day-64", -1.0)
+        night = self.last_scan.scores.get("night-64", -1.0)
+        best = max(self.last_scan.scores.values(), default=-1.0)
+        winner = (
+            self.last_scan.accepted.source_name
+            if self.last_scan.accepted is not None
+            else self.last_scan.raw_best.source_name
+            if self.last_scan.raw_best is not None
+            else "-"
+        )
+        return (
+            f"day64={day:.3f} night64={night:.3f} best={best:.3f} "
+            f"winner={winner} need={self.threshold:.3f} "
+            f"rejection={self.last_scan.rejection_reason or '-'}"
+        )
+
+
 def _runtime_seed_path(image: np.ndarray) -> Path:
     root = Path(tempfile.gettempdir()) / "KageLink" / "pr25"
     root.mkdir(parents=True, exist_ok=True)
@@ -58,10 +218,6 @@ def _runtime_seed_path(image: np.ndarray) -> Path:
     return path
 
 
-def _normalized_scales(values: Iterable[float]) -> tuple[float, ...]:
-    return tuple(sorted({max(0.70, min(1.30, float(value))) for value in values})) or (1.0,)
-
-
 def _load_optional_gray(path: Path) -> np.ndarray | None:
     image = cv2.imread(str(path), cv2.IMREAD_COLOR)
     if image is None or image.size == 0:
@@ -70,11 +226,7 @@ def _load_optional_gray(path: Path) -> np.ndarray | None:
 
 
 class DayNightDojoLeaderDetector:
-    """Runtime-created subclass of the validated persistent detector.
-
-    The concrete base is selected in ``__new__`` after the PC Agent path is available.
-    This keeps the deterministic lab importable without KageLink runtime setup.
-    """
+    """Runtime-created subclass of the validated persistent Windows detector."""
 
     def __new__(cls, *args, **kwargs):
         from pc_agent.kage_pilot.post_combat_v03c import PersistentDojoLeaderDetector
@@ -98,8 +250,6 @@ def _build_detector_class(base_class):
     from pc_agent.kage_pilot.post_combat_v03b import LeaderMatchV2
 
     class _DayNightDojoLeaderDetector(base_class):
-        """Multi-template detector for canonical 64px day/night Trainer appearances."""
-
         def __init__(
             self,
             *,
@@ -119,18 +269,13 @@ def _build_detector_class(base_class):
                 scales=requested_scales,
             )
 
-            visual_templates: list[tuple[str, str, np.ndarray, float, tuple[float, ...]]] = []
             built_in_scales = _normalized_scales((*requested_scales, *_DEFAULT_BUILTIN_SCALES))
-            for source_name in ("night-64", "day-64"):
-                visual_templates.append(
-                    (
-                        "64",
-                        source_name,
-                        cv2.cvtColor(embedded[source_name], cv2.COLOR_BGR2GRAY),
-                        float(self.threshold),
-                        built_in_scales,
-                    )
+            visual_candidates = list(
+                embedded_template_candidates(
+                    threshold=float(self.threshold),
+                    scales=built_in_scales,
                 )
+            )
 
             store = DojoTemplateStore(template_root)
             for mode, record in store.records().items():
@@ -138,19 +283,31 @@ def _build_detector_class(base_class):
                     continue
                 gray = _load_optional_gray(record.path)
                 if gray is not None:
-                    visual_templates.append(
-                        (mode, f"user-{mode}x{mode}", gray, float(self.threshold), requested_scales)
+                    visual_candidates.append(
+                        TemplateCandidate(
+                            mode=mode,
+                            source_name=f"user-{mode}x{mode}",
+                            template_gray=gray,
+                            threshold=float(self.threshold),
+                            scales=requested_scales,
+                        )
                     )
 
             explicit = Path(template_path) if template_path is not None else legacy_source_template_path()
             if explicit.exists() and explicit.resolve() != seed.resolve():
                 gray = _load_optional_gray(explicit)
                 if gray is not None:
-                    visual_templates.append(
-                        ("legacy", "source-local-calibration", gray, float(self.threshold), requested_scales)
+                    visual_candidates.append(
+                        TemplateCandidate(
+                            mode="legacy",
+                            source_name="source-local-calibration",
+                            template_gray=gray,
+                            threshold=float(self.threshold),
+                            scales=requested_scales,
+                        )
                     )
 
-            self._visual_templates = tuple(visual_templates)
+            self._visual_candidates = tuple(visual_candidates)
             self.template_source = "night-64+day-64"
             self.template_mode = "64"
             self.last_raw_template_source = "-"
@@ -158,33 +315,17 @@ def _build_detector_class(base_class):
             self.last_accepted_template_source: str | None = None
             self.last_accepted_template_mode: str | None = None
             self.last_rejection_reason = ""
-            self.last_template_scores: dict[str, float] = {
-                source_name: -1.0 for _, source_name, *_ in self._visual_templates
-            }
-            self.last_template_scales: dict[str, float] = {
-                source_name: 1.0 for _, source_name, *_ in self._visual_templates
-            }
+            self.last_template_scores: dict[str, float] = {}
+            self.last_template_scales: dict[str, float] = {}
             self._last_logged_winner: str | None = None
             self._last_logged_at = -1e9
 
         def describe(self) -> str:
-            sources = ",".join(source for _, source, *_ in self._visual_templates)
+            sources = ",".join(candidate.source_name for candidate in self._visual_candidates)
             return (
                 f"multi_template_64 sources={sources} "
                 f"threshold={self.threshold:.3f} selection=max(score)"
             )
-
-        def diagnostic_snapshot(self) -> dict[str, object]:
-            winner = self.last_accepted_template_source or self.last_raw_template_source or "-"
-            best = max(self.last_template_scores.values(), default=-1.0)
-            return {
-                "scores": dict(self.last_template_scores),
-                "scales": dict(self.last_template_scales),
-                "best_score": float(best),
-                "winner": winner,
-                "accepted": self.last_accepted_template_source is not None,
-                "threshold": float(self.threshold),
-            }
 
         def diagnostics_text(self, *, limit: int = 8) -> str:
             del limit
@@ -198,115 +339,58 @@ def _build_detector_class(base_class):
                 f"scale={self.last_raw_scale:.3f} rejection={self.last_rejection_reason or '-'}"
             )
 
-        def _log_match(self, *, source_name: str, mode: str, score: float, scale: float) -> None:
+        def _log_match(self, match: TemplateMatch) -> None:
             now = time.monotonic()
-            if source_name == self._last_logged_winner and now - self._last_logged_at < 1.0:
+            if match.source_name == self._last_logged_winner and now - self._last_logged_at < 1.0:
                 return
-            self._last_logged_winner = source_name
+            self._last_logged_winner = match.source_name
             self._last_logged_at = now
             day = self.last_template_scores.get("day-64", -1.0)
             night = self.last_template_scores.get("night-64", -1.0)
             print(
                 f"TRAINER_TEMPLATE_SCORES day-64={day:.3f} night-64={night:.3f} "
-                f"best={score:.3f} winner={source_name}"
+                f"best={match.score:.3f} winner={match.source_name}"
             )
             print(
-                f"TRAINER_TEMPLATE_MATCH template={source_name} mode={mode} "
-                f"score={score:.3f} scale={scale:.3f}"
+                f"TRAINER_TEMPLATE_MATCH template={match.source_name} mode={match.mode} "
+                f"score={match.score:.3f} scale={match.scale:.3f}"
             )
 
         def _best_visual(self, frame_bgr: np.ndarray, *, arena_rect=None):
-            roi, offset_x, offset_y = self._roi(frame_bgr, arena_rect)
-            if roi.size == 0:
-                self.last_rejection_reason = "empty-roi"
-                return None
-            gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-
-            raw_best = None
-            accepted: list[tuple] = []
-            scores: dict[str, float] = {}
-            scales_by_source: dict[str, float] = {}
-
-            for mode, source_name, template_gray, required_threshold, source_scales in self._visual_templates:
-                original_h, original_w = template_gray.shape[:2]
-                source_best = None
-                for scale in source_scales:
-                    width = max(8, round(original_w * scale))
-                    height = max(8, round(original_h * scale))
-                    if width > gray.shape[1] or height > gray.shape[0]:
-                        continue
-                    interpolation = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_NEAREST
-                    template = cv2.resize(template_gray, (width, height), interpolation=interpolation)
-                    result = cv2.matchTemplate(gray, template, cv2.TM_CCOEFF_NORMED)
-                    _, score, _, location = cv2.minMaxLoc(result)
-                    candidate = (
-                        float(score),
-                        float(scale),
-                        (int(location[0]), int(location[1])),
-                        (width, height),
-                        mode,
-                        source_name,
-                        float(required_threshold),
-                    )
-                    if source_best is None or candidate[0] > source_best[0]:
-                        source_best = candidate
-                    if raw_best is None or candidate[0] > raw_best[0]:
-                        raw_best = candidate
-
-                if source_best is None:
-                    scores[source_name] = -1.0
-                    scales_by_source[source_name] = 1.0
-                    continue
-                scores[source_name] = float(source_best[0])
-                scales_by_source[source_name] = float(source_best[1])
-                if source_best[0] >= source_best[6]:
-                    accepted.append(source_best)
-
-            self.last_template_scores = scores
-            self.last_template_scales = scales_by_source
+            scan = scan_templates(frame_bgr, self._visual_candidates, arena_rect=arena_rect)
+            self.last_template_scores = dict(scan.scores)
+            self.last_template_scales = dict(scan.scales)
             self.last_accepted_template_mode = None
             self.last_accepted_template_source = None
+            self.last_rejection_reason = scan.rejection_reason
 
-            if raw_best is None:
+            raw = scan.raw_best
+            if raw is None:
                 self.last_raw_score = -1.0
                 self.last_raw_scale = 1.0
                 self.last_raw_location = None
                 self.last_raw_template_mode = "-"
                 self.last_raw_template_source = "-"
-                self.last_rejection_reason = "no-comparable-template"
+            else:
+                self.last_raw_score = raw.score
+                self.last_raw_scale = raw.scale
+                self.last_raw_location = (raw.bbox[0], raw.bbox[1])
+                self.last_raw_template_mode = raw.mode
+                self.last_raw_template_source = raw.source_name
+
+            winner = scan.accepted
+            if winner is None:
                 return None
-
-            score, scale, location, _, mode, source_name, _ = raw_best
-            self.last_raw_score = float(score)
-            self.last_raw_scale = float(scale)
-            self.last_raw_template_mode = str(mode)
-            self.last_raw_template_source = str(source_name)
-            self.last_raw_location = (offset_x + location[0], offset_y + location[1])
-
-            if not accepted:
-                self.last_rejection_reason = "below-threshold"
-                return None
-
-            best = max(accepted, key=lambda item: item[0])
-            score, scale, location, size, mode, source_name, _ = best
-            left = offset_x + location[0]
-            top = offset_y + location[1]
-            width, height = size
-            self.last_accepted_template_mode = str(mode)
-            self.last_accepted_template_source = str(source_name)
+            self.last_accepted_template_mode = winner.mode
+            self.last_accepted_template_source = winner.source_name
             self.last_rejection_reason = ""
-            self._log_match(
-                source_name=str(source_name),
-                mode=str(mode),
-                score=float(score),
-                scale=float(scale),
-            )
+            self._log_match(winner)
             return LeaderMatchV2(
-                score=float(score),
-                bbox=(left, top, width, height),
-                foot=(left + width * 0.50, top + height * 0.88),
+                score=winner.score,
+                bbox=winner.bbox,
+                foot=winner.foot,
                 source="visual",
-                scale=float(scale),
+                scale=winner.scale,
             )
 
     _DayNightDojoLeaderDetector.__name__ = "DayNightDojoLeaderDetector"
@@ -316,7 +400,7 @@ def _build_detector_class(base_class):
 
 
 def install_day_night_dojo_detector() -> type:
-    """Install one shared day/night detector before the validated loop imports aliases."""
+    """Install one shared day/night detector before validated aliases are imported."""
 
     from pc_agent.kage_pilot import dojo_templates_v35, post_combat_v03c
 
@@ -336,6 +420,12 @@ def install_day_night_dojo_detector() -> type:
 
 __all__ = [
     "DayNightDojoLeaderDetector",
+    "EmbeddedTrainerMatcher",
+    "TemplateCandidate",
+    "TemplateMatch",
+    "TemplateScan",
+    "embedded_template_candidates",
     "embedded_trainer_templates",
     "install_day_night_dojo_detector",
+    "scan_templates",
 ]

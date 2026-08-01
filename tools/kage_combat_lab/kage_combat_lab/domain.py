@@ -18,14 +18,24 @@ MOVEMENT_REPEAT_INTERVAL_SECONDS: Final[float] = 0.25
 R_KEYDOWN_HEARTBEAT_MS: Final[int] = 250
 MAX_H_RANGE_CELLS: Final[int] = 50
 
+POST_OK_SETTLE_MS: Final[int] = 300
+START_RIGHT_PULSE_MS: Final[int] = 90
+START_RIGHT_SETTLE_MS: Final[int] = 120
+TURN_PRE_RELEASE_MS: Final[int] = 30
+TURN_PULSE_MS: Final[int] = 80
+TURN_SETTLE_MS: Final[int] = 90
+MAX_TURN_ATTEMPTS: Final[int] = 2
+
 OCCLUDED_COAST_SECONDS: Final[float] = 0.45
 LOCAL_REID_SECONDS: Final[float] = 6.0
 HARD_LOST_SECONDS: Final[float] = LOCAL_REID_SECONDS
 SHORT_OCCLUSION_SECONDS: Final[float] = OCCLUDED_COAST_SECONDS
 
-D0_DEADZONE_PX: Final[float] = 12.0
+D0_DEADZONE_PX: Final[float] = 16.0
+D0_SIDE_SWITCH_THRESHOLD_PX: Final[float] = 20.0
+D0_SIDE_SWITCH_CONFIRM_FRAMES: Final[int] = 2
 D0_AXIS_SWITCH_MARGIN_PX: Final[float] = 6.0
-D0_DIRECTION_CONFIRM_FRAMES: Final[int] = 2
+D0_DIRECTION_CONFIRM_FRAMES: Final[int] = D0_SIDE_SWITCH_CONFIRM_FRAMES
 
 REID_ACCEPT_SCORE: Final[float] = 0.68
 REID_MIN_APPEARANCE_SCORE: Final[float] = 0.45
@@ -41,8 +51,6 @@ _CARDINAL_DIRECTIONS: Final[frozenset[str]] = frozenset(
 
 
 def require_canonical_cell_size(value: int | float) -> int:
-    """Return the canonical cell size or fail closed."""
-
     normalized = int(value)
     if float(value) != float(CELL_SIZE_PX) or normalized != CELL_SIZE_PX:
         raise ValueError(
@@ -64,25 +72,30 @@ class TargetState(str, Enum):
     SEARCH = "SEARCH"
     ATTENTION = "ATTENTION"
     LOCKED = "LOCKED"
+    LOCKED_UNALIGNED = "LOCKED_UNALIGNED"
+    TURN_ALIGN = "TURN_ALIGN"
+    LOCKED_ALIGNED = "LOCKED_ALIGNED"
+    CONTACT_LOCK = "CONTACT_LOCK"
     OCCLUDED_COAST = "OCCLUDED_COAST"
     REID_LOCAL = "REID_LOCAL"
-    SUSPENDED = "SUSPENDED"  # compatibility with older logs/tests
+    SUSPENDED = "SUSPENDED"
     ENDED = "ENDED"
 
 
-class MovementPulseProfile(str, Enum):
-    """Semantic pulse profiles backed by approved physical defaults."""
+class FacingSource(str, Enum):
+    STARTUP_RIGHT_PULSE = "STARTUP_RIGHT_PULSE"
+    EXCLUSIVE_TURN_TRANSACTION = "EXCLUSIVE_TURN_TRANSACTION"
+    VISUAL_PLAYER_CLASSIFIER = "VISUAL_PLAYER_CLASSIFIER"
+    UNKNOWN = "UNKNOWN"
 
+
+class MovementPulseProfile(str, Enum):
     VERY_SHORT = "VERY_SHORT"
     APPROACH = "APPROACH"
 
     @property
     def duration_ms(self) -> int:
-        return (
-            VERY_SHORT_PULSE_MS
-            if self is MovementPulseProfile.VERY_SHORT
-            else APPROACH_PULSE_MS
-        )
+        return VERY_SHORT_PULSE_MS if self is MovementPulseProfile.VERY_SHORT else APPROACH_PULSE_MS
 
 
 @dataclass(frozen=True, order=True, slots=True)
@@ -113,8 +126,6 @@ class CandidateObservation:
     confidence: float = 1.0
     cells_touched: frozenset[GridCell] = field(default_factory=frozenset)
     face_hint: str | None = None
-
-    # Live-only evidence. Defaults preserve deterministic tests.
     bbox: tuple[int, int, int, int] | None = None
     foot_point: tuple[float, float] | None = None
     relative_offset_px: tuple[float, float] | None = None
@@ -204,13 +215,7 @@ class CombatFrame:
         ko_confirmed: bool = False,
         timestamp_seconds: float | None = None,
     ) -> "CombatFrame":
-        return cls(
-            frame_index,
-            player_cell,
-            tuple(candidates),
-            ko_confirmed,
-            timestamp_seconds,
-        )
+        return cls(frame_index, player_cell, tuple(candidates), ko_confirmed, timestamp_seconds)
 
 
 @dataclass(frozen=True, slots=True)
@@ -239,6 +244,27 @@ class CombatDecision:
     aim_requires_confirmation: bool
     action_sequence: tuple[str, ...]
     reason: str
+
+    raw_target_bearing: str | None = None
+    stable_target_bearing: str | None = None
+    bearing_confirmation_frames: int = 0
+    commanded_facing: str | None = None
+    confirmed_facing: str | None = None
+    facing_source: str = FacingSource.UNKNOWN.value
+    facing_confidence: float = 0.0
+    facing_age_seconds: float = 0.0
+    turn_attempt: int = 0
+    turn_confirmed: bool = False
+    turn_direction: str | None = None
+    r_authorized: bool = False
+    h_authorized: bool = False
+    orientation_invalidated_reason: str | None = None
+    contact_deadzone_active: bool = False
+    side_crossing_frames: int = 0
+    startup_right_pulse: bool = False
+    startup_right_duration_ms: int = 0
+    player_crop_saved: bool = False
+    h_cancel_reason: str | None = None
 
 
 def cardinal_face(player: GridCell, target: GridCell, previous: str | None = None) -> str | None:

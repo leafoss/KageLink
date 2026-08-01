@@ -83,6 +83,10 @@ def main() -> int:
         ensure_safe_meditation_timeout,
         install_meditation_timeout_bridge,
     )
+    from pc_agent.kage_pilot.dojo_perception_integrity_v351 import (
+        install_perception_integrity,
+        install_round_geometry_lock,
+    )
     from pc_agent.kage_pilot.dojo_position_bridge import save_tracker_state
     from pc_agent.kage_pilot.dojo_resource_quantization_v351 import (
         install_resource_quantization_bridge,
@@ -97,6 +101,11 @@ def main() -> int:
     # Migrate the old 120-second setting before the guard reads it. The physical
     # round-5 capture showed Y becoming eligible only at the end of that window.
     ensure_safe_meditation_timeout(telemetry=runtime._telemetry)
+
+    # Harden the historical perception classes before the canonical strategy creates
+    # its concrete observer/tracker subclasses. Motion must pass a body gate, while
+    # frame stalls and particle bursts may hold controls but never delete identity.
+    install_perception_integrity(runtime)
 
     # Combat is installed once through an explicit strategy factory. The historical
     # compatibility chain remains available as the class base, but no second combat
@@ -115,6 +124,9 @@ def main() -> int:
     install_runtime_guard(runtime)
     install_meditation_timeout_bridge(runtime)
     install_runtime_geometry_bridge(runtime)
+    # The grid passed by the isolated round command is now immutable. Later Trainer
+    # detections may be diagnostic but cannot switch an active 64 round to mode 32.
+    install_round_geometry_lock(runtime)
     install_resource_quantization_bridge(runtime)
     install_chakra_recovery_bridge(runtime)
 

@@ -6,14 +6,11 @@ from typing import Final, Iterable
 
 CELL_SIZE_PX: Final[int] = 64
 GRID_CONTRACT_VERSION: Final[str] = "kage-grid-64-v1"
+_CARDINAL_DIRECTIONS: Final[frozenset[str]] = frozenset({"LEFT", "RIGHT", "UP", "DOWN"})
 
 
 def require_canonical_cell_size(value: int | float) -> int:
-    """Return the canonical cell size or fail closed.
-
-    The Combat Lab models the BYOND combat lattice as 64×64 pixel cells. This is a
-    protected product contract, not a tuning parameter.
-    """
+    """Return the canonical cell size or fail closed."""
 
     normalized = int(value)
     if float(value) != float(CELL_SIZE_PX) or normalized != CELL_SIZE_PX:
@@ -37,6 +34,13 @@ class TargetState(str, Enum):
     LOCKED = "LOCKED"
     SUSPENDED = "SUSPENDED"
     ENDED = "ENDED"
+
+
+class MovementPulseProfile(str, Enum):
+    """Semantic pulse profiles; physical milliseconds belong to the future input adapter."""
+
+    VERY_SHORT = "VERY_SHORT"
+    APPROACH = "APPROACH"
 
 
 @dataclass(frozen=True, order=True, slots=True)
@@ -66,12 +70,18 @@ class CandidateObservation:
     body_like: bool = True
     confidence: float = 1.0
     cells_touched: frozenset[GridCell] = field(default_factory=frozenset)
+    face_hint: str | None = None
 
     def __post_init__(self) -> None:
         if not 0.0 <= float(self.confidence) <= 1.0:
             raise ValueError("confidence must be between 0 and 1")
         if not self.cells_touched:
             object.__setattr__(self, "cells_touched", frozenset({self.anchor_cell}))
+        if self.face_hint is not None:
+            normalized = str(self.face_hint).upper()
+            if normalized not in _CARDINAL_DIRECTIONS:
+                raise ValueError(f"face_hint must be cardinal, got {self.face_hint!r}")
+            object.__setattr__(self, "face_hint", normalized)
 
     @property
     def is_single_cell(self) -> bool:
@@ -113,19 +123,12 @@ class CombatDecision:
     combat_target_id: int | None
     confirmed_cell: GridCell | None
     predicted_cell: GridCell | None
+    grid_distance: int | None
     face: str | None
     move: str | None
-    attack_primary: bool
-    attack_secondary: bool
+    move_pulse_profile: MovementPulseProfile | None
+    press_h: bool
     reason: str
-
-
-CARDINAL_BY_DELTA: Final[dict[tuple[int, int], str]] = {
-    (-1, 0): "LEFT",
-    (1, 0): "RIGHT",
-    (0, -1): "UP",
-    (0, 1): "DOWN",
-}
 
 
 def cardinal_face(player: GridCell, target: GridCell, previous: str | None = None) -> str | None:

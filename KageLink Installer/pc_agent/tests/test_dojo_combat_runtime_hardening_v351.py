@@ -21,12 +21,19 @@ class _Track:
         track_id,
         *,
         center,
-        bbox=(0, 0, 32, 48),
+        bbox=None,
         score=80.0,
         shape_score=0.8,
     ):
         self.track_id = track_id
         self.center = center
+        if bbox is None:
+            bbox = (
+                int(round(float(center[0]) - 16.0)),
+                int(round(float(center[1]) - 24.0)),
+                32,
+                48,
+            )
         self.bbox = bbox
         self.enemy_score = score
         self.shape_score = shape_score
@@ -164,7 +171,7 @@ class DojoCombatRuntimeHardeningV351Tests(unittest.TestCase):
             memory.config.contact_radius * 1.35 + 1e-6,
         )
         self.assertLessEqual(
-            math.dist(track.center, predicted),
+            math.dist(memory._track_position(track), predicted),
             memory.config.local_rebind_radius * 0.65 + 1e-6,
         )
 

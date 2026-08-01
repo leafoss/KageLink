@@ -40,6 +40,7 @@ def body(
     *,
     confidence: float = 0.9,
     face_hint: str | None = None,
+    offset: tuple[float, float] | None = None,
 ) -> CandidateObservation:
     cell = GridCell(x, y)
     return CandidateObservation(
@@ -49,6 +50,28 @@ def body(
         confidence=confidence,
         cells_touched=frozenset({cell}),
         face_hint=face_hint,
+        relative_offset_px=offset,
+        motion_score=0.6,
+    )
+
+
+def reid_body(track: int, x: int, y: int) -> CandidateObservation:
+    cell = GridCell(x, y)
+    return CandidateObservation(
+        track_id=track,
+        anchor_cell=cell,
+        kind=ObservationKind.REIDENTIFIED_BODY,
+        confidence=0.45,
+        body_like=True,
+        cells_touched=frozenset({cell}),
+        relative_offset_px=(64.0, 0.0),
+        identity_score=0.82,
+        appearance_score=0.76,
+        position_score=0.85,
+        shape_similarity=0.80,
+        motion_score=0.60,
+        background_probability=0.05,
+        reidentified=True,
     )
 
 
@@ -86,15 +109,55 @@ def expected(
     )
 
 
-def built_in_scenarios() -> tuple[Scenario, ...]:
+def _lock_frames(track: int, cell: GridCell, *, face_hint=None, offset=None):
     player = GridCell(0, 0)
     return (
+        CombatFrame.from_iterable(
+            0,
+            player,
+            [body(track, cell.x, cell.y, face_hint=face_hint, offset=offset)],
+            timestamp_seconds=0.0,
+        ),
+        CombatFrame.from_iterable(
+            1,
+            player,
+            [body(track, cell.x, cell.y, face_hint=face_hint, offset=offset)],
+            timestamp_seconds=0.2,
+        ),
+    )
+
+
+def built_in_scenarios() -> tuple[Scenario, ...]:
+    player = GridCell(0, 0)
+    scenarios: list[Scenario] = []
+
+    for distance, track in ((1, 2), (2, 3), (3, 4), (4, 5), (50, 50)):
+        scenarios.append(
+            Scenario(
+                f"distance_{distance}_chase_h",
+                f"D={distance} chases toward D=0 and requests H with closed-loop aim.",
+                _lock_frames(track, GridCell(distance, 0)),
+                expected(
+                    TargetState.LOCKED,
+                    True,
+                    distance,
+                    "right",
+                    MovementPulseProfile.APPROACH,
+                    True,
+                ),
+            )
+        )
+
+    scenarios.insert(
+        0,
         Scenario(
             "distance_0_overlap",
-            "D=0 keeps micro-chasing the current sub-cell direction and fires H when ready.",
-            (
-                CombatFrame.from_iterable(0, player, [body(1, 0, 0, face_hint="LEFT")]),
-                CombatFrame.from_iterable(1, player, [body(1, 0, 0, face_hint="LEFT")]),
+            "D=0 uses a confirmed sub-cell direction and a 50ms microchase.",
+            _lock_frames(
+                1,
+                GridCell(0, 0),
+                face_hint="LEFT",
+                offset=(-24.0, 0.0),
             ),
             expected(
                 TargetState.LOCKED,
@@ -105,180 +168,178 @@ def built_in_scenarios() -> tuple[Scenario, ...]:
                 True,
             ),
         ),
-        Scenario(
-            "distance_1_chase_h",
-            "D=1 never holds: it chases toward D=0 and fires H when ready.",
-            (
-                CombatFrame.from_iterable(0, player, [body(2, 1, 0)]),
-                CombatFrame.from_iterable(1, player, [body(2, 1, 0)]),
-            ),
-            expected(
-                TargetState.LOCKED,
-                True,
-                1,
-                "right",
-                MovementPulseProfile.APPROACH,
-                True,
-            ),
-        ),
-        Scenario(
-            "distance_2_chase_h",
-            "D=2 no longer waits: it chases toward D=0 and fires H when ready.",
-            (
-                CombatFrame.from_iterable(0, player, [body(3, 2, 0)]),
-                CombatFrame.from_iterable(1, player, [body(3, 2, 0)]),
-            ),
-            expected(
-                TargetState.LOCKED,
-                True,
-                2,
-                "right",
-                MovementPulseProfile.APPROACH,
-                True,
-            ),
-        ),
-        Scenario(
-            "distance_3_chase_h",
-            "D=3 chases directly toward D=0 and fires H when ready.",
-            (
-                CombatFrame.from_iterable(0, player, [body(4, 3, 0)]),
-                CombatFrame.from_iterable(1, player, [body(4, 3, 0)]),
-            ),
-            expected(
-                TargetState.LOCKED,
-                True,
-                3,
-                "right",
-                MovementPulseProfile.APPROACH,
-                True,
-            ),
-        ),
-        Scenario(
-            "distance_4_chase_h",
-            "D=4 remains in H range and keeps chasing toward D=0.",
-            (
-                CombatFrame.from_iterable(0, player, [body(5, 4, 0)]),
-                CombatFrame.from_iterable(1, player, [body(5, 4, 0)]),
-            ),
-            expected(
-                TargetState.LOCKED,
-                True,
-                4,
-                "right",
-                MovementPulseProfile.APPROACH,
-                True,
-            ),
-        ),
-        Scenario(
-            "distance_50_chase_h",
-            "D=50 is the last H-range cell and still chases toward D=0.",
-            (
-                CombatFrame.from_iterable(0, player, [body(50, 50, 0)]),
-                CombatFrame.from_iterable(1, player, [body(50, 50, 0)]),
-            ),
-            expected(
-                TargetState.LOCKED,
-                True,
-                50,
-                "right",
-                MovementPulseProfile.APPROACH,
-                True,
-            ),
-        ),
-        Scenario(
-            "distance_51_chase_only",
-            "D=51 is outside H range but chase remains active toward D=0.",
-            (
-                CombatFrame.from_iterable(0, player, [body(51, 51, 0)]),
-                CombatFrame.from_iterable(1, player, [body(51, 51, 0)]),
-            ),
-            expected(
-                TargetState.LOCKED,
-                True,
-                51,
-                "right",
-                MovementPulseProfile.APPROACH,
-                False,
-            ),
-        ),
-        Scenario(
-            "h_cooldown_does_not_stop_chase",
-            "H cooldown blocks only H; D=2 chase remains active.",
-            (
-                CombatFrame.from_iterable(0, player, [body(60, 2, 0)], timestamp_seconds=0.0),
-                CombatFrame.from_iterable(1, player, [body(60, 2, 0)], timestamp_seconds=0.5),
-                CombatFrame.from_iterable(2, player, [body(60, 2, 0)], timestamp_seconds=1.0),
-            ),
-            expected(
-                TargetState.LOCKED,
-                True,
-                2,
-                "right",
-                MovementPulseProfile.APPROACH,
-                False,
-            ),
-        ),
-        Scenario(
-            "enemy_diagonal_chase",
-            "Diagonal D=1 uses Chebyshev distance and keeps chasing toward D=0.",
-            (
-                CombatFrame.from_iterable(0, player, [body(6, -1, -1)]),
-                CombatFrame.from_iterable(1, player, [body(6, -1, -1)]),
-            ),
-            expected(
-                TargetState.LOCKED,
-                True,
-                1,
-                "left",
-                MovementPulseProfile.APPROACH,
-                True,
-            ),
-        ),
-        Scenario(
-            "track_switch_same_cell",
-            "A visual track ID change preserves identity and chase authority.",
-            (
-                CombatFrame.from_iterable(0, player, [body(10, 1, 0)]),
-                CombatFrame.from_iterable(1, player, [body(10, 1, 0)]),
-                CombatFrame.from_iterable(2, player, [body(77, 1, 0)]),
-            ),
-            expected(
-                TargetState.LOCKED,
-                True,
-                1,
-                "right",
-                MovementPulseProfile.APPROACH,
-                False,
-            ),
-        ),
-        Scenario(
-            "multi_cell_effect",
-            "A multicell effect cannot acquire or rebind a target.",
-            (
-                CombatFrame.from_iterable(0, player, [multi_blob(20, {(0, 0), (1, 0), (2, 0)})]),
-                CombatFrame.from_iterable(1, player, [multi_blob(21, {(0, 0), (1, 0), (2, 0)})]),
-            ),
-            expected(TargetState.SEARCH, False, None, None, None, False),
-        ),
-        Scenario(
-            "short_occlusion",
-            "Short loss preserves identity but never chases without clean vision.",
-            (
-                CombatFrame.from_iterable(0, player, [body(30, 2, 0)], timestamp_seconds=0.0),
-                CombatFrame.from_iterable(1, player, [body(30, 2, 0)], timestamp_seconds=0.5),
-                CombatFrame.from_iterable(2, player, [], timestamp_seconds=1.0),
-            ),
-            expected(TargetState.SUSPENDED, True, 2, None, None, False),
-        ),
-        Scenario(
-            "ko_disables_combat",
-            "KO releases R, removes chase authority, and ignores later blobs.",
-            (
-                CombatFrame.from_iterable(0, player, [body(40, 2, 0)]),
-                CombatFrame.from_iterable(1, player, [body(40, 2, 0)]),
-                CombatFrame.from_iterable(2, player, [], ko_confirmed=True),
-                CombatFrame.from_iterable(3, player, [body(41, -1, 0)]),
-            ),
-            expected(TargetState.ENDED, False, None, None, None, False, hold_r=False),
-        ),
     )
+
+    scenarios.extend(
+        (
+            Scenario(
+                "distance_51_chase_only",
+                "D=51 remains chase-only because H is out of range.",
+                _lock_frames(51, GridCell(51, 0)),
+                expected(
+                    TargetState.LOCKED,
+                    True,
+                    51,
+                    "right",
+                    MovementPulseProfile.APPROACH,
+                    False,
+                ),
+            ),
+            Scenario(
+                "h_cooldown_does_not_stop_chase",
+                "The reserved/fired H cooldown blocks only H; chase remains active.",
+                (
+                    *_lock_frames(60, GridCell(2, 0)),
+                    CombatFrame.from_iterable(
+                        2,
+                        player,
+                        [body(60, 2, 0)],
+                        timestamp_seconds=1.0,
+                    ),
+                ),
+                expected(
+                    TargetState.LOCKED,
+                    True,
+                    2,
+                    "right",
+                    MovementPulseProfile.APPROACH,
+                    False,
+                ),
+            ),
+            Scenario(
+                "enemy_diagonal_chase",
+                "Diagonal D=1 uses Chebyshev distance and stable cardinal aim.",
+                _lock_frames(6, GridCell(-1, -1)),
+                expected(
+                    TargetState.LOCKED,
+                    True,
+                    1,
+                    "left",
+                    MovementPulseProfile.APPROACH,
+                    True,
+                ),
+            ),
+            Scenario(
+                "track_switch_same_cell",
+                "A raw track-ID change in the same cell preserves logical identity.",
+                (
+                    *_lock_frames(10, GridCell(1, 0)),
+                    CombatFrame.from_iterable(
+                        2,
+                        player,
+                        [body(77, 1, 0)],
+                        timestamp_seconds=1.0,
+                    ),
+                ),
+                expected(
+                    TargetState.LOCKED,
+                    True,
+                    1,
+                    "right",
+                    MovementPulseProfile.APPROACH,
+                    False,
+                ),
+            ),
+            Scenario(
+                "appearance_reid_same_logical_target",
+                "A contaminated new track with strong capsule score rebinds the same target.",
+                (
+                    *_lock_frames(11, GridCell(1, 0)),
+                    CombatFrame.from_iterable(2, player, [], timestamp_seconds=1.0),
+                    CombatFrame.from_iterable(
+                        3,
+                        player,
+                        [reid_body(99, 1, 0)],
+                        timestamp_seconds=1.2,
+                    ),
+                ),
+                expected(
+                    TargetState.LOCKED,
+                    True,
+                    1,
+                    "right",
+                    MovementPulseProfile.APPROACH,
+                    False,
+                ),
+            ),
+            Scenario(
+                "multi_cell_effect",
+                "A multi-cell effect cannot acquire or rebind a target.",
+                (
+                    CombatFrame.from_iterable(
+                        0,
+                        player,
+                        [multi_blob(20, {(0, 0), (1, 0), (2, 0)})],
+                    ),
+                    CombatFrame.from_iterable(
+                        1,
+                        player,
+                        [multi_blob(21, {(0, 0), (1, 0), (2, 0)})],
+                    ),
+                ),
+                expected(TargetState.SEARCH, False, None, None, None, False),
+            ),
+            Scenario(
+                "occluded_coast",
+                "A sub-450ms loss keeps identity and only microchases the prediction.",
+                (
+                    *_lock_frames(30, GridCell(2, 0)),
+                    CombatFrame.from_iterable(2, player, [], timestamp_seconds=0.50),
+                ),
+                expected(
+                    TargetState.OCCLUDED_COAST,
+                    True,
+                    2,
+                    "right",
+                    MovementPulseProfile.VERY_SHORT,
+                    False,
+                ),
+            ),
+            Scenario(
+                "local_reid_hold",
+                "After coast, the target stays logically retained for local ReID without blind H.",
+                (
+                    *_lock_frames(31, GridCell(2, 0)),
+                    CombatFrame.from_iterable(2, player, [], timestamp_seconds=1.0),
+                ),
+                expected(
+                    TargetState.REID_LOCAL,
+                    True,
+                    2,
+                    None,
+                    None,
+                    False,
+                ),
+            ),
+            Scenario(
+                "ko_disables_combat",
+                "KO releases R, removes target authority and ignores later blobs.",
+                (
+                    *_lock_frames(40, GridCell(2, 0)),
+                    CombatFrame.from_iterable(
+                        2,
+                        player,
+                        [],
+                        ko_confirmed=True,
+                        timestamp_seconds=1.0,
+                    ),
+                    CombatFrame.from_iterable(
+                        3,
+                        player,
+                        [body(41, -1, 0)],
+                        timestamp_seconds=1.2,
+                    ),
+                ),
+                expected(
+                    TargetState.ENDED,
+                    False,
+                    None,
+                    None,
+                    None,
+                    False,
+                    hold_r=False,
+                ),
+            ),
+        )
+    )
+    return tuple(scenarios)

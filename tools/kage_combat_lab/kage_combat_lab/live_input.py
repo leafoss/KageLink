@@ -10,8 +10,10 @@ from pathlib import Path
 from typing import Any
 
 from .domain import CELL_SIZE_PX, FIRST_LIVE_TEST_MAX_SECONDS, GRID_CONTRACT_VERSION
+from .event_recorder import CombatEventVideoRecorder
 from .live_bridge import PhysicalCombatInput, combat_frame_from_observer_state
 from .strategy import GridFocusStrategy
+from .target_memory import TargetCapsuleMemory
 
 
 VK_F12 = 0x7B
@@ -89,11 +91,13 @@ def _build_runtime():
         player_box_height=38.0,
         dynamic_background_enabled=True,
         background_cell_size=float(CELL_SIZE_PX),
+        reacquire_ttl=6.0,
+        reacquire_distance=160.0,
     ).normalized()
     observer = ParticleSafeGridTargetObserver(
         config,
         tile_size=float(CELL_SIZE_PX),
-        contact_lock_seconds=2.0,
+        contact_lock_seconds=4.0,
         show_grid=True,
         contact_confirm_frames=2,
     )
@@ -125,8 +129,9 @@ def _render_live_preview(
     preview = observer.draw_grid_overlay(preview, state)
     lines = (
         f"PR25 LIVE INPUT | {GRID_CONTRACT_VERSION}",
-        f"state={decision.target_state.value} target={decision.combat_target_id or '-'} D={decision.grid_distance}",
+        f"state={decision.target_state.value} logical={decision.combat_target_id or '-'} visual={decision.visual_track_id or '-'} D={decision.grid_distance}",
         f"face={decision.face or '-'} H={decision.press_h} move={decision.move or '-'}",
+        f"id={decision.identity_score:.2f} app={decision.appearance_score:.2f} bg={decision.background_probability:.2f} reid={decision.reidentified}",
         f"actions={','.join(actions) if actions else 'HOLD_R'}",
         "F12 = EMERGENCY STOP",
     )
@@ -152,6 +157,19 @@ def _write_log(handle, payload: dict[str, Any]) -> None:
     handle.flush()
 
 
+def _candidate_for_decision(combat_frame, decision):
+    if decision.visual_track_id is None:
+        return None
+    return next(
+        (
+            candidate
+            for candidate in combat_frame.candidates
+            if candidate.track_id == decision.visual_track_id
+        ),
+        None,
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="PR25 direct live combat input using the immutable 64px grid"
@@ -160,7 +178,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-seconds",
         type=float,
         default=FIRST_LIVE_TEST_MAX_SECONDS,
-        help="Maximum armed duration, capped at 45 seconds",
+        help="Maximum armed duration",
     )
     parser.add_argument("--fps", type=float, default=8.0)
     parser.add_argument("--countdown", type=float, default=3.0)
@@ -200,9 +218,19 @@ def main(argv: list[str] | None = None) -> int:
         if str(args.log_path).strip()
         else reports / f"live_input_{time.strftime('%Y%m%d_%H%M%S')}.jsonl"
     )
+    session_stem = log_path.stem
+    memory = TargetCapsuleMemory(root=reports / "target_cache" / session_stem)
+    recorder = CombatEventVideoRecorder(
+        reports / "event_videos" / session_stem,
+        fps=fps,
+        pre_seconds=5.0,
+        post_seconds=5.0,
+    )
 
     print("KAGE COMBAT LAB - DIRECT LIVE INPUT")
     print(f"Grid: {CELL_SIZE_PX}x{CELL_SIZE_PX}px immutable")
+    print("Target: persistent visual capsule + local ReID + background negatives")
+    print("Aim: fresh capture required before every H")
     print("Window: Shinobi Story Online")
     print(f"Armed limit: {max_seconds:.0f}s")
     print("F12 stops immediately and releases every key.")
@@ -212,6 +240,9 @@ def main(argv: list[str] | None = None) -> int:
     started = 0.0
     exit_reason = "PROCESS_EXIT"
     log_handle = log_path.open("w", encoding="utf-8")
+    previous_state = "SEARCH"
+    previous_visual_track = None
+    previous_face = None
 
     try:
         physical.activate()
@@ -248,30 +279,120 @@ def main(argv: list[str] | None = None) -> int:
                 frame_index=frame_index,
                 timestamp_seconds=now,
                 ko_confirmed=ko_confirmed,
+                frame_bgr=frame,
+                target_memory=memory,
             )
             decision = strategy.update(combat_frame)
-            actions = physical.execute(decision)
+
+            def confirm_aim(attempted_face: str) -> str | None:
+                probe_now = time.monotonic()
+                probe_capture = source.capture()
+                probe_image = decode_jpeg(bytes(probe_capture.jpeg))
+                probe_state = observer.process(probe_image, timestamp=probe_now)
+                probe_frame = combat_frame_from_observer_state(
+                    observer=observer,
+                    state=probe_state,
+                    frame_index=frame_index,
+                    timestamp_seconds=probe_now,
+                    frame_bgr=probe_image,
+                    target_memory=memory,
+                )
+                candidate = memory.best_current_candidate(
+                    probe_frame,
+                    confirmed_cell=decision.confirmed_cell,
+                )
+                if candidate is None:
+                    return None
+                return memory.face_for_candidate(
+                    probe_frame,
+                    candidate,
+                    previous=attempted_face,
+                )
+
+            actions = physical.execute(
+                decision,
+                confirm_aim=confirm_aim if decision.press_h else None,
+            )
+            h_fired = physical.h_fired(actions)
+            if decision.press_h:
+                strategy.resolve_h_request(fired=h_fired)
+
+            selected = _candidate_for_decision(combat_frame, decision)
+            if (
+                selected is not None
+                and decision.combat_target_id is not None
+                and decision.target_state.value == "LOCKED"
+            ):
+                memory.observe_selected(
+                    frame_bgr=frame,
+                    state=state,
+                    candidate=selected,
+                    timestamp=now,
+                    face=decision.face,
+                    grid_distance=decision.grid_distance,
+                )
+
+            events = []
+            if previous_state != "SEARCH" and decision.target_state.value == "SEARCH":
+                events.append("TARGET_HARD_LOST")
+            if (
+                decision.reidentified
+                and decision.visual_track_id is not None
+                and decision.visual_track_id != previous_visual_track
+            ):
+                events.append("REID_SUCCESS")
+            if (
+                previous_face is not None
+                and decision.face is not None
+                and previous_face != decision.face
+            ):
+                events.append("DIRECTION_FLIP")
+            if decision.press_h and not h_fired:
+                events.append("AIM_UNCONFIRMED")
+
+            recorder.push(
+                frame,
+                decision=decision,
+                candidate=selected,
+                actions=actions,
+                events=events,
+                timestamp=now,
+                arena_rect=tuple(int(value) for value in state.arena_rect),
+            )
 
             payload = {
                 "frame": frame_index,
                 "time": round(now - started, 3),
                 "state": decision.target_state.value,
                 "target": decision.combat_target_id,
+                "logical_target_id": decision.combat_target_id,
+                "visual_track_id": decision.visual_track_id,
                 "distance": decision.grid_distance,
                 "face": decision.face,
                 "move": decision.move,
                 "press_h": decision.press_h,
+                "h_fired": h_fired,
                 "cooldown": round(decision.h_cooldown_remaining_seconds, 3),
+                "identity_score": round(decision.identity_score, 4),
+                "appearance_score": round(decision.appearance_score, 4),
+                "background_probability": round(
+                    decision.background_probability, 4
+                ),
+                "reidentified": decision.reidentified,
                 "actions": list(actions),
                 "reason": decision.reason,
                 "visible_tracks": len(state.tracks),
+                "capsule_exemplars": len(memory.exemplars),
+                "events": events,
                 "ko": ko_confirmed,
             }
             _write_log(log_handle, payload)
             print(
                 f"LIVE frame={frame_index:04d} state={payload['state']} "
-                f"target={payload['target'] or '-'} D={payload['distance']} "
-                f"face={payload['face'] or '-'} actions={','.join(actions) or 'HOLD_R'}"
+                f"logical={payload['target'] or '-'} visual={payload['visual_track_id'] or '-'} "
+                f"D={payload['distance']} face={payload['face'] or '-'} "
+                f"id={payload['identity_score']:.2f} bg={payload['background_probability']:.2f} "
+                f"actions={','.join(actions) or 'HOLD_R'}"
             )
 
             if not args.no_preview:
@@ -290,6 +411,9 @@ def main(argv: list[str] | None = None) -> int:
                 exit_reason = "KO_CONFIRMED"
                 break
 
+            previous_state = decision.target_state.value
+            previous_visual_track = decision.visual_track_id
+            previous_face = decision.face
             frame_index += 1
             elapsed = time.monotonic() - loop_started
             if elapsed < interval:
@@ -319,10 +443,20 @@ def main(argv: list[str] | None = None) -> int:
             cv2.destroyAllWindows()
         except Exception:
             pass
+        try:
+            memory.close()
+        except Exception:
+            pass
+        try:
+            recorder.close()
+        except Exception:
+            pass
         _write_log(log_handle, {"event": "EXIT", "reason": exit_reason})
         log_handle.close()
         print(f"LIVE INPUT STOPPED: {exit_reason}")
         print(f"Diagnostic log: {log_path}")
+        print(f"Target capsule: {reports / 'target_cache' / session_stem}")
+        print(f"Event videos: {reports / 'event_videos' / session_stem}")
 
 
 if __name__ == "__main__":

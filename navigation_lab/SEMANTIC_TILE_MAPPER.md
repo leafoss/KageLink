@@ -20,13 +20,35 @@ No unknown cell is silently assumed to be walkable or blocked.
 - `wall` — structural terrain that is permanently impassable;
 - `walkable_with_jutsu` — terrain that requires a technique or special movement;
 - `blocking_object` — non-living physical object currently occupying or blocking the cell;
+- `player` — the locally controlled character, shown as `P` and reserved as the future localization anchor;
 - `npc` — living or potentially moving non-player character occupying the cell at observation time;
 - `transition` — door, portal, stairs or region transition;
 - `danger` — hazardous terrain or area;
-- `ignore_dynamic` — player sprite, animation, effect or other content that should not become terrain knowledge;
+- `ignore_dynamic` — animation, particle effect or other content without a useful persistent identity;
 - `unknown` — no sufficiently similar taught example exists.
 
-`npc` is deliberately separate from `blocking_object`. An NPC may block movement now, but its presence must not turn the underlying terrain into a permanent wall. Later world-stitching logic will treat NPC occupancy as a dynamic observation that can disappear on a subsequent capture.
+`player`, `npc` and `blocking_object` are deliberately separate:
+
+```text
+P = controlled character and future position anchor
+N = non-player living/dynamic entity
+B = non-living physical obstruction
+I = effect or animation to ignore
+```
+
+A player or NPC may cover the ground in the current capture, but neither must turn the underlying terrain into a permanent wall. Later world-stitching logic will combine repeated observations to recover the terrain beneath dynamic entities.
+
+## Classification menu
+
+The entire right-side classification menu is vertically scrollable. Use the mouse wheel over the panel or the visible scrollbar to access:
+
+- recognition threshold;
+- unknown-cell queue;
+- selected crop preview;
+- all classification buttons;
+- per-category summary.
+
+The application also opens with a larger default window, while the scrollbar keeps every option reachable on smaller displays or Windows scaling above 100%.
 
 ## Recognition method
 
@@ -83,6 +105,7 @@ Each learned example keeps its category, visual feature vector, crop path, creat
 The screen classification is not yet a stitched world map. It produces a semantic matrix for one captured viewport. The next milestone will combine:
 
 - the semantic cell matrix;
+- the `player` cell as a localization candidate;
 - player/camera displacement;
 - repeated observations of the same terrain;
 - confidence and conflict resolution;

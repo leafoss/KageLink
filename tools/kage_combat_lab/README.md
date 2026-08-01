@@ -51,6 +51,41 @@ R mantido
 → nova observação
 ```
 
+## Trainer 64×64 em dia e noite
+
+O modo `FullLoop` possui duas referências oficiais do Dojo Trainer:
+
+```text
+night-64
+day-64
+```
+
+As imagens anexadas foram normalizadas para canvas 64×64 com proporção preservada e nearest-neighbour. Ambas são avaliadas em cada captura:
+
+```text
+final_score = max(score_night_64, score_day_64, demais_templates_configurados)
+```
+
+Qualquer template que alcance o threshold pode confirmar o Trainer. Uma falha do template diurno não interrompe o loop quando o noturno é válido, e vice-versa. O mesmo detector é instalado:
+
+- antes da busca inicial do Trainer;
+- dentro de cada processo isolado de rodada;
+- durante o retorno pós-combate;
+- antes da confirmação visual que autoriza a meditação.
+
+Diagnóstico no terminal:
+
+```text
+TRAINER_TEMPLATE_SCORES day-64=0.913 night-64=0.742 best=0.913 winner=day-64
+TRAINER_TEMPLATE_MATCH template=day-64 mode=64 score=0.913 scale=1.000
+```
+
+A telemetria de busca também mostra:
+
+```text
+day64=<score> night64=<score> best=<score> winner=<template>
+```
+
 ## Testes determinísticos
 
 ```powershell
@@ -75,7 +110,7 @@ Fluxo executado:
 
 ```text
 buscar o Dojo Trainer
-→ confirmar visualmente
+→ confirmar visualmente com day-64 ou night-64
 → clicar uma única vez
 → aguardar e confirmar o diálogo
 → clicar OK
@@ -83,7 +118,7 @@ buscar o Dojo Trainer
 → combater com CHASE_ALWAYS_ON
 → aceitar KO autoritativo pelo chat
 → liberar R, H e direcionais
-→ localizar/retornar ao Trainer
+→ localizar/retornar ao Trainer com day-64 ou night-64
 → iniciar meditação com V
 → usar Y rápido quando o motor validado autorizar
 → atingir HP >= 90% e Chakra >= 50%
@@ -92,17 +127,24 @@ buscar o Dojo Trainer
 → emitir READY
 ```
 
-Para o primeiro teste, comece recuperado, dentro do Dojo e sem estar meditando. Execute apenas uma rodada:
+Comece recuperado, dentro do Dojo e sem estar meditando.
+
+Uma rodada:
 
 ```powershell
 cd "C:\Users\Rafael\Desktop\Powershell\Kagelink2\tools\kage_combat_lab"
 .\run_kage_combat_lab.ps1 -FullLoop -Rounds 1
 ```
 
-Parâmetros padrão do primeiro teste:
+Dez rodadas:
+
+```powershell
+.\run_kage_combat_lab.ps1 -FullLoop -Rounds 10
+```
+
+Parâmetros padrão:
 
 ```text
-Rodadas: 1
 Combate máximo por rodada: 120 s
 Retorno + recuperação: 240 s
 Espera do diálogo: 5 s
@@ -114,22 +156,10 @@ Meditação mínima antes do segundo V: 5,25 s
 Parada de emergência: F12
 ```
 
-Comando explícito equivalente:
-
-```powershell
-.\run_kage_combat_lab.ps1 `
-  -FullLoop `
-  -Rounds 1 `
-  -CombatSeconds 120 `
-  -PostCombatTimeout 240 `
-  -DialogDelay 5 `
-  -SpawnDelay 5 `
-  -TrainerSearchTimeout 90
-```
-
 Sinais esperados no terminal:
 
 ```text
+TRAINER_TEMPLATE_MATCH template=day-64|night-64
 DOJO_REQUEST_ACCEPTED
 PR25_FULL_ROUND=CHASE_ALWAYS_ON
 FULL ROUND COMBAT ARMED
@@ -138,8 +168,8 @@ POST_COMBAT / POS-COMBATE
 POST V_TAP state=START_MEDITATION
 READY / PRONTO
 result=ready
-ROUND 1: COMPLETE / CONCLUIDA
-DOJO_LOOP_FINISHED ... completed=1 ... failed=0
+ROUND N: COMPLETE / CONCLUIDA
+DOJO_LOOP_FINISHED ... completed=10 ... failed=0
 ```
 
 Use F12 imediatamente se ocorrer qualquer uma destas condições:
@@ -151,12 +181,14 @@ Use F12 imediatamente se ocorrer qualquer uma destas condições:
 - tentar sair da meditação antes do prazo físico;
 - iniciar uma nova luta ainda meditando.
 
-Os logs da rodada completa são gravados em:
+Os logs são gravados em:
 
 ```text
 KageLink Installer\pc_agent\kage_pilot_loop_logs\round_001.jsonl
+...
+KageLink Installer\pc_agent\kage_pilot_loop_logs\round_010.jsonl
 ```
 
 ## Dependências
 
-Os modos `-LiveInput` e `-FullLoop` exigem o checkout completo do KageLink e o ambiente Python que já executa o Kage Pilot, incluindo OpenCV, NumPy e pywin32. O modo `-FullLoop` é intencionalmente restrito ao checkout fonte e não tenta alterar o executável instalado.
+Os modos `-LiveInput` e `-FullLoop` exigem o checkout completo do KageLink e o ambiente Python que já executa o Kage Pilot, incluindo OpenCV, NumPy, Pillow e pywin32. O modo `-FullLoop` é intencionalmente restrito ao checkout fonte e não tenta alterar o executável instalado.

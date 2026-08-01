@@ -19,11 +19,14 @@ No unknown cell is silently assumed to be walkable or blocked.
 - `walkable` — normal terrain that can be crossed;
 - `wall` — structural terrain that is permanently impassable;
 - `walkable_with_jutsu` — terrain that requires a technique or special movement;
-- `blocking_object` — object, NPC or element currently occupying/blocking the cell;
+- `blocking_object` — non-living physical object currently occupying or blocking the cell;
+- `npc` — living or potentially moving non-player character occupying the cell at observation time;
 - `transition` — door, portal, stairs or region transition;
 - `danger` — hazardous terrain or area;
 - `ignore_dynamic` — player sprite, animation, effect or other content that should not become terrain knowledge;
 - `unknown` — no sufficiently similar taught example exists.
+
+`npc` is deliberately separate from `blocking_object`. An NPC may block movement now, but its presence must not turn the underlying terrain into a permanent wall. Later world-stitching logic will treat NPC occupancy as a dynamic observation that can disappear on a subsequent capture.
 
 ## Recognition method
 

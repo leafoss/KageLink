@@ -4,6 +4,7 @@ from dataclasses import replace
 
 import numpy as np
 
+from .grid_geometry_v351 import GridGeometry, emit_grid_geometry
 from .guarded_observer_v03 import TargetEligibleObserver
 from .grid_target_observer_v03 import _grid_distance
 from .grid_target_observer_v03c import FrameAlignedGridTargetObserver
@@ -35,12 +36,20 @@ class TileCalibratedGridTargetObserver(FrameAlignedGridTargetObserver):
         grid_origin_y: float | None = None,
         contact_confirm_frames: int = 2,
     ) -> None:
+        # Absolute physical invariant: the game grid has only 32px and 64px RAW
+        # cells. PNG crops, sprite bboxes, display scaling and debug panels never
+        # define navigation geometry. Validation intentionally happens before the
+        # historical observer allocates state so invalid geometry cannot start combat.
+        geometry = GridGeometry.from_cell_size(tile_size)
         super().__init__(
             config,
-            tile_size=tile_size,
+            tile_size=float(geometry.cell_size),
             contact_lock_seconds=contact_lock_seconds,
             show_grid=show_grid,
         )
+        self.grid_geometry = geometry
+        emit_grid_geometry(geometry)
+
         self.auto_align_grid = bool(auto_align_grid)
         self._grid_alignment_ready = grid_origin_x is not None and grid_origin_y is not None
         if grid_origin_x is not None:

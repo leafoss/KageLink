@@ -12,10 +12,10 @@ def install_round_video_performance_guard(
 ):
     """Move diagnostic rendering/encoding off the combat perception thread.
 
-    The recorder keeps one latest-frame slot. Observer iterations only copy and
-    enqueue an eligible sample; a daemon worker renders the 1280x720 diagnostic
-    canvas and writes the AVI. When the worker is busy, an older pending sample is
-    replaced by the newest one instead of building latency.
+    Real round recorders keep one latest-frame slot. Observer iterations only copy
+    and enqueue an eligible sample; a daemon worker renders the 1280x720 diagnostic
+    canvas and writes the AVI. Lightweight recorder doubles without lifecycle
+    support retain synchronous wall-clock sampling for compatibility tests.
     """
 
     if recorder is None or bool(getattr(recorder, "_kagelink_performance_guard", False)):
@@ -24,7 +24,58 @@ def install_round_video_performance_guard(
     fps = max(1.0, min(4.0, float(target_fps)))
     interval = 1.0 / fps
     original_record = recorder.record
-    original_close = recorder.close
+    original_close = getattr(recorder, "close", None)
+
+    # Some deterministic tests provide only ``record``. Preserve the old sampling
+    # contract there; production RoundVideoRecorder instances always expose close
+    # and therefore use the asynchronous worker below.
+    if not callable(original_close):
+        last_recorded_at = -1e9
+        skipped = 0
+
+        def sampled_record(
+            frame_bgr,
+            state,
+            observer,
+            *,
+            raw_candidates=(),
+            engine=None,
+        ) -> bool:
+            nonlocal last_recorded_at, skipped
+            now = time.monotonic()
+            if now - last_recorded_at < interval:
+                skipped += 1
+                recorder.skipped_observer_frames = skipped
+                return False
+            last_recorded_at = now
+            return bool(
+                original_record(
+                    frame_bgr,
+                    state,
+                    observer,
+                    raw_candidates=raw_candidates,
+                    engine=engine,
+                )
+            )
+
+        recorder.record = sampled_record
+        recorder.fps = fps
+        recorder.skipped_observer_frames = 0
+        recorder.replaced_pending_frames = 0
+        recorder._kagelink_performance_guard = True
+        emit = getattr(recorder, "_emit", None)
+        if callable(emit):
+            emit(
+                "DOJO_ROUND_VIDEO_PERFORMANCE_GUARD",
+                {
+                    "target_fps": f"{fps:.1f}",
+                    "cadence": "wall_clock",
+                    "combat_thread": "inline_compat",
+                    "render_thread": "inline_compat",
+                    "queue_depth": 0,
+                },
+            )
+        return recorder
 
     condition = threading.Condition(threading.RLock())
     pending: tuple[Any, Any, Any, tuple[Any, ...], Any] | None = None

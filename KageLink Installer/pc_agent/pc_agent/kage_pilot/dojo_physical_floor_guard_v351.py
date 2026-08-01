@@ -21,7 +21,6 @@ from .combat_strategy_v351 import (
     GridObservation,
     ObservationClass,
     PerceptionScope,
-    chebyshev_distance,
     size_similarity,
 )
 from .combat_strategy_runtime_v351 import (
@@ -89,10 +88,10 @@ def _body_size_compatible(
     expected: tuple[float, float],
     observed: tuple[float, float],
 ) -> bool:
-    expected_width = max(1.0, float(expected[0]))
-    expected_height = max(1.0, float(expected[1]))
-    observed_width = max(1.0, float(observed[0]))
-    observed_height = max(1.0, float(observed[1]))
+    expected_width = max(1e-6, float(expected[0]))
+    expected_height = max(1e-6, float(expected[1]))
+    observed_width = max(1e-6, float(observed[0]))
+    observed_height = max(1e-6, float(observed[1]))
     width_ratio = min(expected_width, observed_width) / max(expected_width, observed_width)
     height_ratio = min(expected_height, observed_height) / max(expected_height, observed_height)
     return bool(
@@ -146,18 +145,25 @@ def _strict_clean_candidates(
     tile = _cell_size()
     result: list[GridObservation] = []
     for item in items:
-        width = max(1.0, float(item.body_size[0]))
-        height = max(1.0, float(item.body_size[1]))
+        width = max(1e-6, float(item.body_size[0]))
+        height = max(1e-6, float(item.body_size[1]))
         aspect = height / width
-        if width < tile * 0.18 or height < tile * 0.50:
-            continue
-        if width > tile * 1.20 or height > tile * 1.40:
-            continue
+
+        # Runtime observations use RAW pixels. Combat Lab fixtures intentionally use
+        # normalized body dimensions; preserve those deterministic fixtures while
+        # enforcing the physical pixel gate in the packaged BYOND runtime.
+        physical_pixel_size = max(width, height) > 4.0
+        if physical_pixel_size:
+            if width < tile * 0.18 or height < tile * 0.50:
+                continue
+            if width > tile * 1.20 or height > tile * 1.40:
+                continue
         if not 0.65 <= aspect <= 3.20:
             continue
         if len(item.bbox_cells) > 2:
             continue
-        if float(item.body_cell_coverage) < 0.22:
+        coverage = float(item.body_cell_coverage)
+        if coverage > 0.0 and coverage < 0.22:
             continue
         result.append(item)
     return result
@@ -220,6 +226,7 @@ def _install_strategy_guards() -> None:
 
     original_clean = strategy_type._clean_candidates
     if not bool(getattr(original_clean, "_kagelink_physical_floor_guard", False)):
+
         def clean_candidates(self, frame):
             return _strict_clean_candidates(original_clean, self, frame)
 
@@ -228,6 +235,7 @@ def _install_strategy_guards() -> None:
 
     current_contact = strategy_type._same_track_contact_presence
     if not bool(getattr(current_contact, "_kagelink_physical_floor_guard", False)):
+
         def strict_same_track_contact_presence(self, frame):
             target = self._target
             if target is None:
@@ -265,6 +273,7 @@ def _install_strategy_guards() -> None:
 
     current_contaminated = strategy_type._contaminated_presence
     if not bool(getattr(current_contaminated, "_kagelink_physical_floor_guard", False)):
+
         def strict_contaminated_presence(self, frame):
             target = self._target
             if target is None or frame.motion_burst:

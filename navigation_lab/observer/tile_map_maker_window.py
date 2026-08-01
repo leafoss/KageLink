@@ -198,6 +198,7 @@ class TileMapMakerWindow:
             TileClass.WALL,
             TileClass.WALKABLE_WITH_JUTSU,
             TileClass.BLOCKING_OBJECT,
+            TileClass.NPC,
             TileClass.TRANSITION,
             TileClass.DANGER,
             TileClass.IGNORE_DYNAMIC,
@@ -217,8 +218,9 @@ class TileMapMakerWindow:
         ttk.Label(
             teaching,
             text=(
-                "Parede = terreno estrutural. Bloqueia caminho = objeto/NPC/elemento que ocupa a célula. "
-                "Ignorar/dinâmico = sprite, efeito ou conteúdo que não deve virar exemplo de terreno."
+                "Parede = terreno estrutural. Bloqueia caminho = objeto físico ocupando a célula. "
+                "NPC = entidade viva/móvel; não torna o terreno inferior uma parede permanente. "
+                "Ignorar/dinâmico = jogador, efeito ou animação que não deve virar exemplo de terreno."
             ),
             justify="left",
             wraplength=370,
@@ -419,6 +421,7 @@ class TileMapMakerWindow:
             TileClass.WALL: (40, 40, 230),
             TileClass.WALKABLE_WITH_JUTSU: (230, 210, 40),
             TileClass.BLOCKING_OBJECT: (30, 130, 240),
+            TileClass.NPC: (220, 120, 40),
             TileClass.TRANSITION: (210, 60, 210),
             TileClass.DANGER: (20, 230, 230),
             TileClass.IGNORE_DYNAMIC: (150, 150, 150),
@@ -429,6 +432,7 @@ class TileMapMakerWindow:
             TileClass.WALL: "#",
             TileClass.WALKABLE_WITH_JUTSU: "J",
             TileClass.BLOCKING_OBJECT: "B",
+            TileClass.NPC: "N",
             TileClass.TRANSITION: "T",
             TileClass.DANGER: "!",
             TileClass.IGNORE_DYNAMIC: "I",

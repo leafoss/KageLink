@@ -18,6 +18,7 @@ def build_parser() -> argparse.ArgumentParser:
             "observer",
             "grid-calibration",
             "tile-mapper",
+            "continuous-mapper",
             "teaching",
             "assisted",
             "autonomous",
@@ -39,6 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--region-id", default="mapping_calibration")
     parser.add_argument("--tile-size", type=int, default=64)
     parser.add_argument("--fps", type=float, default=10.0)
+    parser.add_argument("--capture-interval", type=float, default=0.75)
     parser.add_argument("--camera-mode", choices=["following", "hybrid", "fixed"], default="following")
     parser.add_argument("--mapping-strategy", choices=["input", "continuous"], default="input")
     parser.add_argument("--map-radius", type=int, default=10)
@@ -46,6 +48,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--command-timeout", type=float, default=0.70)
     parser.add_argument("--min-command-shift", type=float, default=2.0)
     parser.add_argument("--similarity-threshold", type=float, default=0.92)
+    parser.add_argument("--auto-threshold", type=float, default=0.95)
+    parser.add_argument("--review-threshold", type=float, default=0.90)
+    parser.add_argument("--grouping-threshold", type=float, default=0.965)
     parser.add_argument("--invert-x", action="store_true")
     parser.add_argument("--invert-y", action="store_true")
     parser.add_argument("--new-map", action="store_true")
@@ -66,17 +71,19 @@ def main(argv: list[str] | None = None) -> int:
         return _run_grid_calibration(args)
     if args.mode == "tile-mapper":
         return _run_tile_mapper(args)
+    if args.mode == "continuous-mapper":
+        return _run_continuous_mapper(args)
     if args.mode == "observer":
         return _run_observer(args)
     if args.mode != "simulator":
         message = {
             "pt-BR": (
-                "Este modo permanece bloqueado até o mapeamento visual ser validado. "
-                "Use --mode grid-calibration, tile-mapper, observer ou simulator."
+                "Este modo permanece bloqueado até o mapa mundial contínuo ser validado. "
+                "Use --mode grid-calibration, tile-mapper, continuous-mapper, observer ou simulator."
             ),
             "en-US": (
-                "This mode remains blocked until visual mapping is validated. "
-                "Use --mode grid-calibration, tile-mapper, observer or simulator."
+                "This mode remains blocked until the continuous world map is validated. "
+                "Use --mode grid-calibration, tile-mapper, continuous-mapper, observer or simulator."
             ),
         }[args.language]
         print(message, file=sys.stderr)
@@ -161,6 +168,66 @@ def _run_tile_mapper(args: argparse.Namespace) -> int:
         return 0
     except Exception as exc:
         print(f"Tile MapMaker startup failed: {exc}", file=sys.stderr)
+        return 4
+
+
+def _run_continuous_mapper(args: argparse.Namespace) -> int:
+    if not 0.50 <= args.review_threshold <= args.auto_threshold <= 1.0:
+        print("Thresholds must satisfy 0.50 <= review <= auto <= 1.0", file=sys.stderr)
+        return 2
+    if not 0.50 <= args.grouping_threshold <= 1.0:
+        print("--grouping-threshold must be between 0.50 and 1.0", file=sys.stderr)
+        return 2
+    if args.capture_interval < 0.20:
+        print("--capture-interval must be at least 0.20 seconds", file=sys.stderr)
+        return 2
+    try:
+        from .observer.continuous_mapper_window import ContinuousMapperWindow
+        from .observer.continuous_mapping import ContinuousSemanticMapper
+        from .observer.grid_calibration import GridCalibration
+        from .observer.tile_knowledge import TileKnowledgeBase
+        from .observer.window_capture import WindowsClientCapture
+
+        repository = JsonRepository(profile=args.profile)
+        if not repository.has_grid_calibration(args.region_id):
+            print(
+                "No saved grid calibration was found. Run run_grid_calibration.ps1 first.",
+                file=sys.stderr,
+            )
+            return 5
+        if not repository.has_tile_knowledge(args.region_id):
+            print(
+                "No taught tile knowledge was found. Run run_tile_map_maker.ps1 and teach at least Player and terrain.",
+                file=sys.stderr,
+            )
+            return 5
+
+        calibration = GridCalibration.from_dict(repository.load_grid_calibration(args.region_id))
+        knowledge = TileKnowledgeBase.from_dict(repository.load_tile_knowledge(args.region_id))
+        mapper = ContinuousSemanticMapper(
+            calibration=calibration,
+            knowledge=knowledge,
+            auto_threshold=args.auto_threshold,
+            review_threshold=args.review_threshold,
+            grouping_threshold=args.grouping_threshold,
+            motion_response=max(0.05, args.motion_confidence),
+        )
+        if not args.new_map and repository.has_continuous_mapping(args.region_id):
+            mapper.restore_state(repository.load_continuous_mapping(args.region_id))
+
+        capture = WindowsClientCapture(args.window_title)
+        ContinuousMapperWindow(
+            mapper=mapper,
+            capture=capture,
+            repository=repository,
+            region_id=args.region_id,
+            capture_interval=args.capture_interval,
+            auto_start=not args.no_auto_start,
+            minimize_on_start=not args.keep_window_visible,
+        ).run()
+        return 0
+    except Exception as exc:
+        print(f"Continuous mapper startup failed: {exc}", file=sys.stderr)
         return 4
 
 

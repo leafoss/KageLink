@@ -8,6 +8,8 @@ from .domain import CELL_SIZE_PX
 from .hostility_gate_v2 import PR26ContinuityHostilityGate
 from .tile_perception import PR24CombatTilePerception, TileClass
 
+# Backward-compatible injection point used by existing runtime tests and tools.
+PR26HostilityGate = PR26ContinuityHostilityGate
 
 _INSTALLED = False
 _RUNTIME: PR24CombatTilePerception | None = None
@@ -35,7 +37,7 @@ def install_runtime_tile_perception(
         return _RUNTIME
 
     perception = PR24CombatTilePerception()
-    gate = PR26ContinuityHostilityGate()
+    gate = PR26HostilityGate()
     calibration_payload = json.loads(
         perception.config.calibration_path.read_text(encoding="utf-8")
     )

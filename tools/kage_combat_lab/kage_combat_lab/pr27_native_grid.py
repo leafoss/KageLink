@@ -44,6 +44,8 @@ class PR27CombatSystem:
         self.planner = CombatPlanner(self.config)
         self.rebaseliner = SceneChangeRebaseliner(self.config)
         self.frame_index = 0
+        self.visual_burst_active = False
+        self.previous_changed_count = 0
 
     def load_baseline(self, path: Path, native_frame_bgr: np.ndarray) -> int:
         _, arena = self.cropper.crop(native_frame_bgr)
@@ -73,6 +75,37 @@ class PR27CombatSystem:
         if self.frame_index % self.config.global_reacquire_interval_frames == 0:
             return differences
         return focused
+
+    def _visual_burst_result(
+        self,
+        *,
+        now: float,
+        rect: ArenaRect,
+        arena: np.ndarray,
+        cells: tuple[GridCell, ...],
+        differences: Mapping[tuple[int, int], CellDifference],
+        changed_count: int,
+    ) -> PR27FrameResult:
+        result = PR27FrameResult(
+            frame_index=self.frame_index,
+            timestamp=now,
+            arena_rect=rect,
+            arena_bgr=arena,
+            cells=cells,
+            differences=differences,
+            groups=(),
+            fragments=(),
+            observations=(),
+            tracks=tuple(sorted(self.tracker.tracks.values(), key=lambda item: item.track_id)),
+            player_track_id=self.tracker.player_track_id,
+            target=None,
+            action=CombatAction.NONE,
+            state=RoundState.TRACKING,
+            scene_changed=False,
+            reason=f"visual effect burst ({changed_count} cells); identity updates and physical actions suspended",
+        )
+        self.frame_index += 1
+        return result
 
     def process(self, native_frame_bgr: np.ndarray, *, timestamp: float | None = None) -> PR27FrameResult:
         now = time.monotonic() if timestamp is None else float(timestamp)
@@ -113,6 +146,8 @@ class PR27CombatSystem:
         )
         scene_changed = changed_count >= changed_limit
         if scene_changed:
+            self.visual_burst_active = False
+            self.previous_changed_count = changed_count
             self.rebaseliner.start(self.baselines)
             target, action, state, reason = self.planner.plan(
                 tuple(self.tracker.tracks.values()),
@@ -139,6 +174,37 @@ class PR27CombatSystem:
             )
             self.frame_index += 1
             return result
+
+        burst_enter = max(72, int(math.ceil(len(cells) * 0.25)))
+        burst_clear = max(48, int(math.ceil(len(cells) * 0.18)))
+        burst_spike = changed_count >= max(
+            burst_enter,
+            int(math.ceil(max(1, self.previous_changed_count) * 1.45)),
+        )
+        if self.visual_burst_active:
+            if changed_count > burst_clear:
+                self.previous_changed_count = changed_count
+                return self._visual_burst_result(
+                    now=now,
+                    rect=rect,
+                    arena=arena,
+                    cells=cells,
+                    differences=differences,
+                    changed_count=changed_count,
+                )
+            self.visual_burst_active = False
+        elif burst_spike:
+            self.visual_burst_active = True
+            self.previous_changed_count = changed_count
+            return self._visual_burst_result(
+                now=now,
+                rect=rect,
+                arena=arena,
+                cells=cells,
+                differences=differences,
+                changed_count=changed_count,
+            )
+        self.previous_changed_count = changed_count
 
         search_differences = self._focused_differences(differences)
         groups = self.grouper.group(search_differences)

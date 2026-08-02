@@ -8,12 +8,12 @@ from typing import Any
 
 
 ROUND_MODULE = "kage_combat_lab.full_round_daynight"
-POST_OK_GATE_ARG = "--pr25-post-ok"
-BASELINE_SECONDS_ENV = "KAGE_PR26_PRESPAWN_BASELINE_SECONDS"
+POST_OK_GATE_ARG = "--pr27-post-ok"
+BASELINE_SECONDS_ENV = "KAGE_PR27_PRESPAWN_BASELINE_SECONDS"
 
 
 def replace_source_round_command(command: list[str]) -> list[str]:
-    """Replace the validated source round after the outer loop accepted OK/spawn."""
+    """Route the inherited outer loop to the isolated PR27 round."""
 
     if len(command) < 2:
         raise ValueError("FULL_LOOP_ROUND_COMMAND_INVALID")
@@ -28,27 +28,27 @@ def replace_source_round_command(command: list[str]) -> list[str]:
 
 
 def install_full_loop_round(validated_engine: Any) -> Callable[..., tuple[list[str], Path]]:
-    """Route the round while reserving time for clean baseline and actual spawn."""
+    """Preserve trainer/dialog/recovery and replace only the combat subprocess."""
+
+    from .pr27_pre_trainer_baseline import reset_native_baseline_capture
 
     original = validated_engine._round_command
     request_owner = getattr(validated_engine, "legacy_loop", None)
     if request_owner is not None and hasattr(request_owner, "_request_kwargs"):
         original_request_kwargs = request_owner._request_kwargs
 
-        def pr26_request_kwargs(args, *, round_number: int) -> dict:
-            from .pre_ok_baseline import reset_pre_ok_baseline_capture
-
+        def pr27_request_kwargs(args, *, round_number: int) -> dict:
             values = original_request_kwargs(args, round_number=round_number)
-            spawn_seconds = max(0.0, float(values.get("spawn_delay_seconds", 0.0)))
+            spawn_seconds = max(1.0, float(values.get("spawn_delay_seconds", 0.0)))
             os.environ[BASELINE_SECONDS_ENV] = str(spawn_seconds)
-            reset_pre_ok_baseline_capture()
+            reset_native_baseline_capture()
             print(
-                f"ROUND {round_number}: PRE_TRAINER_BASELINE_RESERVED "
-                f"duration={spawn_seconds:.2f}s; post_OK_spawn_wait={spawn_seconds:.2f}s"
+                f"ROUND {round_number}: PR27_NATIVE_BASELINE_RESERVED "
+                f"duration={spawn_seconds:.2f}s phase=BEFORE_TRAINER_CLICK"
             )
             return values
 
-        request_owner._request_kwargs = pr26_request_kwargs
+        request_owner._request_kwargs = pr27_request_kwargs
 
     def full_round_command(args, *, round_number: int) -> tuple[list[str], Path]:
         command, cwd = original(args, round_number=round_number)
@@ -59,8 +59,8 @@ def install_full_loop_round(validated_engine: Any) -> Callable[..., tuple[list[s
             )
         replaced = replace_source_round_command(list(command))
         print(
-            f"ROUND {round_number}: PR25_FULL_ROUND=FACING_AUTHORITY "
-            "POST_OK_GATE=CONFIRMED POST=VALIDATED_DOJO_RECOVERY"
+            f"ROUND {round_number}: PR27_COMBAT_SUBPROCESS=NATIVE_GRID_SPRITE_TRACKER "
+            "OUTER_FLOW=TRAINER_DIALOG_OK_AND_POST_KO_ONLY"
         )
         return replaced, cwd
 
@@ -70,12 +70,10 @@ def install_full_loop_round(validated_engine: Any) -> Callable[..., tuple[list[s
 
 def main() -> int:
     from .dojo_multitemplate import install_day_night_dojo_detector
-    from .post_ok_facing import install_post_ok_right_pulse
-    from .pre_trainer_baseline import install_pre_trainer_baseline_capture
+    from .pr27_pre_trainer_baseline import install_native_pre_trainer_baseline_capture
 
     install_day_night_dojo_detector()
-    install_post_ok_right_pulse()
-    install_pre_trainer_baseline_capture()
+    install_native_pre_trainer_baseline_capture()
     import kage_pilot_loop as canonical_loop
 
     validated_engine = getattr(canonical_loop, "_validated_engine", None)
@@ -83,15 +81,12 @@ def main() -> int:
         raise RuntimeError("FULL_LOOP_VALIDATED_ENGINE_MISSING")
 
     install_full_loop_round(validated_engine)
-    print("KAGE COMBAT LAB - FULL DOJO LOOP")
-    print("TRAINER: multi-template 64px day/night detector enabled")
-    print(
-        "FLOW: trainer search -> clean baseline -> trainer click -> dialog -> OK -> spawn -> acquire"
-    )
-    print("AUTHORITY: PR26.6 mode controls TURN/MOVE/R/H at final input boundary")
-    print("FLOW: authoritative KO -> return to Trainer -> meditation -> READY")
-    print("MEDITATION: second V is physically blocked for at least 5.25 seconds")
-    print("F12: emergency stop remains active in search, startup, combat and recovery")
+    print("KAGE COMBAT LAB - PR27 FULL DOJO LOOP")
+    print("OUTER FLOW: find Trainer -> native baseline -> click -> dialog -> OK -> PR27 combat")
+    print("POST FLOW: authoritative KO -> find Trainer -> protected meditation -> READY")
+    print("PR27 COMBAT: no PR26 runtime patch chain is installed")
+    print("MEDITATION: second V remains physically blocked for at least 5.25 seconds")
+    print("F12: emergency stop remains active")
     return int(canonical_loop.main())
 
 

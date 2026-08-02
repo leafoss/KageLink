@@ -28,7 +28,13 @@ def main() -> int:
             "cluster_direction_authority": False,
             "cluster_identity_authority": False,
             "cluster_hostility_authority": False,
+            "cluster_reid_authority": False,
             "cell_owns_baseline_diff_mask_bbox": True,
+            "same_cell_equality_is_identity": False,
+            "body_component_pixel_overlap_required": True,
+            "latched_visual_requires_current_body": True,
+            "pixel_cluster_reid_enabled": False,
+            "dominant_terrain_fields_rejected": ["43x64", "64x23"],
             "calibrated_offset_x_px": int(calibration.get("offset_x_px", 0)),
             "calibrated_offset_y_px": int(calibration.get("offset_y_px", 0)),
             "danger_examples": danger_examples,
@@ -52,7 +58,7 @@ def main() -> int:
             "local_reid_requires_round_target_latch": True,
             "false_logical_target_reset_to_search": True,
             "target_capsule_before_occupancy_filter": True,
-            "target_capsule_same_cell_overlap_required": True,
+            "target_capsule_component_overlap_required": True,
             "progressive_reid_radius_cells": [1, 2, 3],
             "persistent_reid_seconds_after_valid_latch": 90.0,
             "player_runtime_mask": "NARROW_CAPSULE",
@@ -90,7 +96,7 @@ def main() -> int:
             "camera_low_response_jump_authority": False,
             "raw_track_requires_component_overlap": True,
             "selected_lock_hysteresis_frames": 3,
-            "contact_combat_lock": "same_cell_body_bound_2_of_3",
+            "contact_combat_lock": "component_body_bound_2_of_3",
             "event_json_snapshot_timing": "EVENT_TRIGGER_FRAME",
             "post_ok_spawn_wait_preserved": True,
             "synthetic_offensive_authority": False,
@@ -98,7 +104,7 @@ def main() -> int:
             "combat_lock_requires_hostile_confirmed": True,
         }
     )
-    print("PR26.14 TARGET INTEGRITY PREFLIGHT: READY")
+    print("PR26.15 CURRENT BODY AUTHORITY PREFLIGHT: READY")
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
     if CELL_SIZE_PX != 64:
         raise RuntimeError(f"PR26_CELL_SIZE_INVALID:{CELL_SIZE_PX}")

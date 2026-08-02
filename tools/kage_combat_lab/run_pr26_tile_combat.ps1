@@ -27,8 +27,8 @@ param(
     [double]$DangerMemorySeconds = 2.5,
     [int]$DangerMemoryFrames = 12,
     [double]$MaxSpeedCellsPerSecond = 3.5,
-    [double]$Pr24IntervalSeconds = 2.0,
-    [double]$EvidenceSaveSeconds = 2.0,
+    [double]$Pr24IntervalSeconds = 4.0,
+    [double]$EvidenceSaveSeconds = 10.0,
     [double]$NonAggressiveSeconds = 3.0,
     [switch]$HostilityOverlay,
     [switch]$PerceptionOnly,
@@ -110,10 +110,10 @@ if ($TerrainExamples.Count -lt 1) {
     throw "PR26 requires at least one taught PR24 terrain example."
 }
 if ($DangerExamples.Count -lt 1) {
-    throw "PR26.9 requires at least one taught PR24 DANGER example."
+    throw "PR26.13 requires at least one taught PR24 DANGER example."
 }
 if ($ReferenceCrops.Count -lt 1) {
-    throw "PR26.9 requires real PR24 crop images for semantic affinity."
+    throw "PR26.13 requires real PR24 crop images for semantic affinity."
 }
 if ($DangerConfidence -lt 0.50 -or $DangerConfidence -gt 1.0) {
     throw "DangerConfidence must be between 0.50 and 1.0."
@@ -147,6 +147,9 @@ if ($DangerMemorySeconds -le 0 -or $DangerMemoryFrames -lt 1) {
 }
 if ($Pr24IntervalSeconds -lt 0.2) {
     throw "Pr24IntervalSeconds must be at least 0.2 seconds."
+}
+if ($EvidenceSaveSeconds -lt 1.0) {
+    throw "EvidenceSaveSeconds must be at least 1.0 second."
 }
 
 function Set-InvariantDoubleEnv([string]$Name, [double]$Value) {
@@ -196,7 +199,7 @@ $env:KAGE_PR26_BLOB_HEIGHT = [string]([Math]::Max(1, $BlobHeight))
 $env:KAGE_PR26_BLOB_HEIGHT_STRONG = [string]([Math]::Max($BlobHeight, $BlobHeightStrong))
 $env:KAGE_PR26_HOSTILITY_OVERLAY = if ($HostilityOverlay) { "1" } else { "0" }
 
-Write-Host "PR26.9 LATCHED TARGET CONTINUITY PREFLIGHT: READY" -ForegroundColor Green
+Write-Host "PR26.13 PER-CELL CHANGE AUTHORITY PREFLIGHT: READY" -ForegroundColor Green
 Write-Host "  Grid: 64px immutable"
 Write-Host "  Control mode: $ControlMode" -ForegroundColor Cyan
 Write-Host "  Profile: $Profile"
@@ -206,19 +209,22 @@ Write-Host "  Terrain examples: $($TerrainExamples.Count)"
 Write-Host "  DANGER examples: $($DangerExamples.Count)"
 Write-Host "  Real reference crops: $($ReferenceCrops.Count)"
 Write-Host "  PR24 semantic interval: $Pr24IntervalSeconds seconds"
-Write-Host "  Baseline: BEFORE Trainer click; frozen during combat"
+Write-Host "  Evidence save interval: $EvidenceSaveSeconds seconds"
+Write-Host "  Comparison authority: EACH INDIVIDUAL 64x64 CELL" -ForegroundColor Yellow
+Write-Host "  Cluster role: SEARCH HINT ONLY; bbox/direction/identity/hostility authority OFF"
+Write-Host "  Baseline: every stable 64px cell retained; player core inpainted"
+Write-Host "  Runtime player exclusion: narrow capsule; side/top overlap preserved"
 Write-Host "  Initial acquisition radius: D<=3"
-Write-Host "  Round target: first COMBAT_LOCK latched until KO" -ForegroundColor Yellow
-Write-Host "  Target Capsule: enriches raw candidates before PR26 filtering"
+Write-Host "  Raw/Target Capsule body must overlap the same changed cell"
+Write-Host "  Raw-less cell change: attention/turn only; COMBAT_LOCK blocked"
+Write-Host "  Round target: first body-bound COMBAT_LOCK latched until KO"
+Write-Host "  Target Capsule: enriches raw candidates before cell association"
 Write-Host "  ReID search: progressive D1 -> D2 -> D3; never beyond D3"
-Write-Host "  Contact player mask: 22x42 core after hostile lock"
-Write-Host "  ReID sources: Target Capsule or compact exact-baseline local pixel cluster"
 Write-Host "  CONTACT_MEMORY / REID_PENDING / OUTSIDE_D3: identity retained; MOVE/H blocked"
 Write-Host "  HOSTILE_CONFIRMED -> COMBAT_LOCK -> Target Capsule + facing + chase + H"
-Write-Host "  Wide fields, horizontal bands and edge columns: rejected"
 Write-Host "  PERCEPTION_ONLY: TURN/MOVE/R/H blocked"
 Write-Host "  FACE_ONLY: TURN allowed; MOVE/R/H blocked"
-Write-Host "  FULL_COMBAT: current visual confirmation required for MOVE/H"
+Write-Host "  FULL_COMBAT: current body-bound visual confirmation required for MOVE/H"
 Write-Host "  Synthetic offensive authority: BLOCKED" -ForegroundColor Yellow
 Write-Host "  Evidence bundles: $EvidenceDir"
 Write-Host "  Baseline file: $PreOkBaselineFile"

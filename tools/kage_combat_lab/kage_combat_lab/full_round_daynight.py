@@ -30,7 +30,10 @@ def main() -> int:
     from .runtime_startup_inherited import install_inherited_post_ok_startup
     from .runtime_tile_perception import install_runtime_tile_perception
 
-    tile_perception = install_runtime_tile_perception(live_bridge_module)
+    tile_perception = install_runtime_tile_perception(
+        live_bridge_module,
+        full_round_module,
+    )
     install_runtime_facing_patch(full_round_module)
     install_inherited_post_ok_startup()
     install_runtime_engagement_recovery(full_round_module)
@@ -38,12 +41,17 @@ def main() -> int:
     print("POST_OK_GATE: confirmed; child inherits the one outer RIGHT pulse")
     print("ENGAGEMENT: R baseline starts with combat; H remains target/facing gated")
     print(
-        "PR26 TILE PERCEPTION: ACTIVE and authoritative during acquisition; "
+        "PR26.1 TILE CLASSIFICATION: PR24 DANGER is a passive visual signal; "
         f"terrain_examples={tile_perception.terrain_example_count}"
     )
     print(
-        "PR26 FLOW: PR24 unknown tile -> raw/synthetic candidate -> "
-        "PR25 Target Capsule -> ReID/facing/combat"
+        "PR26.1 FLOW: PR24 DANGER -> structural/persistence confirmation -> "
+        "VISUAL_LOCK -> passive D trend -> HOSTILE_CONFIRMED -> COMBAT_LOCK -> "
+        "PR25 Target Capsule/facing/chase/H"
+    )
+    print(
+        "PR26.1 SAFETY: tile-only and negative synthetic candidates have zero "
+        "offensive authority"
     )
     return int(full_round_module.main())
 

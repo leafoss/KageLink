@@ -1,85 +1,76 @@
-# PR26.9 — Latched hostile target continuity
+# PR26.11 — Guaranteed combat replay evidence
 
-A PR26 permanece empilhada sobre a PR25 e mantém a grade imutável de 64 px, os contratos de movimento, facing, R, pulso H de 50 ms, cooldown de 5 s, F12, KO autoritativo por chat e recuperação pós-combate.
+A PR26 permanece empilhada sobre a PR25 e mantém a continuidade de alvo da PR26.9, a grade imutável de 64 px, os contratos de movimento, facing, R, pulso H, F12, KO por chat e recuperação pós-combate.
 
 ## Falha física corrigida
 
-O log da PR26.8 comprovou que o inimigo era detectado, selecionado, orientado para `UP`, confirmado por `COMBAT_LOCK` e atacado. No frame imediatamente seguinte, a ausência temporária do cluster fazia o sistema entrar em `OCCLUDED_COAST`, `REID_LOCAL` e depois abandonar a identidade. A mesma entidade reaparecia mais tarde e recebia um novo ID.
+Mesmo após a PR26.10, uma execução real processou 46 frames e terminou normalmente, mas nenhum `full_combat_replay.mp4` foi criado. Isso demonstra que o `cv2.VideoWriter` local não conseguiu abrir o codec `mp4v` e falhou silenciosamente.
 
-A causa era arquitetural: o lock visual era tratado como a própria identidade. Animação, sobreposição com o jogador, movimento de câmera ou um frame sem componente destruíam a autoridade, apesar de Target Capsule, aparência, posição e histórico já conhecerem o alvo.
+## Contrato da PR26.11
 
-## Contrato da PR26.9
+O gravador não depende mais de um único codec nem de dimensões pares já fornecidas pela captura.
 
-```text
-primeiro HOSTILE_CONFIRMED -> COMBAT_LOCK
--> latch de uma identidade de inimigo da rodada
--> identidade permanece até KO/fim da rodada
-```
-
-Um candidato com score maior não substitui o alvo latched durante contato, animação ou oclusão.
-
-## ReID progressivo local
+Ordem de tentativa:
 
 ```text
-0–2.5 s  -> procurar em D1
-2.5–7 s  -> procurar em D2
->7 s     -> procurar em D3
-nunca procurar além de D3
+mp4v -> .mp4
+avc1 -> .mp4
+XVID -> .avi
+MJPG -> .avi
 ```
 
-A reacquisição utiliza, nesta ordem:
+Antes de abrir o writer, o frame é normalizado para `uint8 BGR`, memória contígua e largura/altura pares. Dimensões ímpares recebem um pixel preto de padding na direita ou embaixo.
 
-1. Target Capsule aplicada aos candidatos crus antes do filtro de ocupação;
-2. componente local compacto sobre baseline exata;
-3. geometria prevista compensada pela câmera.
+## Fallback obrigatório
 
-## Sobreposição em contato
-
-A aquisição inicial mantém a máscara maior do jogador. Depois que o inimigo é confirmado, a exclusão passa a usar somente um núcleo de `22x42 px`, evitando que a máscara do jogador apague também o sprite hostil quando os dois se encostam.
-
-## Autoridade física
+Se nenhum codec abrir, a rodada ainda gera evidência visual:
 
 ```text
-VISUAL_CLUSTER / CAPSULE_REID / PIXEL_REID
--> alvo visual atual
--> chase/H permitidos conforme PR25
-
-CONTACT_MEMORY / REID_PENDING / OUTSIDE_D3
--> identidade e facing anterior preservados
--> MOVE bloqueado
--> H bloqueado
--> troca de alvo bloqueada
+full_combat_replay_frames/
+  frame_000000.png
+  frame_000001.png
+  ...
+  replay_manifest.json
 ```
 
-Não existe perseguição ou ataque cego durante memória ou ReID.
+O manifesto contém FPS, quantidade de frames, padrão dos nomes e todos os erros dos codecs tentados.
 
-## Associação protegida
+## Telemetria explícita
 
-A identidade latched rejeita associações que:
-
-- deixem de ter geometria corporal compacta;
-- saltem mais de 176 px da previsão compensada;
-- apareçam além de D3;
-- tentem transformar campo largo, faixa de UI ou cenário em continuação do alvo.
-
-## Telemetria principal
+A primeira gravação imprime uma destas linhas:
 
 ```text
-PR26_ROUND_TARGET_LATCHED
-PR26_TARGET_MEMORY
-PR26_TARGET_REID_CONFIRMED source=TARGET_CAPSULE
-PR26_TARGET_REID_CONFIRMED source=LOCAL_PIXEL_CLUSTER
-PR26_TARGET_ASSOCIATION_REJECTED
-PR26_TARGET_OUTSIDE_D3
+FULL_REPLAY_RECORDER_OPEN mode=VIDEO codec=... path=...
 ```
 
-## Validação
+ou:
 
-A última execução automática registrou:
+```text
+FULL_REPLAY_VIDEO_WRITER_FAILED fallback=PNG_SEQUENCE path=...
+```
 
-- 163 testes pytest aprovados;
-- 15 cenários determinísticos da PR25 aprovados;
-- dois launchers PowerShell analisados com sucesso;
-- GitHub Actions verde no head `2857dd2`.
+No encerramento sempre aparece:
 
-A PR permanece Draft e não deve ser mesclada antes do teste físico.
+```text
+FULL_REPLAY_SAVED mode=... codec=... frames=... path=...
+```
+
+Se nem um frame chegar ao gravador, aparece `FULL_REPLAY_NOT_CREATED` com a razão.
+
+## Validação automática
+
+GitHub Actions está verde no head `ec36471`:
+
+- 168 testes pytest aprovados;
+- todos os 15 cenários determinísticos da PR25 aprovados;
+- ambos os launchers PowerShell analisados com sucesso.
+
+Novos testes cobrem:
+
+- fallback de MP4 para AVI/XVID;
+- fallback total para sequência PNG;
+- padding automático de dimensões ímpares;
+- manifesto JSON com os erros de codec;
+- replay de rodada limpa sem evento diagnóstico.
+
+A PR permanece Draft e não deve ser mesclada antes do teste físico em Windows.

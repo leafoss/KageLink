@@ -21,14 +21,16 @@ param(
     [int]$MinimumObservationPixels = 72,
     [int]$MaximumFragmentsPerGroup = 32,
     [double]$AssociationScore = 0.48,
-    [double]$TargetAssociationScore = 0.32,
-    [int]$EnemyConfirmFrames = 3,
+    [double]$TargetAssociationScore = 0.40,
+    [int]$EnemyConfirmFrames = 5,
     [int]$MaximumMissingFrames = 3,
-    [int]$TargetMissingGraceFrames = 10,
+    [int]$TargetMissingGraceFrames = 4,
     [int]$TargetFocusRadiusCells = 3,
-    [int]$GlobalReacquireIntervalFrames = 8,
-    [int]$MaximumActiveTracks = 24,
+    [int]$GlobalReacquireIntervalFrames = 6,
+    [int]$MaximumActiveTracks = 18,
     [int]$AttackDistanceCells = 1,
+    [double]$HCooldown = 1.75,
+    [int]$AttackConfirmFrames = 2,
     [double]$SceneChangedRatio = 0.42,
     [int]$SceneChangedMinimumCells = 8,
     [int]$OverlayEveryFrames = 3,
@@ -93,12 +95,15 @@ if ($AssociationScore -lt 0 -or $AssociationScore -gt 1) {
 if ($TargetAssociationScore -lt 0 -or $TargetAssociationScore -gt $AssociationScore) {
     throw "TargetAssociationScore must be between 0 and AssociationScore."
 }
-if ($EnemyConfirmFrames -lt 2) { throw "EnemyConfirmFrames must be >= 2." }
+if ($EnemyConfirmFrames -lt 3) { throw "EnemyConfirmFrames must be >= 3." }
 if ($MaximumMissingFrames -lt 1) { throw "MaximumMissingFrames must be >= 1." }
 if ($TargetMissingGraceFrames -lt $MaximumMissingFrames) {
     throw "TargetMissingGraceFrames must be >= MaximumMissingFrames."
 }
 if ($AttackDistanceCells -lt 0) { throw "AttackDistanceCells must be >= 0." }
+if ($HCooldown -lt 0.5) { throw "HCooldown must be >= 0.5 seconds." }
+if ($AttackConfirmFrames -lt 2) { throw "AttackConfirmFrames must be >= 2." }
+if ($DebugSaveEveryFrames -lt 1) { throw "DebugSaveEveryFrames must be >= 1." }
 if ($TargetFps -lt 1 -or $TargetFps -gt 20) { throw "TargetFps must be between 1 and 20." }
 
 function Set-InvariantDoubleEnv([string]$Name, [double]$Value) {
@@ -136,6 +141,7 @@ $env:KAGE_PR27_TARGET_FOCUS_RADIUS = [string]$TargetFocusRadiusCells
 $env:KAGE_PR27_GLOBAL_REACQUIRE_INTERVAL = [string]$GlobalReacquireIntervalFrames
 $env:KAGE_PR27_MAX_ACTIVE_TRACKS = [string]$MaximumActiveTracks
 $env:KAGE_PR27_ATTACK_DISTANCE = [string]$AttackDistanceCells
+$env:KAGE_PR27_ATTACK_CONFIRM_FRAMES = [string]$AttackConfirmFrames
 $env:KAGE_PR27_SCENE_CHANGED_MIN_CELLS = [string]$SceneChangedMinimumCells
 $env:KAGE_PR27_OVERLAY_EVERY_FRAMES = [string]$OverlayEveryFrames
 $env:KAGE_PR27_SAVE_EVERY_FRAMES = [string]$DebugSaveEveryFrames
@@ -144,29 +150,33 @@ Set-InvariantDoubleEnv "KAGE_PR27_CHANGED_RATIO" $ChangedRatio
 Set-InvariantDoubleEnv "KAGE_PR27_UNCERTAIN_RATIO" $UncertainRatio
 Set-InvariantDoubleEnv "KAGE_PR27_ASSOCIATION_SCORE" $AssociationScore
 Set-InvariantDoubleEnv "KAGE_PR27_TARGET_ASSOCIATION_SCORE" $TargetAssociationScore
+Set-InvariantDoubleEnv "KAGE_PR27_H_COOLDOWN" $HCooldown
 Set-InvariantDoubleEnv "KAGE_PR27_SCENE_CHANGED_RATIO" $SceneChangedRatio
 Set-InvariantDoubleEnv "KAGE_PR27_TARGET_FPS" $TargetFps
 
-Write-Host "PR27 NATIVE GRID SPRITE COMBAT" -ForegroundColor Green
+Write-Host "PR27.4 GUARDED NATIVE GRID SPRITE COMBAT" -ForegroundColor Green
 Write-Host "  Mode: $ControlMode" -ForegroundColor Cyan
 if ($ControlEnabled) {
     Write-Host "  PHYSICAL CONTROL: ENABLED BY EXPLICIT ACKNOWLEDGEMENT" -ForegroundColor Red
-    Write-Host "  R: armed immediately after the post-OK combat subprocess starts" -ForegroundColor Yellow
+    Write-Host "  R: released until a confirmed non-Trainer enemy action exists" -ForegroundColor Yellow
+    Write-Host "  H: requires $AttackConfirmFrames ATTACK frames; cooldown $HCooldown seconds" -ForegroundColor Yellow
     Write-Host "  F12: emergency stop; keep it ready" -ForegroundColor Yellow
 }
 if ($PhysicalMode -and $DebugOverlay) {
     Write-Host "  Live overlay: automatically disabled in physical modes to preserve game focus" -ForegroundColor Yellow
 }
+Write-Host "  Trainer region: masked from combat perception using pre-click baseline"
+Write-Host "  Visual effect bursts: tracking and physical actions suspended"
+Write-Host "  Enemy selection: competitive candidates; first-track-wins disabled"
 Write-Host "  Perception frame: original DreamSeeker client pixels"
 Write-Host "  JPEG in perception: OFF" -ForegroundColor Yellow
 Write-Host "  Resize in perception: OFF" -ForegroundColor Yellow
 Write-Host "  Grid: native 64x64 cells"
-Write-Host "  Target focus radius: $TargetFocusRadiusCells cells"
+Write-Host "  Enemy confirmation: $EnemyConfirmFrames observations + 2 candidate wins"
 Write-Host "  Target missing grace: $TargetMissingGraceFrames frames"
 Write-Host "  Maximum active tracks: $MaximumActiveTracks"
-Write-Host "  Minimum observation pixels: $MinimumObservationPixels"
 Write-Host "  Target FPS: $TargetFps"
-Write-Host "  Debug frames enabled: $SaveFrames"
+Write-Host "  Debug frames enabled: $SaveFrames every $DebugSaveEveryFrames frames"
 Write-Host "  Baseline: $BaselineFile"
 Write-Host "  Sprite references: $SpriteRoot"
 

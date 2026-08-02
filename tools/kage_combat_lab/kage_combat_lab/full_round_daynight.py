@@ -30,6 +30,10 @@ def main() -> int:
     from . import live_bridge as live_bridge_module
     from .pre_trainer_baseline import load_pre_trainer_baselines
     from .runtime_camera_compensation import install_runtime_camera_compensation
+    from .runtime_combat_target_memory import (
+        install_combat_target_continuity_physical_gate,
+        install_combat_target_continuity_tracking,
+    )
     from .runtime_control_mode import install_runtime_control_mode
     from .runtime_engagement_recovery import install_runtime_engagement_recovery
     from .runtime_entity_hardening import install_runtime_entity_hardening
@@ -56,6 +60,7 @@ def main() -> int:
     install_runtime_entity_hardening()
     install_runtime_camera_compensation()
     install_near_enemy_focus_tracking()
+    install_combat_target_continuity_tracking()
     tile_perception = install_runtime_tile_perception(
         live_bridge_module,
         full_round_module,
@@ -66,62 +71,74 @@ def main() -> int:
     install_runtime_engagement_recovery(full_round_module)
     install_runtime_control_mode()
     install_near_enemy_focus_physical_gate()
+    # This must remain the outermost physical boundary. Memory-only target
+    # states retain identity/R/facing but can never move or fire H.
+    install_combat_target_continuity_physical_gate()
+
     mode = current_control_mode().value
     print("TRAINER: day-64 + night-64 retained for outer request and FULL_COMBAT post-KO")
     print("POST_OK_GATE: confirmed; baseline was captured before trainer click and spawn wait completed")
     print(
-        f"PR26.8 CLEAN BASELINE: stored={baseline_count} "
+        f"PR26.9 CLEAN BASELINE: stored={baseline_count} "
         "source=BEFORE_TRAINER_CLICK frozen_during_combat=true"
     )
-    print("ENGAGEMENT: physical authority is controlled by PR26.8 validation mode")
+    print("ENGAGEMENT: physical authority is controlled by PR26.9 validation mode")
     print(
-        "PR26.8 CAMERA: absolute phase registration aligns the frozen world baseline "
+        "PR26.9 CAMERA: absolute phase registration aligns the frozen world baseline "
         "to the current screen; uncertain alignment blocks all authority"
     )
     print(
-        "PR26.8 SEARCH RADIUS: initial enemy acquisition and visual-lock competition "
-        "are limited to Chebyshev D<=3 from the player"
+        "PR26.9 SEARCH RADIUS: initial acquisition and all reacquisition remain "
+        "inside Chebyshev D<=3 from the player"
     )
     print(
-        "PR26.8 OCCUPANCY: compact exact-baseline vertical bodies near the player "
-        "may be confirmed in 2-of-3 frames even when the raw tracker is absent"
+        "PR26.9 ROUND TARGET: first COMBAT_LOCK latches one hostile identity until KO; "
+        "score challengers cannot replace it during contact, animation or occlusion"
     )
     print(
-        "PR26.8 FLOW: camera registration -> exact pixel mask -> D<=3 filter -> "
-        "vertical-body confirmation -> turn-only orientation -> COMBAT_LOCK"
+        "PR26.9 TARGET CAPSULE: raw candidates are enriched before occupancy filtering; "
+        "ReID expands progressively D1 -> D2 -> D3"
     )
     print(
-        "PR26.8 AUTHORITY: autonomous approach OR selected nearby vertical contact "
-        "2-of-3 -> HOSTILE_CONFIRMED -> COMBAT_LOCK"
+        "PR26.9 CONTACT OVERLAP: after hostile lock the player exclusion shrinks to a "
+        "22x42 core so overlapping enemy pixels are not erased"
     )
     print(
-        "PR26.8 ARTIFACTS: 128x64 wide non-humanoid fields, proportional horizontal "
-        "bands and multi-cell edge columns cannot become entities"
+        "PR26.9 REID: Target Capsule evidence or a compact local exact-baseline pixel "
+        "cluster may restore the same stable target ID"
     )
     print(
-        "PR26.8 ORIENTATION: FULL_COMBAT may turn toward a selected D<=3 body before "
-        "COMBAT_LOCK; chase and H remain blocked at the physical boundary"
+        "PR26.9 MEMORY SAFETY: CONTACT_MEMORY, REID_PENDING and OUTSIDE_D3 preserve "
+        "identity and facing memory while MOVE/H remain physically blocked"
     )
     print(
-        "PR26.8 CONTINUITY: raw IDs still require bbox/mask overlap and never authorize "
-        "teleportation; a locked combat target may survive local knockback continuity"
+        "PR26.9 AUTHORITY: VISUAL_CLUSTER/CAPSULE_REID/PIXEL_REID -> COMBAT_LOCK -> "
+        "Target Capsule + facing + chase + H"
     )
     print(
-        "PR26.8 PIXEL TRUTH: EXACT_CELL_BASELINE is camera-aligned and frozen; "
+        "PR26.9 ARTIFACTS: wide non-humanoid fields, proportional horizontal bands "
+        "and multi-cell edge columns cannot become entities"
+    )
+    print(
+        "PR26.9 CONTINUITY: raw IDs require bbox/mask overlap and never authorize "
+        "teleportation; camera-compensated target geometry survives temporary loss"
+    )
+    print(
+        "PR26.9 PIXEL TRUTH: EXACT_CELL_BASELINE is camera-aligned and frozen; "
         "CLASS_REFERENCE remains weak attention only"
     )
     print(
-        "PR26.8 CLUSTER: CELL_SIZE=64x64; cardinal mask contact only; "
-        "humanoid limit=2x3 cells / 6 total; player pixels removed"
+        "PR26.9 CLUSTER: CELL_SIZE=64x64; cardinal mask contact only; "
+        "humanoid limit=2x3 cells / 6 total; player core removed"
     )
     print(
-        f"PR26.8 MODE={mode}: PERCEPTION_ONLY blocks TURN/MOVE/R/H; "
-        "FACE_ONLY allows TURN only; FULL_COMBAT requires COMBAT_LOCK for chase/H"
+        f"PR26.9 MODE={mode}: PERCEPTION_ONLY blocks TURN/MOVE/R/H; "
+        "FACE_ONLY allows TURN only; FULL_COMBAT requires current visual confirmation"
     )
     # tile-only and negative synthetic candidates have zero offensive authority
     print(
-        "PR26.8 SAFETY: camera uncertainty blocks authority; tile-only and negative "
-        "synthetic candidates have zero offensive authority"
+        "PR26.9 SAFETY: camera uncertainty, memory-only states, tile-only candidates "
+        "and negative synthetic candidates have zero offensive authority"
     )
     return int(full_round_module.main())
 

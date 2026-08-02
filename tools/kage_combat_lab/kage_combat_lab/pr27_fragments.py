@@ -61,6 +61,13 @@ class SpriteFragmentExtractor:
                 cell_crop = arena_bgr[cell.y : cell.y + cell.height, cell.x : cell.x + cell.width]
                 for component in evidence.components:
                     x, y, width, height = component.local_bbox
+                    if component.pixel_count < self.config.minimum_fragment_pixels:
+                        continue
+                    if (
+                        width < self.config.minimum_fragment_width
+                        and height < self.config.minimum_fragment_height
+                    ):
+                        continue
                     component_mask = evidence.difference_mask[y : y + height, x : x + width].copy()
                     if not np.any(component_mask):
                         continue
@@ -113,6 +120,8 @@ class SpriteAssembler:
             group_fragments = [fragment for cell in group.cells for fragment in by_cell[(cell.row, cell.column)]]
             if not group_fragments:
                 continue
+            group_fragments.sort(key=lambda item: item.pixel_count, reverse=True)
+            group_fragments = group_fragments[: self.config.maximum_fragments_per_group]
             parent = list(range(len(group_fragments)))
 
             def find(index: int) -> int:
@@ -145,11 +154,19 @@ class SpriteAssembler:
                 buckets[find(index)].append(fragment)
 
             for bucket in buckets.values():
+                pixel_count = sum(item.pixel_count for item in bucket)
+                if pixel_count < self.config.minimum_observation_pixels:
+                    continue
                 left = min(item.native_bbox[0] for item in bucket)
                 top = min(item.native_bbox[1] for item in bucket)
                 right = max(item.native_bbox[0] + item.native_bbox[2] for item in bucket)
                 bottom = max(item.native_bbox[1] + item.native_bbox[3] for item in bucket)
                 width, height = max(1, right - left), max(1, bottom - top)
+                if (
+                    width < self.config.minimum_fragment_width
+                    and height < self.config.minimum_fragment_height
+                ):
+                    continue
                 combined_mask = np.zeros((height, width), dtype=np.uint8)
                 for item in bucket:
                     x, y, item_width, item_height = item.native_bbox

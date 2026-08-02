@@ -42,6 +42,9 @@ def main() -> int:
     from .runtime_control_mode import install_runtime_control_mode
     from .runtime_engagement_recovery import install_runtime_engagement_recovery
     from .runtime_entity_hardening import install_runtime_entity_hardening
+    from .runtime_event_snapshot_preservation import (
+        install_trigger_frame_json_preservation,
+    )
     from .runtime_facing_patch import install_runtime_facing_patch
     from .runtime_mask_cluster_guard import install_runtime_mask_cluster_guard
     from .runtime_near_enemy_focus import (
@@ -97,6 +100,9 @@ def main() -> int:
         live_bridge_module,
         full_round_module,
     )
+    # OccupancyEventRecorder writes generic close metadata after its parent.
+    # Restore frozen trigger payloads once every close hook has completed.
+    install_trigger_frame_json_preservation()
     baseline_count = load_pre_trainer_baselines()
     install_runtime_facing_patch(full_round_module)
     install_inherited_post_ok_startup()

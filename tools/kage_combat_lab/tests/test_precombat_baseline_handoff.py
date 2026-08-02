@@ -9,10 +9,9 @@ from kage_combat_lab.full_loop import (
     install_full_loop_round,
     replace_source_round_command,
 )
-from kage_combat_lab.full_round_daynight import _consume_transferred_startup_delay
 
 
-def test_round_command_transfers_baseline_duration_to_child(monkeypatch) -> None:
+def test_round_command_preserves_normal_child_startup_delay(monkeypatch) -> None:
     monkeypatch.setenv(BASELINE_SECONDS_ENV, "5.0")
     command = [
         "python.exe",
@@ -32,13 +31,15 @@ def test_round_command_transfers_baseline_duration_to_child(monkeypatch) -> None
         "--pr25-post-ok",
     ]
     index = replaced.index("--startup-delay")
-    assert replaced[index + 1] == "5.0"
+    assert replaced[index + 1] == "1.0"
 
 
-def test_full_loop_zeroes_outer_spawn_wait_and_preserves_duration(
+def test_full_loop_reserves_pre_ok_duration_and_preserves_spawn_wait(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
+    monkeypatch.chdir(tmp_path)
+
     class Legacy:
         @staticmethod
         def _request_kwargs(args, *, round_number: int):
@@ -60,18 +61,19 @@ def test_full_loop_zeroes_outer_spawn_wait_and_preserves_duration(
     values = engine.legacy_loop._request_kwargs(SimpleNamespace(), round_number=1)
     command, _ = engine._round_command(SimpleNamespace(), round_number=1)
 
-    assert values["spawn_delay_seconds"] == 0.0
+    assert values["spawn_delay_seconds"] == 5.0
     assert os.environ[BASELINE_SECONDS_ENV] == "5.0"
     index = command.index("--startup-delay")
-    assert command[index + 1] == "5.0"
+    assert command[index + 1] == "1.0"
 
 
-def test_child_consumes_transferred_delay_only_once(monkeypatch) -> None:
-    monkeypatch.setenv(BASELINE_SECONDS_ENV, "5.0")
+def test_each_round_resets_stale_pre_ok_baseline_file(monkeypatch, tmp_path: Path) -> None:
+    path = tmp_path / "baseline.npz"
+    path.write_bytes(b"stale")
+    monkeypatch.setenv("KAGE_PR26_PREOK_BASELINE_FILE", str(path))
 
-    result = _consume_transferred_startup_delay(
-        ["--seconds", "60", "--startup-delay", "5.0"]
-    )
+    from kage_combat_lab.pre_ok_baseline import reset_pre_ok_baseline_capture
 
-    index = result.index("--startup-delay")
-    assert result[index + 1] == "0.0"
+    reset_pre_ok_baseline_capture()
+
+    assert not path.exists()

@@ -4,6 +4,7 @@ import json
 import time
 from typing import Any, Callable
 
+from .domain import CELL_SIZE_PX
 from .hostility_gate import PR26HostilityGate
 from .tile_perception import PR24CombatTilePerception, TileClass
 
@@ -37,10 +38,11 @@ def install_runtime_tile_perception(
     calibration_payload = json.loads(
         perception.config.calibration_path.read_text(encoding="utf-8")
     )
-    calibrated_origin = (
+    calibrated_full_origin = (
         float(calibration_payload.get("offset_x_px", 0)),
         float(calibration_payload.get("offset_y_px", 0)),
     )
+    last_arena_origin = [calibrated_full_origin[0], calibrated_full_origin[1]]
     original: Callable[..., Any] = live_bridge_module.combat_frame_from_observer_state
     next_telemetry_at = 0.0
 
@@ -56,6 +58,13 @@ def install_runtime_tile_perception(
                 "PR26_TILE_PIPELINE_REQUIRES_FRAME_STATE_OBSERVER_AND_TARGET_MEMORY"
             )
 
+        arena_x, arena_y, _, _ = (int(value) for value in state.arena_rect)
+        calibrated_arena_origin = (
+            (calibrated_full_origin[0] - float(arena_x)) % CELL_SIZE_PX,
+            (calibrated_full_origin[1] - float(arena_y)) % CELL_SIZE_PX,
+        )
+        last_arena_origin[0] = calibrated_arena_origin[0]
+        last_arena_origin[1] = calibrated_arena_origin[1]
         original_enrich = target_memory.enrich_candidates
 
         def hostility_first_enrich(*, frame_bgr, state, candidates, timestamp):
@@ -80,15 +89,18 @@ def install_runtime_tile_perception(
             )
 
         target_memory.enrich_candidates = hostility_first_enrich
-        previous_origin = getattr(observer, "grid_origin", (0.0, 0.0))
-        # PR24's saved calibration is the authoritative 64 px crop origin. Use
-        # it for both raw candidate cells and semantic classification so they
-        # cannot disagree about which tile is left/right of the player.
-        observer.grid_origin = calibrated_origin
+        previous_origin_x = float(getattr(observer, "grid_origin_x", 0.0))
+        previous_origin_y = float(getattr(observer, "grid_origin_y", 0.0))
+        # PR24 offsets are measured on the full captured game frame. PR25 tracks
+        # and player_center are arena-relative, so subtract arena_rect before
+        # using the calibration as the shared cell origin.
+        observer.grid_origin_x = calibrated_arena_origin[0]
+        observer.grid_origin_y = calibrated_arena_origin[1]
         try:
             combat_frame = original(*args, **kwargs)
         finally:
-            observer.grid_origin = previous_origin
+            observer.grid_origin_x = previous_origin_x
+            observer.grid_origin_y = previous_origin_y
             target_memory.enrich_candidates = original_enrich
 
         for event_line in gate.consume_console_events():
@@ -106,7 +118,8 @@ def install_runtime_tile_perception(
             history = ",".join(str(value) for value in snapshot.distance_history) or "-"
             print(
                 "PR26_TILE_SCAN "
-                f"origin=({int(calibrated_origin[0])},{int(calibrated_origin[1])}) "
+                f"full_origin=({int(calibrated_full_origin[0])},{int(calibrated_full_origin[1])}) "
+                f"arena_origin=({int(calibrated_arena_origin[0])},{int(calibrated_arena_origin[1])}) "
                 f"cells={summary.get('cells', 0)} "
                 f"danger={danger_cells} "
                 f"unknown={summary.get('unknown', 0)} "
@@ -139,9 +152,13 @@ def install_runtime_tile_perception(
             if payload.get("phase") == "combat":
                 payload.update(gate.last_snapshot.as_log_fields())
                 payload["synthetic_offensive_authority"] = False
-                payload["pr24_calibrated_origin"] = [
-                    int(calibrated_origin[0]),
-                    int(calibrated_origin[1]),
+                payload["pr24_calibrated_full_origin"] = [
+                    int(calibrated_full_origin[0]),
+                    int(calibrated_full_origin[1]),
+                ]
+                payload["pr24_calibrated_arena_origin"] = [
+                    int(last_arena_origin[0]),
+                    int(last_arena_origin[1]),
                 ]
                 payload["tile_pipeline_contract"] = (
                     "PR24_DANGER_TO_VISUAL_LOCK_TO_HOSTILITY_TO_COMBAT_LOCK"
@@ -200,9 +217,13 @@ def install_runtime_tile_perception(
                             "event": path.stem,
                             "saved_on_close": True,
                             "includes_f12_shutdown": True,
-                            "pr24_calibrated_origin": [
-                                int(calibrated_origin[0]),
-                                int(calibrated_origin[1]),
+                            "pr24_calibrated_full_origin": [
+                                int(calibrated_full_origin[0]),
+                                int(calibrated_full_origin[1]),
+                            ],
+                            "pr24_calibrated_arena_origin": [
+                                int(last_arena_origin[0]),
+                                int(last_arena_origin[1]),
                             ],
                             "hostility": snapshot,
                         },

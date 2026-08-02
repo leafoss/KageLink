@@ -81,6 +81,13 @@ class OccupancyConfig:
     approach_total_px: float = 32.0
     contact_distance_px: float = 96.0
     non_aggressive_seconds: float = 3.0
+    mask_edge_contact_px: int = 5
+    mask_edge_band_px: int = 4
+    player_mask_margin_px: int = 10
+    cluster_max_width_cells: int = 2
+    cluster_max_height_cells: int = 3
+    cluster_max_cells: int = 6
+    class_reference_score_cap: float = 0.28
     overlay_enabled: bool = False
     evidence_save_seconds: float = 2.0
     evidence_root: Path = Path("kage_pilot_loop_logs/occupancy_evidence")
@@ -112,9 +119,21 @@ class OccupancyConfig:
             approach_total_px=_float("KAGE_PR26_APPROACH_TOTAL_PX", 32.0),
             contact_distance_px=_float("KAGE_PR26_CONTACT_DISTANCE_PX", 96.0),
             non_aggressive_seconds=_float("KAGE_PR26_NON_AGGRESSIVE_SECONDS", 3.0),
+            mask_edge_contact_px=_int("KAGE_PR26_MASK_EDGE_CONTACT_PX", 5),
+            mask_edge_band_px=_int("KAGE_PR26_MASK_EDGE_BAND_PX", 4),
+            player_mask_margin_px=_int("KAGE_PR26_PLAYER_MASK_MARGIN_PX", 10),
+            cluster_max_width_cells=_int("KAGE_PR26_CLUSTER_MAX_WIDTH_CELLS", 2),
+            cluster_max_height_cells=_int("KAGE_PR26_CLUSTER_MAX_HEIGHT_CELLS", 3),
+            cluster_max_cells=_int("KAGE_PR26_CLUSTER_MAX_CELLS", 6),
+            class_reference_score_cap=_float("KAGE_PR26_CLASS_REFERENCE_SCORE_CAP", 0.28),
             overlay_enabled=_bool("KAGE_PR26_HOSTILITY_OVERLAY"),
             evidence_save_seconds=_float("KAGE_PR26_EVIDENCE_SAVE_SECONDS", 2.0),
-            evidence_root=Path(os.environ.get("KAGE_PR26_EVIDENCE_DIR", "kage_pilot_loop_logs/occupancy_evidence")),
+            evidence_root=Path(
+                os.environ.get(
+                    "KAGE_PR26_EVIDENCE_DIR",
+                    "kage_pilot_loop_logs/occupancy_evidence",
+                )
+            ),
         ).normalized()
 
     def normalized(self) -> "OccupancyConfig":
@@ -128,6 +147,18 @@ class OccupancyConfig:
             raise ValueError("evidence voting configuration is invalid")
         if self.danger_memory_seconds <= 0 or self.danger_memory_frames < 1:
             raise ValueError("danger memory must be positive")
+        if self.mask_edge_contact_px < 1 or not 1 <= self.mask_edge_band_px <= 16:
+            raise ValueError("mask edge-contact configuration is invalid")
+        if self.player_mask_margin_px < 0:
+            raise ValueError("player mask margin must not be negative")
+        if (
+            self.cluster_max_width_cells < 1
+            or self.cluster_max_height_cells < 1
+            or self.cluster_max_cells < 1
+        ):
+            raise ValueError("cluster geometry limits must be positive")
+        if not 0.0 <= self.class_reference_score_cap <= 0.49:
+            raise ValueError("class reference score cap must stay below authority")
         return self
 
 
@@ -151,6 +182,9 @@ class CellOccupancy:
     baseline: np.ndarray | None = None
     diff: np.ndarray | None = None
     mask: np.ndarray | None = None
+    blob_bbox: tuple[int, int, int, int] | None = None
+    player_masked_pixels: int = 0
+    reference_authoritative: bool = False
 
 
 @dataclass(slots=True)
@@ -166,6 +200,8 @@ class OccupancyCluster:
     largest_blob_area: int
     raw_track_ids: frozenset[int]
     cell_observations: tuple[CellOccupancy, ...]
+    mask_contact_edges: int = 0
+    authoritative_cells: int = 0
 
 
 @dataclass(slots=True)
@@ -226,6 +262,7 @@ class OccupancySnapshot:
     face_only_lock: bool = False
     cluster_id: int | None = None
     cluster_cells: tuple[tuple[int, int], ...] = ()
+    cluster_bbox: tuple[int, int, int, int] | None = None
     true_changed_ratio: float = 0.0
     bbox_coverage_ratio: float = 0.0
     diff_source: str = DiffSource.NONE.value
@@ -259,6 +296,8 @@ class OccupancySnapshot:
             "hostility_track_id": self.raw_track_id,
             "cluster_id": self.cluster_id,
             "cluster_cells": [list(value) for value in self.cluster_cells],
+            "cluster_bbox": list(self.cluster_bbox) if self.cluster_bbox else None,
+            "cluster_cell_count": len(self.cluster_cells),
             "occupancy_score": round(self.occupancy_score, 4),
             "danger_score": round(self.danger_score, 4),
             "control_mode": self.control_mode,

@@ -34,6 +34,13 @@ def install_runtime_tile_perception(
 
     perception = PR24CombatTilePerception()
     gate = PR26HostilityGate()
+    calibration_payload = json.loads(
+        perception.config.calibration_path.read_text(encoding="utf-8")
+    )
+    calibrated_origin = (
+        float(calibration_payload.get("offset_x_px", 0)),
+        float(calibration_payload.get("offset_y_px", 0)),
+    )
     original: Callable[..., Any] = live_bridge_module.combat_frame_from_observer_state
     next_telemetry_at = 0.0
 
@@ -73,9 +80,15 @@ def install_runtime_tile_perception(
             )
 
         target_memory.enrich_candidates = hostility_first_enrich
+        previous_origin = getattr(observer, "grid_origin", (0.0, 0.0))
+        # PR24's saved calibration is the authoritative 64 px crop origin. Use
+        # it for both raw candidate cells and semantic classification so they
+        # cannot disagree about which tile is left/right of the player.
+        observer.grid_origin = calibrated_origin
         try:
             combat_frame = original(*args, **kwargs)
         finally:
+            observer.grid_origin = previous_origin
             target_memory.enrich_candidates = original_enrich
 
         for event_line in gate.consume_console_events():
@@ -93,6 +106,7 @@ def install_runtime_tile_perception(
             history = ",".join(str(value) for value in snapshot.distance_history) or "-"
             print(
                 "PR26_TILE_SCAN "
+                f"origin=({int(calibrated_origin[0])},{int(calibrated_origin[1])}) "
                 f"cells={summary.get('cells', 0)} "
                 f"danger={danger_cells} "
                 f"unknown={summary.get('unknown', 0)} "
@@ -125,6 +139,10 @@ def install_runtime_tile_perception(
             if payload.get("phase") == "combat":
                 payload.update(gate.last_snapshot.as_log_fields())
                 payload["synthetic_offensive_authority"] = False
+                payload["pr24_calibrated_origin"] = [
+                    int(calibrated_origin[0]),
+                    int(calibrated_origin[1]),
+                ]
                 payload["tile_pipeline_contract"] = (
                     "PR24_DANGER_TO_VISUAL_LOCK_TO_HOSTILITY_TO_COMBAT_LOCK"
                 )
@@ -182,6 +200,10 @@ def install_runtime_tile_perception(
                             "event": path.stem,
                             "saved_on_close": True,
                             "includes_f12_shutdown": True,
+                            "pr24_calibrated_origin": [
+                                int(calibrated_origin[0]),
+                                int(calibrated_origin[1]),
+                            ],
                             "hostility": snapshot,
                         },
                         ensure_ascii=False,

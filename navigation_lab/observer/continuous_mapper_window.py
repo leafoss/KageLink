@@ -10,6 +10,7 @@ from typing import Any
 
 from ..storage import JsonRepository
 from .continuous_mapping import ContinuousMappingResult, ContinuousSemanticMapper, UnknownTileGroup
+from .direct_tile_teaching import DirectTileSelection, teach_direct_selection
 from .tile_knowledge import TILE_CLASS_LABELS_PT_BR, TileClass
 from .tile_overlay import display_category, render_tile_classification_overlay, tile_overlay_text
 from .window_capture import WindowsClientCapture
@@ -53,7 +54,7 @@ class _ReviewHotkey:
 
 
 class ContinuousMapperWindow:
-    """Background semantic mapper with live tile diagnostics and grouped review."""
+    """Background semantic mapper with live diagnostics and direct tile teaching."""
 
     def __init__(
         self,
@@ -87,6 +88,7 @@ class ContinuousMapperWindow:
         self._review_hotkey = _ReviewHotkey(lambda: self._events.put(("show", None)))
         self._selected_group_id: str | None = None
         self._selected_cell_id: str | None = None
+        self._direct_selection: DirectTileSelection | None = None
         self._group_ids: list[str] = []
         self._crop_photo: Any | None = None
         self._frame_photo: Any | None = None
@@ -98,7 +100,7 @@ class ContinuousMapperWindow:
 
         self.status_var = tk.StringVar(value="Pronto. F7 abre esta janela sem interromper automaticamente o jogo.")
         self.stats_var = tk.StringVar(value="Nenhuma captura processada.")
-        self.selected_var = tk.StringVar(value="Selecione um grupo desconhecido para ensinar.")
+        self.selected_var = tk.StringVar(value="Clique em um tile do preview ou selecione um grupo da fila.")
         self.running_var = tk.StringVar(value="Iniciar")
 
         self._build()
@@ -122,7 +124,7 @@ class ContinuousMapperWindow:
         header.columnconfigure(0, weight=1)
         ttk.Label(
             header,
-            text="Mapeamento contínuo: captura o jogo, mostra o grid 64×64 e agrupa dúvidas para revisão.",
+            text="Mapeamento contínuo: clique em qualquer tile para classificá-lo imediatamente.",
             font=("Segoe UI", 11, "bold"),
         ).grid(row=0, column=0, sticky="w")
         ttk.Button(header, textvariable=self.running_var, command=self._toggle).grid(row=0, column=1, padx=4)
@@ -135,7 +137,7 @@ class ContinuousMapperWindow:
 
         preview_frame = ttk.LabelFrame(
             body,
-            text="Shinobi Story Online — grid calibrado + classificação e confiança por tile",
+            text="Shinobi Story Online — clique em um tile para selecionar e ensinar",
             padding=6,
         )
         preview_frame.columnconfigure(0, weight=1)
@@ -148,7 +150,7 @@ class ContinuousMapperWindow:
             preview_frame,
             text=(
                 ". chão  # parede  J jutsu  B bloqueio  P jogador  N NPC  "
-                "T transição  ! perigo  I ignorar  ? desconhecido — clique em uma célula para inspecionar"
+                "T transição  ! perigo  I ignorar  ? desconhecido — clique e use os botões à direita"
             ),
             anchor="w",
             justify="left",
@@ -164,7 +166,7 @@ class ContinuousMapperWindow:
         stats_frame.grid(row=0, column=0, sticky="ew")
         ttk.Label(stats_frame, textvariable=self.stats_var, justify="left", wraplength=470).grid(sticky="w")
 
-        queue_frame = ttk.LabelFrame(right, text="Grupos desconhecidos — revise com F7", padding=8)
+        queue_frame = ttk.LabelFrame(right, text="Grupos desconhecidos — revisão em lote opcional", padding=8)
         queue_frame.grid(row=1, column=0, sticky="nsew", pady=(8, 0))
         queue_frame.columnconfigure(0, weight=1)
         queue_frame.rowconfigure(0, weight=1)
@@ -175,7 +177,7 @@ class ContinuousMapperWindow:
         self.group_list.configure(yscrollcommand=queue_scroll.set)
         self.group_list.bind("<<ListboxSelect>>", self._select_group)
 
-        selected_frame = ttk.LabelFrame(right, text="Exemplo representativo", padding=8)
+        selected_frame = ttk.LabelFrame(right, text="Tile ou grupo selecionado", padding=8)
         selected_frame.grid(row=2, column=0, sticky="ew", pady=(8, 0))
         selected_frame.columnconfigure(0, weight=1)
         self.crop_label = ttk.Label(selected_frame, anchor="center")
@@ -184,7 +186,7 @@ class ContinuousMapperWindow:
             row=1, column=0, sticky="w", pady=(6, 0)
         )
 
-        teaching = ttk.LabelFrame(right, text="Ensinar grupo", padding=8)
+        teaching = ttk.LabelFrame(right, text="Classificar seleção", padding=8)
         teaching.grid(row=3, column=0, sticky="ew", pady=(8, 0))
         teaching.columnconfigure(0, weight=1)
         teaching.columnconfigure(1, weight=1)
@@ -300,7 +302,7 @@ class ContinuousMapperWindow:
                     self.root.deiconify()
                     self.root.lift()
                     self.root.focus_force()
-                    self.status_var.set("Revisão aberta por F7. O mapeamento pausa enquanto o jogo perde o foco.")
+                    self.status_var.set("Revisão aberta por F7. Clique em qualquer tile para classificá-lo diretamente.")
                     self._refresh_all()
                 elif kind == "status":
                     self.status_var.set(str(payload))
@@ -402,25 +404,17 @@ class ContinuousMapperWindow:
         if cell is None:
             return
 
+        self._direct_selection = DirectTileSelection.from_cell(cell)
+        self._selected_group_id = None
         self._selected_cell_id = cell.crop.id
+        self.group_list.selection_clear(0, "end")
         category = display_category(cell)
         primary, _secondary = tile_overlay_text(cell)
         self.status_var.set(
-            f"Tile {cell.crop.id}: {TILE_CLASS_LABELS_PT_BR[category]} — {primary}; "
-            f"área=({cell.crop.x0},{cell.crop.y0})–({cell.crop.x1},{cell.crop.y1})."
+            f"Tile {cell.crop.id} selecionado para classificação direta: "
+            f"{TILE_CLASS_LABELS_PT_BR[category]} — {primary}."
         )
-
-        matches = [
-            group
-            for group in self.mapper.review_queue.groups.values()
-            if group.latest_screen_cell == cell.crop.id
-        ]
-        if matches:
-            group = max(matches, key=lambda item: item.last_seen_frame)
-            self._selected_group_id = group.id
-            self._refresh_group_list()
-        else:
-            self._redraw_preview(result)
+        self._refresh_selected_target()
 
     def _refresh_group_list(self) -> None:
         previous = self._selected_group_id
@@ -435,16 +429,21 @@ class ContinuousMapperWindow:
             )
             if group.id == previous:
                 selected_index = index
-        if selected_index is not None:
-            self.group_list.selection_set(selected_index)
-            self.group_list.activate(selected_index)
-        elif groups:
-            self.group_list.selection_set(0)
-            self.group_list.activate(0)
-            self._selected_group_id = groups[0].id
+
+        if self._direct_selection is None:
+            if selected_index is not None:
+                self.group_list.selection_set(selected_index)
+                self.group_list.activate(selected_index)
+            elif groups:
+                self.group_list.selection_set(0)
+                self.group_list.activate(0)
+                self._selected_group_id = groups[0].id
+            else:
+                self._selected_group_id = None
         else:
             self._selected_group_id = None
-        self._refresh_selected_group()
+
+        self._refresh_selected_target()
 
     def _select_group(self, _event: Any) -> None:
         selected = self.group_list.curselection()
@@ -452,33 +451,59 @@ class ContinuousMapperWindow:
             return
         index = int(selected[0])
         if 0 <= index < len(self._group_ids):
+            self._direct_selection = None
             self._selected_group_id = self._group_ids[index]
-            self._refresh_selected_group()
+            self._refresh_selected_target()
 
     def _selected_group(self) -> UnknownTileGroup | None:
         if self._selected_group_id is None:
             return None
         return self.mapper.review_queue.groups.get(self._selected_group_id)
 
-    def _refresh_selected_group(self) -> None:
-        group = self._selected_group()
-        if group is None:
+    def _show_crop(self, image: Any | None) -> None:
+        if image is None:
+            self._crop_photo = None
             self.crop_label.configure(image="")
-            self.selected_var.set("Nenhum grupo desconhecido pendente.")
+            return
+
+        import cv2
+        from PIL import Image, ImageTk
+
+        rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        rendered = Image.fromarray(rgb).resize((224, 224), Image.Resampling.NEAREST)
+        self._crop_photo = ImageTk.PhotoImage(rendered)
+        self.crop_label.configure(image=self._crop_photo)
+
+    def _refresh_selected_target(self) -> None:
+        selection = self._direct_selection
+        if selection is not None:
+            self._selected_cell_id = selection.cell_id
+            self._show_crop(selection.image)
+            x0, y0, x1, y1 = selection.bounds
+            self.selected_var.set(
+                "\n".join(
+                    [
+                        f"Seleção direta: {selection.cell_id}",
+                        f"Estimativa atual: {TILE_CLASS_LABELS_PT_BR[selection.estimated_category]}",
+                        f"Confiança atual: {selection.confidence:.1%}",
+                        f"Área da captura: ({x0},{y0})–({x1},{y1})",
+                        "Clique em uma categoria abaixo para ensinar este tile imediatamente.",
+                    ]
+                )
+            )
             self._redraw_preview()
             return
-        self._selected_cell_id = group.latest_screen_cell
-        image = group.representative_image
-        if image is not None:
-            import cv2
-            from PIL import Image, ImageTk
 
-            rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            rendered = Image.fromarray(rgb).resize((224, 224), Image.Resampling.NEAREST)
-            self._crop_photo = ImageTk.PhotoImage(rendered)
-            self.crop_label.configure(image=self._crop_photo)
-        else:
-            self.crop_label.configure(image="")
+        group = self._selected_group()
+        if group is None:
+            self._selected_cell_id = None
+            self._show_crop(None)
+            self.selected_var.set("Clique em um tile do preview ou selecione um grupo da fila.")
+            self._redraw_preview()
+            return
+
+        self._selected_cell_id = group.latest_screen_cell
+        self._show_crop(group.representative_image)
         self.selected_var.set(
             "\n".join(
                 [
@@ -493,23 +518,50 @@ class ContinuousMapperWindow:
         self._redraw_preview()
 
     def _teach_selected(self, category: TileClass) -> None:
+        selection = self._direct_selection
         group = self._selected_group()
-        if group is None:
-            messagebox.showwarning("Kage Continuous Mapper", "Selecione um grupo desconhecido.")
+        if selection is None and group is None:
+            messagebox.showwarning(
+                "Kage Continuous Mapper",
+                "Clique em um tile do preview ou selecione um grupo desconhecido.",
+            )
             return
+
         try:
             with self._engine_lock:
-                image = group.representative_image
-                example = self.mapper.teach_group(group.id, category)
+                if selection is not None:
+                    image = selection.image
+                    example, removed_groups = teach_direct_selection(self.mapper, selection, category)
+                    source = f"Tile {selection.cell_id}"
+                else:
+                    assert group is not None
+                    image = group.representative_image
+                    example = self.mapper.teach_group(group.id, category)
+                    removed_groups = 1
+                    source = f"Grupo {group.id[:8]}"
+
                 if image is not None:
                     path = self.repository.save_tile_example_crop(self.region_id, example.id, image)
                     example.crop_path = str(path)
+
+                if self.mapper.last_result is not None:
+                    current_frame = self.mapper.last_result.scan.frame
+                    self.mapper.last_result.scan = self.mapper.scan_engine.scan(current_frame)
+
                 self.repository.save_tile_knowledge(self.region_id, self.mapper.knowledge.to_dict())
                 self._save_state()
+
+            self._direct_selection = None
             self._selected_group_id = None
             self._selected_cell_id = None
+            suffix = (
+                f" {removed_groups} grupo(s) já resolvido(s) foram removidos da fila."
+                if selection is not None and removed_groups
+                else ""
+            )
             self.status_var.set(
-                f"Grupo ensinado como {TILE_CLASS_LABELS_PT_BR[category]}. Próximas capturas serão reclassificadas."
+                f"{source} ensinado como {TILE_CLASS_LABELS_PT_BR[category]}."
+                f" O preview foi reclassificado imediatamente.{suffix}"
             )
             self._refresh_all()
         except Exception as exc:

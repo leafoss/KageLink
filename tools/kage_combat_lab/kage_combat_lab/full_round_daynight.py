@@ -48,6 +48,10 @@ def main() -> int:
         install_near_enemy_focus_physical_gate,
         install_near_enemy_focus_tracking,
     )
+    from .runtime_provisional_target_retention import (
+        install_prelatch_camera_retention,
+        install_provisional_body_target_retention,
+    )
     from .runtime_round_diagnostics import (
         RoundRuntimeDiagnostics,
         install_round_runtime_diagnostics,
@@ -76,16 +80,23 @@ def main() -> int:
     install_cell_change_authority()
     # Patch CameraStabilityGate before target-integrity creates its live instance.
     install_static_camera_liveness()
+    install_prelatch_camera_retention()
     install_target_integrity_tracking()
     install_visual_target_authority()
     # Final acquisition rule: exact changed pixels may promote a weak fresh raw
     # track, but same-cell equality, player-center tracks and terrain remain blocked.
     install_exact_cell_acquisition_recovery()
+    # Final pre-latch selector: a body-bound target coasts briefly across a raw
+    # detector miss and cannot be replaced by a raw-less challenger.
+    install_provisional_body_target_retention()
+    # Install the event snapshot wrapper first. OccupancyEventRecorder then
+    # inherits it and forwards its merged gate video events through the snapshot
+    # layer, so FACE_ONLY/DANGER_MOVED JSON is frozen on the trigger frame.
+    install_event_snapshot_integrity()
     install_runtime_tile_perception(
         live_bridge_module,
         full_round_module,
     )
-    install_event_snapshot_integrity()
     baseline_count = load_pre_trainer_baselines()
     install_runtime_facing_patch(full_round_module)
     install_inherited_post_ok_startup()
@@ -100,61 +111,73 @@ def main() -> int:
     print("TRAINER: day-64 + night-64 retained for outer request and FULL_COMBAT post-KO")
     print("POST_OK_GATE: confirmed; robust baseline was captured before trainer click and spawn wait completed")
     print(
-        f"PR26.16 CLEAN BASELINE: stored={baseline_count} "
+        f"PR26.17 CLEAN BASELINE: stored={baseline_count} "
         "source=BEFORE_TRAINER_CLICK player=FULL_PRESPAWN_INPAINT "
         "local_D3_coverage=MANDATORY comparison_unit=INDIVIDUAL_64PX_CELL"
     )
-    print("ENGAGEMENT: physical authority is controlled by PR26.16 validation mode")
+    print("ENGAGEMENT: physical authority is controlled by PR26.17 validation mode")
     print(
-        "PR26.16 CELL AUTHORITY: every 64x64 cell owns its baseline, diff mask, "
+        "PR26.17 PRELATCH CAMERA: facing-only acquisition cannot move the viewport; "
+        "phase aliases and uncertain estimates retain the accepted exact baselines"
+    )
+    print(
+        "PR26.17 PROVISIONAL BODY: the first exact-cell raw-supported identity is "
+        "retained for 3.0s across detector gaps; raw-less challengers cannot replace it"
+    )
+    print(
+        "PR26.17 COMBAT AUTHORITY: provisional retention grants no MOVE/H; the same "
+        "body still requires raw-confirmed contact in 2-of-3 frames before COMBAT_LOCK"
+    )
+    print(
+        "PR26.17 CELL AUTHORITY: every 64x64 cell owns its baseline, diff mask, "
         "component bbox and current-body association; clusters are search hints only"
     )
     print(
-        "PR26.16 BASELINE COVERAGE: local D<=3 cells around the pre-spawn player are "
+        "PR26.17 BASELINE COVERAGE: local D<=3 cells around the pre-spawn player are "
         "mandatory exact baselines; semantic class references have zero acquisition authority"
     )
     print(
-        "PR26.16 CAMERA LIVENESS: low correlation with displacement <=2.5px holds the "
-        "accepted viewport and keeps exact baselines alive"
-    )
-    print(
-        "PR26.16 FRESH BODY RECOVERY: a weak raw track may be promoted only when its "
+        "PR26.17 FRESH BODY RECOVERY: a weak raw track may be promoted only when its "
         "bbox/foot overlaps changed pixels from that exact cell baseline"
     )
     print(
-        "PR26.16 SELF SAFETY: raw tracks centered on the known player, same-cell-only "
+        "PR26.17 SELF SAFETY: raw tracks centered on the known player, same-cell-only "
         "matches, dominant terrain fields and pixel-only ReID have zero target authority"
     )
     print(
-        "PR26.16 CURRENT BODY: a latched target may update visible geometry only from "
+        "PR26.17 CURRENT BODY: a latched target may update visible geometry only from "
         "a current raw body or confirmed Target Capsule ReID"
     )
     print(
-        "PR26.16 CAMERA MOTION: meaningful viewport translations still require temporal "
-        "confirmation; low-confidence large jumps remain blocked"
+        "PR26.17 CAMERA MOTION: after a valid latch, meaningful translations require "
+        "temporal confirmation and repeating 32px phase aliases are unwrapped"
     )
     print(
-        "PR26.16 ORIENTATION SEPARATION: TURN_ONLY remains outside GridFocusStrategy "
+        "PR26.17 ORIENTATION SEPARATION: TURN_ONLY remains outside GridFocusStrategy "
         "and cannot create a logical target, chase, H or ReID"
     )
     print(
-        "PR26.16 LOGICAL TARGET: EXACT_COMPONENT_OVERLAP -> CURRENT_BODY -> "
-        "HOSTILE_CONFIRMED -> COMBAT_LOCK -> ROUND_TARGET_LATCHED"
+        "PR26.17 LOGICAL TARGET: EXACT_COMPONENT_OVERLAP -> PROVISIONAL_BODY -> "
+        "RAW_CONTACT_2_OF_3 -> HOSTILE_CONFIRMED -> COMBAT_LOCK -> ROUND_TARGET_LATCHED"
     )
     print(
-        "PR26.16 REID: only a valid round latch may enter OCCLUDED_COAST/REID_LOCAL; "
+        "PR26.17 EVENT JSON: gate-generated FACE_ONLY/DANGER_MOVED/COMBAT_LOCK events "
+        "are frozen on their trigger frame instead of receiving round-close fallback state"
+    )
+    print(
+        "PR26.17 REID: only a valid round latch may enter OCCLUDED_COAST/REID_LOCAL; "
         "Target Capsule searches D1 -> D2 -> D3 while MOVE/H remain blocked"
     )
     print(
-        "PR26.16 TERRAIN SAFETY: 43x64, 64x23, saturated cells, top/UI bands and "
+        "PR26.17 TERRAIN SAFETY: 43x64, 64x23, saturated cells, top/UI bands and "
         "raw-less fields cannot inherit or create hostile identity"
     )
     print(
-        "PR26.16 REPLAY/DIAGNOSTICS: complete replay, trigger-frame JSON, child console "
+        "PR26.17 REPLAY/DIAGNOSTICS: complete replay, trigger-frame JSON, child console "
         "and round_result.json remain enabled"
     )
     print(
-        f"PR26.16 MODE={mode}: PERCEPTION_ONLY blocks TURN/MOVE/R/H; "
+        f"PR26.17 MODE={mode}: PERCEPTION_ONLY blocks TURN/MOVE/R/H; "
         "FACE_ONLY allows TURN only; FULL_COMBAT requires current visual body confirmation"
     )
     # tile-only and negative synthetic candidates have zero offensive authority

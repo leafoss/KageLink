@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 
 
@@ -28,6 +29,7 @@ def main() -> int:
     from . import full_round as full_round_module
     from . import live_bridge as live_bridge_module
     from .pre_trainer_baseline import load_pre_trainer_baselines
+    from .runtime_camera_compensation import install_runtime_camera_compensation
     from .runtime_control_mode import install_runtime_control_mode
     from .runtime_engagement_recovery import install_runtime_engagement_recovery
     from .runtime_entity_hardening import install_runtime_entity_hardening
@@ -40,9 +42,15 @@ def main() -> int:
         install_runtime_tile_perception,
     )
 
+    # PR24 is a slow semantic prior. The camera-compensated pixel tracker is the
+    # fast authority and must not be forced back to a full 474-example scan on
+    # nearly every physical frame.
+    os.environ.setdefault("KAGE_PR26_PR24_INTERVAL_SECONDS", "2.0")
+
     install_runtime_mask_cluster_guard()
     install_semantic_entity_priority()
     install_runtime_entity_hardening()
+    install_runtime_camera_compensation()
     tile_perception = install_runtime_tile_perception(
         live_bridge_module,
         full_round_module,
@@ -56,43 +64,49 @@ def main() -> int:
     print("TRAINER: day-64 + night-64 retained for outer request and FULL_COMBAT post-KO")
     print("POST_OK_GATE: confirmed; baseline was captured before trainer click and spawn wait completed")
     print(
-        f"PR26.6 CLEAN BASELINE: stored={baseline_count} "
-        "source=BEFORE_TRAINER_CLICK dialog_open=false enemy_not_spawned=true"
+        f"PR26.7 CLEAN BASELINE: stored={baseline_count} "
+        "source=BEFORE_TRAINER_CLICK frozen_during_combat=true"
     )
-    print("ENGAGEMENT: physical authority is controlled by PR26.6 validation mode")
+    print("ENGAGEMENT: physical authority is controlled by PR26.7 validation mode")
     print(
-        "PR26.6 OCCUPANCY: DANGER_CONFIRMED/LIKELY is strong priority; "
-        "DANGER_WEAK is ranking telemetry only; "
-        f"terrain_examples={tile_perception.terrain_example_count}"
+        "PR26.7 CAMERA: absolute phase registration aligns the frozen world baseline "
+        "to the current screen; uncertain alignment blocks all authority"
     )
     print(
-        "PR26.6 FLOW: exact pixel mask -> player exclusion -> artifact rejection -> "
-        "motion/raw entity confirmation -> selected visual lock -> passive approach -> COMBAT_LOCK"
+        "PR26.7 OCCUPANCY: DANGER requires semantic margin; DANGER_WEAK is ranking "
+        f"telemetry only; terrain_examples={tile_perception.terrain_example_count}"
     )
-    print("PR26.6 AUTHORITY: HOSTILE_CONFIRMED -> COMBAT_LOCK")
     print(
-        "PR26.6 ARTIFACTS: horizontal UI strips, top/bottom bars and thin edge columns "
+        "PR26.7 FLOW: camera registration -> exact pixel mask -> player exclusion -> "
+        "artifact rejection -> raw-mask entity confirmation -> sticky lock -> COMBAT_LOCK"
+    )
+    print(
+        "PR26.7 AUTHORITY: autonomous approach OR selected raw-confirmed contact 2-of-3 "
+        "-> HOSTILE_CONFIRMED -> COMBAT_LOCK"
+    )
+    print(
+        "PR26.7 ARTIFACTS: proportional horizontal bands and multi-cell edge columns "
         "cannot become entities"
     )
     print(
-        "PR26.6 CONTINUITY: raw IDs never authorize teleport; distributed baseline "
-        "failure triggers GLOBAL_SCENE_CHANGE and resets all authority"
+        "PR26.7 CONTINUITY: raw IDs require bbox/mask overlap and never authorize "
+        "teleportation; selected lock switches only after a 3-frame challenger"
     )
     print(
-        "PR26.6 PIXEL TRUTH: EXACT_CELL_BASELINE creates occupancy; "
+        "PR26.7 PIXEL TRUTH: EXACT_CELL_BASELINE is camera-aligned and frozen; "
         "CLASS_REFERENCE remains weak attention only"
     )
     print(
-        "PR26.6 CLUSTER: CELL_SIZE=64x64; cardinal mask contact only; "
+        "PR26.7 CLUSTER: CELL_SIZE=64x64; cardinal mask contact only; "
         "humanoid limit=2x3 cells / 6 total; player pixels removed"
     )
     print(
-        f"PR26.6 MODE={mode}: PERCEPTION_ONLY blocks TURN/MOVE/R/H; "
+        f"PR26.7 MODE={mode}: PERCEPTION_ONLY blocks TURN/MOVE/R/H; "
         "FACE_ONLY allows TURN only; FULL_COMBAT requires COMBAT_LOCK"
     )
     print(
-        "PR26.6 SAFETY: tile-only and negative synthetic candidates have zero "
-        "offensive authority"
+        "PR26.7 SAFETY: camera uncertainty, tile-only candidates and negative IDs "
+        "have zero offensive authority"
     )
     return int(full_round_module.main())
 

@@ -27,7 +27,7 @@ def main() -> int:
 
     from . import full_round as full_round_module
     from . import live_bridge as live_bridge_module
-    from .pre_ok_baseline import load_pre_ok_baselines
+    from .pre_trainer_baseline import load_pre_trainer_baselines
     from .runtime_control_mode import install_runtime_control_mode
     from .runtime_engagement_recovery import install_runtime_engagement_recovery
     from .runtime_entity_hardening import install_runtime_entity_hardening
@@ -47,7 +47,7 @@ def main() -> int:
         live_bridge_module,
         full_round_module,
     )
-    baseline_count = load_pre_ok_baselines()
+    baseline_count = load_pre_trainer_baselines()
     install_runtime_facing_patch(full_round_module)
     install_inherited_post_ok_startup()
     install_runtime_engagement_recovery(full_round_module)

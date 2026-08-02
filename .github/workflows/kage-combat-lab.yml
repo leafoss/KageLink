@@ -5,11 +5,13 @@ on:
     paths:
       - "KAGE_COMBAT_LAB.md"
       - "tools/kage_combat_lab/**"
+      - "KageLink Installer/pc_agent/pc_agent/game_capture.py"
       - ".github/workflows/kage-combat-lab.yml"
   push:
     paths:
       - "KAGE_COMBAT_LAB.md"
       - "tools/kage_combat_lab/**"
+      - "KageLink Installer/pc_agent/pc_agent/game_capture.py"
       - ".github/workflows/kage-combat-lab.yml"
 
 jobs:
@@ -34,7 +36,8 @@ jobs:
         run: |
           $scripts = @(
             "./run_kage_combat_lab.ps1",
-            "./run_pr26_tile_combat.ps1"
+            "./run_pr26_tile_combat.ps1",
+            "./run_pr27_native_sprite_combat.ps1"
           )
           foreach ($script in $scripts) {
             $tokens = $null

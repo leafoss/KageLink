@@ -25,8 +25,17 @@ def _player_rect(state: Any, margin: int) -> tuple[int, int, int, int]:
     )
 
 
+def _affinity_code(affinity: Any | None) -> str:
+    level = str(getattr(affinity, "level", "NONE"))
+    return {
+        "DANGER_CONFIRMED": "DC",
+        "DANGER_LIKELY": "DL",
+        "DANGER_WEAK_PRIOR": "DW",
+    }.get(level, "--")
+
+
 def install_runtime_mask_cluster_guard() -> None:
-    """Install PR26.4 player exclusion and truthful 64px mask overlay."""
+    """Install player exclusion and truthful 64px mask/semantic overlay."""
 
     global _INSTALLED
     if _INSTALLED:
@@ -50,6 +59,11 @@ def install_runtime_mask_cluster_guard() -> None:
     def truthful_overlay(self, frame: np.ndarray, state: Any, active):
         result = frame.copy()
         arena_x, arena_y, _, _ = (int(value) for value in state.arena_rect)
+        affinities = (
+            getattr(self.map.perception, "last_danger_affinity", {})
+            if self.map.perception is not None
+            else {}
+        )
 
         # Red pixels are the actual largest foreground component after player
         # exclusion. Blue rectangles are always the immutable 64x64 cells.
@@ -57,6 +71,7 @@ def install_runtime_mask_cluster_guard() -> None:
             left, top, width, height = item.evidence.bbox
             full_left = arena_x + left
             full_top = arena_y + top
+            affinity = affinities.get(item.cell)
             if item.mask is not None and np.any(item.mask):
                 roi = result[
                     full_top : full_top + height,
@@ -80,7 +95,8 @@ def install_runtime_mask_cluster_guard() -> None:
                 (255, 120, 0),
                 1,
             )
-            if item.danger_prior >= self.config.danger_confidence:
+            affinity_level = str(getattr(affinity, "level", "NONE"))
+            if affinity_level in {"DANGER_CONFIRMED", "DANGER_LIKELY"}:
                 cv2.rectangle(
                     result,
                     (full_left + 1, full_top + 1),
@@ -101,8 +117,22 @@ def install_runtime_mask_cluster_guard() -> None:
                 f"{item.true_changed_ratio:.2f}{source}{state_code}",
                 (full_left + 2, full_top + 11),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.28,
+                0.27,
                 (255, 255, 255),
+                1,
+                cv2.LINE_AA,
+            )
+            cv2.putText(
+                result,
+                (
+                    f"{_affinity_code(affinity)} "
+                    f"{float(getattr(affinity, 'danger_similarity', 0.0)):.2f} "
+                    f"M{float(getattr(affinity, 'danger_margin', 0.0)):+.2f}"
+                ),
+                (full_left + 2, full_top + 23),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.25,
+                (0, 255, 255) if affinity_level != "NONE" else (180, 180, 180),
                 1,
                 cv2.LINE_AA,
             )
@@ -147,6 +177,16 @@ def install_runtime_mask_cluster_guard() -> None:
                 (255, 0, 255),
                 -1,
             )
+            cv2.putText(
+                result,
+                f"C{cluster.local_id} n={len(cluster.cells)} D={cluster.danger_prior:.2f}",
+                (arena_x + left, max(45, arena_y + top - 4)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.32,
+                (255, 0, 255),
+                1,
+                cv2.LINE_AA,
+            )
 
         direction = "-"
         cluster_id = "-"
@@ -154,6 +194,8 @@ def install_runtime_mask_cluster_guard() -> None:
         cluster_bbox = "-"
         face_lock = False
         combat_lock = False
+        lock_kind = "NONE"
+        danger_score = 0.0
         if active is not None:
             direction = self._face(state.player_center, active.foot_point) or "HOLD"
             cluster_id = str(active.track_id)
@@ -161,17 +203,19 @@ def install_runtime_mask_cluster_guard() -> None:
             cluster_bbox = f"{active.bbox[2]}x{active.bbox[3]}"
             face_lock = bool(active.face_only_lock)
             combat_lock = bool(active.combat_lock)
+            danger_score = float(active.danger_score)
+            lock_kind = "DANGER_LOCK" if danger_score >= 0.50 else "ENTITY_LOCK"
 
-        cv2.rectangle(result, (0, 0), (result.shape[1], 42), (0, 0, 0), -1)
+        cv2.rectangle(result, (0, 0), (result.shape[1], 47), (0, 0, 0), -1)
         cv2.putText(
             result,
             (
-                f"PR26.4 {self.mode.value} CELL_SIZE={CELL_SIZE_PX}x{CELL_SIZE_PX} "
-                f"cluster={cluster_id} cells={cell_count} bbox={cluster_bbox}"
+                f"PR26.5 {self.mode.value} CELL_SIZE={CELL_SIZE_PX}x{CELL_SIZE_PX} "
+                f"active={cluster_id} lock={lock_kind} cells={cell_count} bbox={cluster_bbox}"
             ),
             (10, 17),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.46,
+            0.43,
             (255, 255, 255),
             1,
             cv2.LINE_AA,
@@ -179,12 +223,13 @@ def install_runtime_mask_cluster_guard() -> None:
         cv2.putText(
             result,
             (
-                f"face_lock={face_lock} direction={direction} "
-                f"combat_lock={combat_lock} rejected={len(self.map.last_rejected_clusters)}"
+                f"face_lock={face_lock} direction={direction} combat_lock={combat_lock} "
+                f"danger={danger_score:.2f} candidates={len(self.last_clusters)} "
+                f"rejected={len(self.map.last_rejected_clusters)}"
             ),
             (10, 36),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.46,
+            0.43,
             (255, 255, 255),
             1,
             cv2.LINE_AA,
@@ -195,8 +240,8 @@ def install_runtime_mask_cluster_guard() -> None:
     PR26OccupancyTracker._overlay = truthful_overlay
     _INSTALLED = True
     print(
-        "PR26.4 MASK CLUSTER GUARD: player excluded; cardinal edge-contact only; "
-        "humanoid cluster <=2x3 cells; CLASS_REFERENCE has no seed authority"
+        "PR26.5 MASK CLUSTER GUARD: player excluded; cardinal edge-contact only; "
+        "humanoid cluster <=2x3 cells; semantic DANGER affinity visible"
     )
 
 

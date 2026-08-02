@@ -4,9 +4,13 @@ import json
 import math
 import os
 import time
+from collections import deque
 from typing import Iterable
 
-from .domain import CELL_SIZE_PX, CandidateObservation, GridCell, ObservationKind
+import numpy as np
+
+from .domain import CELL_SIZE_PX, GridCell
+from .tile_perception import TileClass
 
 
 def _baseline_seconds() -> float:
@@ -119,34 +123,47 @@ def prime_pre_spawn_baselines(argv: Iterable[str]) -> int:
             math.floor((player[0] - origin[0]) / CELL_SIZE_PX),
             math.floor((player[1] - origin[1]) / CELL_SIZE_PX),
         )
-        excluded = frozenset(
+        excluded = {
             GridCell(player_cell.x + dx, player_cell.y + dy)
             for dx in (-1, 0, 1)
             for dy in (-1, 0, 1)
-        )
-        player_mask = CandidateObservation(
-            track_id=0,
-            anchor_cell=player_cell,
-            kind=ObservationKind.CONTAMINATED_ACTIVITY,
-            visible=True,
-            body_like=False,
-            confidence=1.0,
-            cells_touched=excluded,
-            foot_point=player,
-            background_probability=1.0,
-        )
-        _, ready = gate.map.observe(
-            frame=frame,
-            state=state,
-            candidates=(player_mask,),
-            evidence=evidence,
-            danger_fresh=True,
-        )
-        for cell in ready:
+        }
+
+        for item in evidence.values():
+            cell = item.cell
+            if cell in gate.map.exact_baselines or cell in excluded:
+                continue
+            if item.category in {
+                TileClass.DANGER,
+                TileClass.PLAYER,
+                TileClass.IGNORE_DYNAMIC,
+            }:
+                continue
+            crop = gate.map._crop(frame, state, item)
+            if crop is None:
+                continue
+            previous = gate.map._previous.get(cell)
+            gate.map._previous[cell] = crop.copy()
+            if previous is None:
+                continue
+            if gate.map._temporal(previous, crop) > gate.config.baseline_stability:
+                gate.map._samples.pop(cell, None)
+                continue
+            samples = gate.map._samples.setdefault(
+                cell,
+                deque(maxlen=gate.config.baseline_samples),
+            )
+            samples.append(crop.copy())
+            if len(samples) < gate.config.baseline_samples:
+                continue
+            gate.map.exact_baselines[cell] = np.median(
+                np.stack(tuple(samples)),
+                axis=0,
+            ).astype(np.uint8)
             baseline_events += 1
             print(
                 f"PR26_PRESPAWN_BASELINE_READY cell={cell} "
-                "diff_source=EXACT_CELL_BASELINE"
+                "diff_source=EXACT_CELL_BASELINE authority=TEMPORAL_STABILITY"
             )
         captures += 1
         time.sleep(0.08)

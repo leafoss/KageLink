@@ -48,7 +48,7 @@ def test_semantic_danger_without_real_pixel_change_is_not_occupancy() -> None:
     assert observed[cell].danger_prior == 0.95
     assert observed[cell].true_changed_ratio == 0.0
     assert observed[cell].state is OccupancyState.EMPTY
-    assert observed[cell].occupancy_score == 0.0
+    assert occupancy.clusters(observed, ()) == ()
 
 
 def test_full_cell_class_reference_mismatch_has_zero_authority() -> None:

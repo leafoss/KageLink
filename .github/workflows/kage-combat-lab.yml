@@ -25,21 +25,27 @@ jobs:
           python-version: "3.11"
       - name: Install test runner and visual detector dependencies
         run: python -m pip install pytest numpy opencv-python-headless pillow
-      - name: Verify immutable 64px grid, strategy, and Trainer templates
+      - name: Verify immutable 64px grid, strategy, tile perception, and Trainer templates
         run: python -m pytest -q
       - name: Run all deterministic scenarios
         run: python -m kage_combat_lab.cli --run-all
-      - name: Parse PowerShell launcher
+      - name: Parse PowerShell launchers
         shell: pwsh
         run: |
-          $tokens = $null
-          $errors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile(
-            (Resolve-Path "./run_kage_combat_lab.ps1"),
-            [ref]$tokens,
-            [ref]$errors
-          ) | Out-Null
-          if ($errors.Count -gt 0) {
-            $errors | ForEach-Object { Write-Error $_.Message }
-            exit 1
+          $scripts = @(
+            "./run_kage_combat_lab.ps1",
+            "./run_pr26_tile_combat.ps1"
+          )
+          foreach ($script in $scripts) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $script),
+              [ref]$tokens,
+              [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error "${script}: $($_.Message)" }
+              exit 1
+            }
           }

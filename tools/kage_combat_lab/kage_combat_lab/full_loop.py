@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -8,6 +9,7 @@ from typing import Any
 
 ROUND_MODULE = "kage_combat_lab.full_round_daynight"
 POST_OK_GATE_ARG = "--pr25-post-ok"
+BASELINE_SECONDS_ENV = "KAGE_PR26_PRESPAWN_BASELINE_SECONDS"
 
 
 def replace_source_round_command(command: list[str]) -> list[str]:
@@ -26,9 +28,27 @@ def replace_source_round_command(command: list[str]) -> list[str]:
 
 
 def install_full_loop_round(validated_engine: Any) -> Callable[..., tuple[list[str], Path]]:
-    """Route only the isolated combat round to the PR25 full-round adapter."""
+    """Route the round while reserving time for clean baseline and actual spawn."""
 
     original = validated_engine._round_command
+    request_owner = getattr(validated_engine, "legacy_loop", None)
+    if request_owner is not None and hasattr(request_owner, "_request_kwargs"):
+        original_request_kwargs = request_owner._request_kwargs
+
+        def pr26_request_kwargs(args, *, round_number: int) -> dict:
+            from .pre_ok_baseline import reset_pre_ok_baseline_capture
+
+            values = original_request_kwargs(args, round_number=round_number)
+            spawn_seconds = max(0.0, float(values.get("spawn_delay_seconds", 0.0)))
+            os.environ[BASELINE_SECONDS_ENV] = str(spawn_seconds)
+            reset_pre_ok_baseline_capture()
+            print(
+                f"ROUND {round_number}: PRE_TRAINER_BASELINE_RESERVED "
+                f"duration={spawn_seconds:.2f}s; post_OK_spawn_wait={spawn_seconds:.2f}s"
+            )
+            return values
+
+        request_owner._request_kwargs = pr26_request_kwargs
 
     def full_round_command(args, *, round_number: int) -> tuple[list[str], Path]:
         command, cwd = original(args, round_number=round_number)
@@ -51,9 +71,14 @@ def install_full_loop_round(validated_engine: Any) -> Callable[..., tuple[list[s
 def main() -> int:
     from .dojo_multitemplate import install_day_night_dojo_detector
     from .post_ok_facing import install_post_ok_right_pulse
+    from .pre_trainer_baseline import install_pre_trainer_baseline_capture
+    from .runtime_pretrainer_coverage import install_pretrainer_baseline_coverage
 
     install_day_night_dojo_detector()
     install_post_ok_right_pulse()
+    # Must run before the trainer-search wrapper captures baseline_module._capture.
+    install_pretrainer_baseline_coverage()
+    install_pre_trainer_baseline_capture()
     import kage_pilot_loop as canonical_loop
 
     validated_engine = getattr(canonical_loop, "_validated_engine", None)
@@ -63,8 +88,10 @@ def main() -> int:
     install_full_loop_round(validated_engine)
     print("KAGE COMBAT LAB - FULL DOJO LOOP")
     print("TRAINER: multi-template 64px day/night detector enabled")
-    print("FLOW: trainer -> dialog/OK -> RIGHT before spawn -> R baseline -> acquire -> align")
-    print("AUTHORITY: R stays active; H and directional chase require target/facing authority")
+    print(
+        "FLOW: trainer search -> robust exact-cell baseline -> trainer click -> dialog -> OK -> spawn -> acquire"
+    )
+    print("AUTHORITY: PR26.16 mode controls TURN/MOVE/R/H at final input boundary")
     print("FLOW: authoritative KO -> return to Trainer -> meditation -> READY")
     print("MEDITATION: second V is physically blocked for at least 5.25 seconds")
     print("F12: emergency stop remains active in search, startup, combat and recovery")

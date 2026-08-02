@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import os
 from typing import Callable
 
 from .domain import POST_OK_SETTLE_MS, START_RIGHT_PULSE_MS, START_RIGHT_SETTLE_MS
 
 _INSTALLED = False
+
+
+def control_mode_allows_post_ok_pulse() -> bool:
+    """Only FULL_COMBAT may preserve PR25's external startup orientation pulse."""
+
+    mode = os.environ.get("KAGE_PR26_CONTROL_MODE", "FULL_COMBAT").strip().upper()
+    return mode == "FULL_COMBAT"
 
 
 def perform_post_ok_right_pulse(
@@ -36,7 +44,7 @@ def perform_post_ok_right_pulse(
 
 
 def install_post_ok_right_pulse() -> None:
-    """Install one pulse after dialog OK/refocus and before WAITING_FOR_SPAWN."""
+    """Install one optional pulse after dialog OK/refocus and before baseline."""
 
     global _INSTALLED
     if _INSTALLED:
@@ -52,7 +60,7 @@ def install_post_ok_right_pulse() -> None:
 
     original_click_ok = request_module.click_first_option_ok
     original_focus = windows_module.ensure_game_window_foreground
-    state = {"armed": False, "executed": 0}
+    state = {"armed": False, "executed": 0, "blocked": 0}
 
     def click_ok_and_arm(*args, **kwargs):
         result = original_click_ok(*args, **kwargs)
@@ -66,6 +74,15 @@ def install_post_ok_right_pulse() -> None:
 
         # Consume before input so exceptions/F12 can never cause a duplicate pulse.
         state["armed"] = False
+        if not control_mode_allows_post_ok_pulse():
+            state["blocked"] += 1
+            mode = os.environ.get("KAGE_PR26_CONTROL_MODE", "PERCEPTION_ONLY").strip().upper()
+            print(
+                "STARTUP_RIGHT_PULSE blocked=true post_ok=true before_spawn=true "
+                f"mode={mode} count={state['blocked']} reason=PR26_VALIDATION_MODE"
+            )
+            return result
+
         controller = WindowsGameController(recover_foreground=False)
         try:
             actions = perform_post_ok_right_pulse(
@@ -89,4 +106,8 @@ def install_post_ok_right_pulse() -> None:
     _INSTALLED = True
 
 
-__all__ = ["install_post_ok_right_pulse", "perform_post_ok_right_pulse"]
+__all__ = [
+    "control_mode_allows_post_ok_pulse",
+    "install_post_ok_right_pulse",
+    "perform_post_ok_right_pulse",
+]

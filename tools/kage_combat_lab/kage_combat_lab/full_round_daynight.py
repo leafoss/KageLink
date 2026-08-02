@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 
 
@@ -12,8 +13,10 @@ def extract_post_ok_gate(argv: list[str]) -> tuple[bool, list[str]]:
 
 def main() -> int:
     from .dojo_multitemplate import install_day_night_dojo_detector
+    from .runtime_trainer_suspension import suspend_trainer_detector_for_validation
 
-    install_day_night_dojo_detector()
+    detector_class = install_day_night_dojo_detector()
+    suspend_trainer_detector_for_validation(detector_class)
 
     post_ok_confirmed, remaining = extract_post_ok_gate(sys.argv[1:])
     sys.argv = [sys.argv[0], *remaining]
@@ -24,17 +27,171 @@ def main() -> int:
         )
 
     from . import full_round as full_round_module
+    from . import live_bridge as live_bridge_module
+    from .pre_trainer_baseline import load_pre_trainer_baselines
+    from .runtime_acquisition_liveness import (
+        install_exact_cell_acquisition_recovery,
+        install_static_camera_liveness,
+    )
+    from .runtime_camera_compensation import install_runtime_camera_compensation
+    from .runtime_cell_change_authority import install_cell_change_authority
+    from .runtime_combat_target_memory import (
+        install_combat_target_continuity_physical_gate,
+        install_combat_target_continuity_tracking,
+    )
+    from .runtime_control_mode import install_runtime_control_mode
     from .runtime_engagement_recovery import install_runtime_engagement_recovery
+    from .runtime_entity_hardening import install_runtime_entity_hardening
+    from .runtime_event_snapshot_preservation import (
+        install_trigger_frame_json_preservation,
+    )
     from .runtime_facing_patch import install_runtime_facing_patch
+    from .runtime_mask_cluster_guard import install_runtime_mask_cluster_guard
+    from .runtime_near_enemy_focus import (
+        install_near_enemy_focus_physical_gate,
+        install_near_enemy_focus_tracking,
+    )
+    from .runtime_provisional_target_retention import (
+        install_prelatch_camera_retention,
+        install_provisional_body_target_retention,
+    )
+    from .runtime_round_diagnostics import (
+        RoundRuntimeDiagnostics,
+        install_round_runtime_diagnostics,
+    )
+    from .runtime_semantic_entity import install_semantic_entity_priority
     from .runtime_startup_inherited import install_inherited_post_ok_startup
+    from .runtime_target_integrity import (
+        install_event_snapshot_integrity,
+        install_target_integrity_physical_gate,
+        install_target_integrity_tracking,
+    )
+    from .runtime_tile_perception import (
+        current_control_mode,
+        install_runtime_tile_perception,
+    )
+    from .runtime_visual_target_authority import install_visual_target_authority
 
+    os.environ.setdefault("KAGE_PR26_PR24_INTERVAL_SECONDS", "4.0")
+
+    install_runtime_mask_cluster_guard()
+    install_semantic_entity_priority()
+    install_runtime_entity_hardening()
+    install_runtime_camera_compensation()
+    install_near_enemy_focus_tracking()
+    install_combat_target_continuity_tracking()
+    install_cell_change_authority()
+    # Patch CameraStabilityGate before target-integrity creates its live instance.
+    install_static_camera_liveness()
+    install_prelatch_camera_retention()
+    install_target_integrity_tracking()
+    install_visual_target_authority()
+    # Final acquisition rule: exact changed pixels may promote a weak fresh raw
+    # track, but same-cell equality, player-center tracks and terrain remain blocked.
+    install_exact_cell_acquisition_recovery()
+    # Final pre-latch selector: a body-bound target coasts briefly across a raw
+    # detector miss and cannot be replaced by a raw-less challenger.
+    install_provisional_body_target_retention()
+    # Install the event snapshot wrapper first. OccupancyEventRecorder then
+    # inherits it and forwards its merged gate video events through the snapshot
+    # layer, so FACE_ONLY/DANGER_MOVED JSON is frozen on the trigger frame.
+    install_event_snapshot_integrity()
+    install_runtime_tile_perception(
+        live_bridge_module,
+        full_round_module,
+    )
+    # OccupancyEventRecorder writes generic close metadata after its parent.
+    # Restore frozen trigger payloads once every close hook has completed.
+    install_trigger_frame_json_preservation()
+    baseline_count = load_pre_trainer_baselines()
     install_runtime_facing_patch(full_round_module)
     install_inherited_post_ok_startup()
     install_runtime_engagement_recovery(full_round_module)
-    print("TRAINER: day-64 + night-64 enabled for post-combat return")
-    print("POST_OK_GATE: confirmed; child inherits the one outer RIGHT pulse")
-    print("ENGAGEMENT: R baseline starts with combat; H remains target/facing gated")
-    return int(full_round_module.main())
+    install_runtime_control_mode()
+    install_near_enemy_focus_physical_gate()
+    install_combat_target_continuity_physical_gate()
+    install_target_integrity_physical_gate()
+    install_round_runtime_diagnostics()
+
+    mode = current_control_mode().value
+    print("TRAINER: day-64 + night-64 retained for outer request and FULL_COMBAT post-KO")
+    print("POST_OK_GATE: confirmed; robust baseline was captured before trainer click and spawn wait completed")
+    print(
+        f"PR26.17 CLEAN BASELINE: stored={baseline_count} "
+        "source=BEFORE_TRAINER_CLICK player=FULL_PRESPAWN_INPAINT "
+        "local_D3_coverage=MANDATORY comparison_unit=INDIVIDUAL_64PX_CELL"
+    )
+    print("ENGAGEMENT: physical authority is controlled by PR26.17 validation mode")
+    print(
+        "PR26.17 PRELATCH CAMERA: facing-only acquisition cannot move the viewport; "
+        "phase aliases and uncertain estimates retain the accepted exact baselines"
+    )
+    print(
+        "PR26.17 PROVISIONAL BODY: the first exact-cell raw-supported identity is "
+        "retained for 3.0s across detector gaps; raw-less challengers cannot replace it"
+    )
+    print(
+        "PR26.17 COMBAT AUTHORITY: provisional retention grants no MOVE/H; the same "
+        "body still requires raw-confirmed contact in 2-of-3 frames before COMBAT_LOCK"
+    )
+    print(
+        "PR26.17 CELL AUTHORITY: every 64x64 cell owns its baseline, diff mask, "
+        "component bbox and current-body association; clusters are search hints only"
+    )
+    print(
+        "PR26.17 BASELINE COVERAGE: local D<=3 cells around the pre-spawn player are "
+        "mandatory exact baselines; semantic class references have zero acquisition authority"
+    )
+    print(
+        "PR26.17 FRESH BODY RECOVERY: a weak raw track may be promoted only when its "
+        "bbox/foot overlaps changed pixels from that exact cell baseline"
+    )
+    print(
+        "PR26.17 SELF SAFETY: raw tracks centered on the known player, same-cell-only "
+        "matches, dominant terrain fields and pixel-only ReID have zero target authority"
+    )
+    print(
+        "PR26.17 CURRENT BODY: a latched target may update visible geometry only from "
+        "a current raw body or confirmed Target Capsule ReID"
+    )
+    print(
+        "PR26.17 CAMERA MOTION: after a valid latch, meaningful translations require "
+        "temporal confirmation and repeating 32px phase aliases are unwrapped"
+    )
+    print(
+        "PR26.17 ORIENTATION SEPARATION: TURN_ONLY remains outside GridFocusStrategy "
+        "and cannot create a logical target, chase, H or ReID"
+    )
+    print(
+        "PR26.17 LOGICAL TARGET: EXACT_COMPONENT_OVERLAP -> PROVISIONAL_BODY -> "
+        "RAW_CONTACT_2_OF_3 -> HOSTILE_CONFIRMED -> COMBAT_LOCK -> ROUND_TARGET_LATCHED"
+    )
+    print(
+        "PR26.17 EVENT JSON: gate-generated FACE_ONLY/DANGER_MOVED/COMBAT_LOCK events "
+        "are frozen on their trigger frame instead of receiving round-close fallback state"
+    )
+    print(
+        "PR26.17 REID: only a valid round latch may enter OCCLUDED_COAST/REID_LOCAL; "
+        "Target Capsule searches D1 -> D2 -> D3 while MOVE/H remain blocked"
+    )
+    print(
+        "PR26.17 TERRAIN SAFETY: 43x64, 64x23, saturated cells, top/UI bands and "
+        "raw-less fields cannot inherit or create hostile identity"
+    )
+    print(
+        "PR26.17 REPLAY/DIAGNOSTICS: complete replay, trigger-frame JSON, child console "
+        "and round_result.json remain enabled"
+    )
+    print(
+        f"PR26.17 MODE={mode}: PERCEPTION_ONLY blocks TURN/MOVE/R/H; "
+        "FACE_ONLY allows TURN only; FULL_COMBAT requires current visual body confirmation"
+    )
+    # tile-only and negative synthetic candidates have zero offensive authority
+
+    with RoundRuntimeDiagnostics() as diagnostics:
+        exit_code = int(full_round_module.main())
+        diagnostics.finish(exit_code)
+        return exit_code
 
 
 if __name__ == "__main__":

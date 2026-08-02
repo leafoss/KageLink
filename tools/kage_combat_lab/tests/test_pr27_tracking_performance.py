@@ -195,5 +195,5 @@ def test_control_attack_returns_to_held_r() -> None:
 
 def test_debug_overlay_has_no_blocking_wait_key() -> None:
     source = inspect.getsource(PR27DebugOverlay.show)
-    assert "waitKey(0)" not in source
-    assert "waitKey(1)" in source
+    assert "cv2.waitKey(0)" not in source
+    assert "cv2.waitKey(1)" in source

@@ -30,6 +30,7 @@ def main() -> int:
     from . import live_bridge as live_bridge_module
     from .pre_trainer_baseline import load_pre_trainer_baselines
     from .runtime_camera_compensation import install_runtime_camera_compensation
+    from .runtime_cell_change_authority import install_cell_change_authority
     from .runtime_combat_target_memory import (
         install_combat_target_continuity_physical_gate,
         install_combat_target_continuity_tracking,
@@ -62,6 +63,10 @@ def main() -> int:
     install_runtime_camera_compensation()
     install_near_enemy_focus_tracking()
     install_combat_target_continuity_tracking()
+    # Outermost perception contract: clusters only point to cells. Identity,
+    # bbox, direction and hostility are derived from each individual 64px cell
+    # and a body candidate geometrically bound to that same cell change.
+    install_cell_change_authority()
     install_runtime_tile_perception(
         live_bridge_module,
         full_round_module,
@@ -79,53 +84,71 @@ def main() -> int:
     print("TRAINER: day-64 + night-64 retained for outer request and FULL_COMBAT post-KO")
     print("POST_OK_GATE: confirmed; baseline was captured before trainer click and spawn wait completed")
     print(
-        f"PR26.12 CLEAN BASELINE: stored={baseline_count} "
-        "source=BEFORE_TRAINER_CLICK frozen_during_combat=true"
+        f"PR26.13 CLEAN BASELINE: stored={baseline_count} "
+        "source=BEFORE_TRAINER_CLICK player_core=INPAINTED "
+        "comparison_unit=INDIVIDUAL_64PX_CELL frozen_during_combat=true"
     )
-    print("ENGAGEMENT: physical authority is controlled by PR26.12 validation mode")
+    print("ENGAGEMENT: physical authority is controlled by PR26.13 validation mode")
     print(
-        "PR26.12 CAMERA: absolute phase registration aligns the frozen world baseline "
+        "PR26.13 CELL AUTHORITY: every 64x64 cell owns its baseline, diff mask, "
+        "changed ratio, component bbox and body association"
+    )
+    print(
+        "PR26.13 CLUSTER ROLE: clusters are search hints only; aggregate cluster bbox, "
+        "foot, direction, identity and hostility have zero authority"
+    )
+    print(
+        "PR26.13 BODY BINDING: raw detector or Target Capsule must overlap the same "
+        "changed cell component before HOSTILE_CONFIRMED -> COMBAT_LOCK"
+    )
+    print(
+        "PR26.13 RAWLESS SAFETY: a raw-less vertical cell change may orient attention "
+        "but cannot create or latch a hostile combat target"
+    )
+    print(
+        "PR26.13 PLAYER OVERLAP: runtime exclusion is a narrow capsule rather than a "
+        "destructive rectangle; side and upper enemy pixels remain visible"
+    )
+    print(
+        "PR26.13 CAMERA: absolute phase registration aligns every frozen cell baseline "
         "to the current screen; uncertain alignment blocks all authority"
     )
     print(
-        "PR26.12 SEARCH RADIUS: initial acquisition and all reacquisition remain "
+        "PR26.13 SEARCH RADIUS: initial acquisition and all reacquisition remain "
         "inside Chebyshev D<=3 from the player"
     )
     print(
-        "PR26.12 ROUND TARGET: first COMBAT_LOCK latches one hostile identity until KO; "
-        "score challengers cannot replace it during contact, animation or occlusion"
+        "PR26.13 ROUND TARGET: the first body-bound COMBAT_LOCK latches one hostile "
+        "identity until KO; score challengers cannot replace it"
     )
     print(
-        "PR26.12 REPLAY: first successful source capture is written before observer "
+        "PR26.13 REPLAY: first successful source capture is written before observer "
         "processing; MP4/AVI/PNG fallback remains enabled"
     )
     print(
-        "PR26.12 DIAGNOSTICS: complete child console, recorder bootstrap/final JSON "
+        "PR26.13 DIAGNOSTICS: complete child console, recorder bootstrap/final JSON "
         "and round_result.json are always written"
     )
     print(
-        "PR26.12 TARGET CAPSULE: raw candidates are enriched before occupancy filtering; "
+        "PR26.13 TARGET CAPSULE: raw candidates are enriched before cell association; "
         "ReID expands progressively D1 -> D2 -> D3"
     )
     print(
-        "PR26.12 CONTACT OVERLAP: after hostile lock the player exclusion shrinks to a "
-        "22x42 core so overlapping enemy pixels are not erased"
-    )
-    print(
-        "PR26.12 MEMORY SAFETY: CONTACT_MEMORY, REID_PENDING and OUTSIDE_D3 preserve "
+        "PR26.13 MEMORY SAFETY: CONTACT_MEMORY, REID_PENDING and OUTSIDE_D3 preserve "
         "identity and facing memory while MOVE/H remain physically blocked"
     )
+    # HOSTILE_CONFIRMED -> COMBAT_LOCK remains the only offensive transition.
     print(
-        "PR26.12 AUTHORITY: HOSTILE_CONFIRMED -> COMBAT_LOCK -> "
+        "PR26.13 AUTHORITY: HOSTILE_CONFIRMED -> COMBAT_LOCK -> "
         "Target Capsule + facing + chase + H"
     )
     print(
-        f"PR26.12 MODE={mode}: PERCEPTION_ONLY blocks TURN/MOVE/R/H; "
+        f"PR26.13 MODE={mode}: PERCEPTION_ONLY blocks TURN/MOVE/R/H; "
         "FACE_ONLY allows TURN only; FULL_COMBAT requires current visual confirmation"
     )
     # tile-only and negative synthetic candidates have zero offensive authority
     print(
-        "PR26.12 SAFETY: camera uncertainty, memory-only states, tile-only candidates "
+        "PR26.13 SAFETY: camera uncertainty, memory-only states, tile-only candidates "
         "and negative synthetic candidates have zero offensive authority"
     )
 

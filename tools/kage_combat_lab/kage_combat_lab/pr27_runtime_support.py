@@ -52,16 +52,16 @@ def config_from_env() -> PR27Config:
         scene_changed_cell_ratio=float(os.environ.get("KAGE_PR27_SCENE_CHANGED_RATIO", "0.42")),
         scene_changed_min_cells=int(os.environ.get("KAGE_PR27_SCENE_CHANGED_MIN_CELLS", "8")),
         maximum_missing_frames=int(os.environ.get("KAGE_PR27_MAX_MISSING_FRAMES", "3")),
-        target_missing_grace_frames=int(os.environ.get("KAGE_PR27_TARGET_MISSING_GRACE", "10")),
+        target_missing_grace_frames=int(os.environ.get("KAGE_PR27_TARGET_MISSING_GRACE", "4")),
         target_focus_radius_cells=int(os.environ.get("KAGE_PR27_TARGET_FOCUS_RADIUS", "3")),
-        global_reacquire_interval_frames=int(os.environ.get("KAGE_PR27_GLOBAL_REACQUIRE_INTERVAL", "8")),
-        maximum_active_tracks=int(os.environ.get("KAGE_PR27_MAX_ACTIVE_TRACKS", "24")),
+        global_reacquire_interval_frames=int(os.environ.get("KAGE_PR27_GLOBAL_REACQUIRE_INTERVAL", "6")),
+        maximum_active_tracks=int(os.environ.get("KAGE_PR27_MAX_ACTIVE_TRACKS", "18")),
         association_min_score=float(os.environ.get("KAGE_PR27_ASSOCIATION_SCORE", "0.48")),
-        target_association_min_score=float(os.environ.get("KAGE_PR27_TARGET_ASSOCIATION_SCORE", "0.32")),
+        target_association_min_score=float(os.environ.get("KAGE_PR27_TARGET_ASSOCIATION_SCORE", "0.40")),
         player_anchor_x_ratio=float(os.environ.get("KAGE_PR27_PLAYER_X_RATIO", "0.50")),
         player_anchor_y_ratio=float(os.environ.get("KAGE_PR27_PLAYER_Y_RATIO", "0.54")),
         player_anchor_radius_px=float(os.environ.get("KAGE_PR27_PLAYER_RADIUS", "58")),
-        enemy_confirm_frames=int(os.environ.get("KAGE_PR27_ENEMY_CONFIRM_FRAMES", "3")),
+        enemy_confirm_frames=int(os.environ.get("KAGE_PR27_ENEMY_CONFIRM_FRAMES", "5")),
         attack_distance_cells=int(os.environ.get("KAGE_PR27_ATTACK_DISTANCE", "1")),
     ).normalized()
 
@@ -74,6 +74,10 @@ class PR27PhysicalInput:
         self.sleep_fn = sleep_fn
         self.active = False
         self.mode = "PERCEPTION_ONLY"
+        self.attack_streak = 0
+        self.last_h_at = -1e9
+        self.h_cooldown_seconds = max(0.5, float(os.environ.get("KAGE_PR27_H_COOLDOWN", "1.75")))
+        self.attack_confirm_frames = max(2, int(os.environ.get("KAGE_PR27_ATTACK_CONFIRM_FRAMES", "2")))
 
     def activate(self, *, mode: str) -> tuple[str, ...]:
         self.mode = str(mode).strip().upper()
@@ -81,11 +85,10 @@ class PR27PhysicalInput:
         self.controller.activate()
         self.controller.release_all()
         self.active = True
+        self.attack_streak = 0
+        self.last_h_at = -1e9
         if self.mode == "CONTROL_ENABLED":
-            # R is the verified BYOND repeat-held combat key. Arm it as soon as
-            # the isolated post-OK combat subprocess owns physical control.
-            self.controller.apply_keys(("r",))
-            return ("R_ARMED",)
+            return ("CONTROL_ARMED_WAITING_CONFIRMED_TARGET",)
         return ("INPUT_ARMED_SAFE",)
 
     def execute(self, action: CombatAction, *, mode: str) -> tuple[str, ...]:
@@ -96,17 +99,14 @@ class PR27PhysicalInput:
             raise RuntimeError(f"PR27_INPUT_MODE_CHANGED:{self.mode}->{normalized_mode}")
 
         if normalized_mode == "PERCEPTION_ONLY":
+            self.attack_streak = 0
             self.controller.release_all()
             return ("PR27_INPUT_BLOCKED",)
 
         if action is CombatAction.NONE:
-            if normalized_mode == "CONTROL_ENABLED":
-                # Keep the combat key physically held while perception is still
-                # confirming or temporarily reacquiring the same enemy ID.
-                self.controller.apply_keys(("r",))
-                return ("R_HELD_IDLE",)
+            self.attack_streak = 0
             self.controller.release_all()
-            return ("FACE_ONLY_WAIT",)
+            return ("CONTROL_WAIT_TARGET",) if normalized_mode == "CONTROL_ENABLED" else ("FACE_ONLY_WAIT",)
 
         direction = None
         for suffix, key in (("LEFT", "left"), ("RIGHT", "right"), ("UP", "up"), ("DOWN", "down")):
@@ -115,17 +115,28 @@ class PR27PhysicalInput:
                 break
 
         if normalized_mode == "FACE_ONLY":
+            self.attack_streak = 0
             if direction is None:
                 self.controller.release_all()
                 return ("FACE_ONLY_WAIT",)
             return self._turn(direction)
 
         if action is CombatAction.ATTACK:
+            self.attack_streak += 1
+            self.controller.apply_keys(("r",))
+            if self.attack_streak < self.attack_confirm_frames:
+                return ("R_AUTHORIZED", f"H_WAIT_CONFIRM_{self.attack_streak}/{self.attack_confirm_frames}")
+            now = time.monotonic()
+            remaining = self.h_cooldown_seconds - (now - self.last_h_at)
+            if remaining > 0.0:
+                return ("R_AUTHORIZED", f"H_COOLDOWN_{remaining:.2f}S")
             self.controller.apply_keys(("h", "r"))
             self.sleep_fn(0.080)
             self.controller.apply_keys(("r",))
+            self.last_h_at = time.monotonic()
             return ("R_AUTHORIZED", "H_80MS")
 
+        self.attack_streak = 0
         if direction is not None and action.value.startswith("CHASE_"):
             self.controller.apply_keys(tuple(sorted(("r", direction))))
             self.sleep_fn(0.075)
@@ -138,8 +149,8 @@ class PR27PhysicalInput:
             self.controller.apply_keys(("r",))
             return ("R_AUTHORIZED", f"TURN_{direction.upper()}_60MS")
 
-        self.controller.apply_keys(("r",))
-        return ("R_HELD_IDLE",)
+        self.controller.release_all()
+        return ("CONTROL_WAIT_TARGET",)
 
     def _turn(self, direction: str) -> tuple[str, ...]:
         self.controller.release_all()
@@ -153,6 +164,7 @@ class PR27PhysicalInput:
             self.controller.release_all()
         finally:
             self.active = False
+            self.attack_streak = 0
 
 
 def create_log(args, module_file: str):

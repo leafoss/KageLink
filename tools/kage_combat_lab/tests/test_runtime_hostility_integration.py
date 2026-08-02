@@ -18,6 +18,9 @@ def test_full_round_installs_hostility_gate_before_facing_and_engagement() -> No
     assert text.index("install_runtime_facing_patch(full_round_module)") < text.index(
         "install_runtime_engagement_recovery(full_round_module)"
     )
+    assert text.index("install_runtime_engagement_recovery(full_round_module)") < text.index(
+        "install_runtime_control_mode()"
+    )
 
 
 def test_runtime_uses_pr24_calibrated_offsets_for_cells_and_classification() -> None:

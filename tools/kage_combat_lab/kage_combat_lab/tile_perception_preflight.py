@@ -31,6 +31,13 @@ def main() -> int:
             "danger_margin": 0.04,
             "danger_requires_positive_margin": True,
             "danger_is_priority_not_hard_gate": True,
+            "initial_acquisition_radius_cells": 3,
+            "round_target_latched_until_ko": True,
+            "target_capsule_before_occupancy_filter": True,
+            "progressive_reid_radius_cells": [1, 2, 3],
+            "persistent_reid_seconds": 90.0,
+            "contact_player_mask_px": [22, 42],
+            "memory_only_move_h_authority": False,
             "entity_lock_requires_exact_baseline": True,
             "entity_lock_requires_motion_or_raw_mask_overlap": True,
             "entity_lock_persistence": "2-of-3",
@@ -56,14 +63,14 @@ def main() -> int:
             "camera_alignment_uncertain_authority": False,
             "raw_track_requires_component_overlap": True,
             "selected_lock_hysteresis_frames": 3,
-            "contact_combat_lock": "selected_raw_confirmed_2_of_3",
+            "contact_combat_lock": "selected_visual_body_2_of_3",
             "post_ok_spawn_wait_preserved": True,
             "synthetic_offensive_authority": False,
             "perception_only_physical_authority": False,
             "combat_lock_requires_hostile_confirmed": True,
         }
     )
-    print("PR26.7 CAMERA-COMPENSATED COMBAT PREFLIGHT: READY")
+    print("PR26.9 LATCHED TARGET CONTINUITY PREFLIGHT: READY")
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
     if CELL_SIZE_PX != 64:
         raise RuntimeError(f"PR26_CELL_SIZE_INVALID:{CELL_SIZE_PX}")

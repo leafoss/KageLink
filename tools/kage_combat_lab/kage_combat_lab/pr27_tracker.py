@@ -16,6 +16,8 @@ class SpriteTracker:
         self.next_track_id = 1
         self.player_track_id: int | None = None
         self.enemy_track_id: int | None = None
+        self.pending_enemy_track_id: int | None = None
+        self.pending_enemy_hits = 0
 
     @staticmethod
     def _cell_distance(left: frozenset[tuple[int, int]], right: frozenset[tuple[int, int]]) -> int:
@@ -41,6 +43,17 @@ class SpriteTracker:
         current = track.movement_history[-1]
         return current[0] + (current[0] - previous[0]), current[1] + (current[1] - previous[1])
 
+    @staticmethod
+    def _bbox_plausible(bbox: tuple[int, int, int, int]) -> bool:
+        _, _, width, height = bbox
+        area = width * height
+        if width < 6 or height < 12 or width > 144 or height > 168:
+            return False
+        if area < 120 or area > 14000:
+            return False
+        aspect = width / max(1.0, float(height))
+        return 0.10 <= aspect <= 2.20
+
     def _association_score(
         self,
         track: TrackedSprite,
@@ -55,7 +68,12 @@ class SpriteTracker:
             allowed_step += self.config.target_focus_radius_cells
         if distance > allowed_step:
             return 0.0
+
         appearance = DescriptorFactory.similarity(track.appearance_signature, observation.descriptor)
+        old_area = max(1, track.native_bbox[2] * track.native_bbox[3])
+        new_area = max(1, observation.native_bbox[2] * observation.native_bbox[3])
+        size = min(old_area, new_area) / max(old_area, new_area)
+
         if target_track:
             arena_h, arena_w = int(arena_shape[0]), int(arena_shape[1])
             player_anchor = (
@@ -68,8 +86,13 @@ class SpriteTracker:
             )
             if player_distance <= self.config.player_anchor_radius_px * 1.25:
                 return 0.0
-            if appearance < self.config.target_minimum_appearance:
+            if not self._bbox_plausible(observation.native_bbox):
                 return 0.0
+            if appearance < max(0.50, self.config.target_minimum_appearance):
+                return 0.0
+            if size < 0.42:
+                return 0.0
+
         temporal = max(0.0, 1.0 - distance / max(1.0, allowed_step + 1.0))
         predicted = self._predicted_center(track)
         center_distance = math.hypot(
@@ -78,12 +101,9 @@ class SpriteTracker:
         )
         proximity = max(0.0, 1.0 - center_distance / max(CELL_SIZE_PX, CELL_SIZE_PX * (allowed_step + 1)))
         overlap = self._bbox_iou(track.native_bbox, observation.native_bbox)
-        old_area = max(1, track.native_bbox[2] * track.native_bbox[3])
-        new_area = max(1, observation.native_bbox[2] * observation.native_bbox[3])
-        size = min(old_area, new_area) / max(old_area, new_area)
-        score = 0.50 * appearance + 0.20 * temporal + 0.15 * proximity + 0.10 * size + 0.05 * overlap
+        score = 0.52 * appearance + 0.19 * temporal + 0.14 * proximity + 0.10 * size + 0.05 * overlap
         if target_track:
-            score = min(1.0, score + 0.08)
+            score = min(1.0, score + 0.05)
         return score
 
     def _update_track(self, track: TrackedSprite, observation: SpriteObservation, frame_index: int, score: float) -> None:
@@ -118,13 +138,18 @@ class SpriteTracker:
         self.next_track_id += 1
         return track
 
-    def _classify(self, track: TrackedSprite, arena_shape: Sequence[int]) -> None:
+    def _classify_known_or_player(self, track: TrackedSprite, arena_shape: Sequence[int]) -> None:
         known, score = self.registry.best_match(track.appearance_signature)
         if known is not None and score >= self.config.known_sprite_threshold:
             track.classification = known.category
             track.known_sprite_id = known.sprite_id
             track.known_enemy = known.category is SpriteClass.ENEMY
             track.confidence = max(track.confidence, score)
+            if known.category is SpriteClass.ENEMY:
+                self.enemy_track_id = track.track_id
+                self.pending_enemy_track_id = None
+                self.pending_enemy_hits = 0
+                return
 
         arena_h, arena_w = int(arena_shape[0]), int(arena_shape[1])
         anchor = (
@@ -141,18 +166,86 @@ class SpriteTracker:
             track.classification = SpriteClass.PLAYER
             track.known_enemy = False
             self.player_track_id = track.track_id
+
+    def _enemy_candidate_score(self, track: TrackedSprite, arena_shape: Sequence[int]) -> float:
+        if track.track_state is not TrackState.TRACKED:
+            return 0.0
+        if track.track_id == self.player_track_id:
+            return 0.0
+        if track.classification not in {SpriteClass.UNKNOWN, SpriteClass.ENEMY}:
+            return 0.0
+        if track.observations < self.config.enemy_confirm_frames:
+            return 0.0
+        if not self._bbox_plausible(track.native_bbox):
+            return 0.0
+
+        arena_h, arena_w = int(arena_shape[0]), int(arena_shape[1])
+        anchor = (
+            arena_w * self.config.player_anchor_x_ratio,
+            arena_h * self.config.player_anchor_y_ratio,
+        )
+        separation = math.hypot(track.center[0] - anchor[0], track.center[1] - anchor[1])
+        if separation <= self.config.player_anchor_radius_px * 1.25:
+            return 0.0
+
+        _, _, width, height = track.native_bbox
+        area = width * height
+        aspect = width / max(1.0, float(height))
+        persistence = min(1.0, track.observations / max(1.0, self.config.enemy_confirm_frames + 2.0))
+        shape = max(0.0, 1.0 - abs(aspect - 0.65) / 1.55)
+        if 280 <= area <= 8000:
+            size = 1.0
+        else:
+            size = max(0.0, 1.0 - min(abs(area - 3000), 3000) / 3000.0)
+        movement = 0.0
+        if len(track.movement_history) >= 2:
+            first = track.movement_history[0]
+            last = track.movement_history[-1]
+            movement = min(1.0, math.hypot(last[0] - first[0], last[1] - first[1]) / 24.0)
+        separation_score = min(1.0, separation / max(1.0, CELL_SIZE_PX * 4.0))
+        return (
+            0.38 * persistence
+            + 0.24 * shape
+            + 0.16 * size
+            + 0.10 * movement
+            + 0.07 * separation_score
+            + 0.05 * min(1.0, track.confidence)
+        )
+
+    def _select_context_enemy(self, arena_shape: Sequence[int]) -> None:
+        if not self.config.enable_context_enemy:
+            return
+        if self.enemy_track_id is not None:
+            current = self.tracks.get(self.enemy_track_id)
+            if current is not None and current.track_state is not TrackState.LOST:
+                return
+            self.enemy_track_id = None
+
+        scored = [
+            (self._enemy_candidate_score(track, arena_shape), track)
+            for track in self.tracks.values()
+        ]
+        scored = [(score, track) for score, track in scored if score >= 0.56]
+        if not scored:
+            self.pending_enemy_track_id = None
+            self.pending_enemy_hits = 0
+            return
+        scored.sort(key=lambda item: (item[0], item[1].observations, -item[1].track_id), reverse=True)
+        score, candidate = scored[0]
+        if self.pending_enemy_track_id == candidate.track_id:
+            self.pending_enemy_hits += 1
+        else:
+            self.pending_enemy_track_id = candidate.track_id
+            self.pending_enemy_hits = 1
+        if self.pending_enemy_hits < 2:
             return
 
-        if track.classification is SpriteClass.UNKNOWN and self.config.enable_context_enemy:
-            if (
-                track.observations >= self.config.enemy_confirm_frames
-                and track.track_id != self.player_track_id
-                and (self.enemy_track_id is None or self.enemy_track_id == track.track_id)
-            ):
-                track.classification = SpriteClass.ENEMY
-                track.known_enemy = True
-                track.confidence = max(track.confidence, 0.70)
-                self.enemy_track_id = track.track_id
+        candidate.classification = SpriteClass.ENEMY
+        candidate.known_enemy = True
+        candidate.confidence = max(candidate.confidence, score, 0.72)
+        self.enemy_track_id = candidate.track_id
+        self.pending_enemy_track_id = None
+        self.pending_enemy_hits = 0
 
     def update(
         self,
@@ -198,6 +291,8 @@ class SpriteTracker:
         for observation in unmatched:
             if len(self.tracks) >= self.config.maximum_active_tracks:
                 break
+            if not self._bbox_plausible(observation.native_bbox):
+                continue
             track = self._create_track(observation, frame_index)
             used_tracks.add(track.track_id)
 
@@ -222,9 +317,13 @@ class SpriteTracker:
                 self.player_track_id = None
             if self.enemy_track_id == track_id:
                 self.enemy_track_id = None
+            if self.pending_enemy_track_id == track_id:
+                self.pending_enemy_track_id = None
+                self.pending_enemy_hits = 0
             self.tracks.pop(track_id, None)
 
         for track in self.tracks.values():
             if track.track_state is TrackState.TRACKED:
-                self._classify(track, arena_shape)
+                self._classify_known_or_player(track, arena_shape)
+        self._select_context_enemy(arena_shape)
         return tuple(sorted(self.tracks.values(), key=lambda item: item.track_id))

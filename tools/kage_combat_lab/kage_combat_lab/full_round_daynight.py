@@ -123,6 +123,7 @@ def main() -> int:
         f"PR26.12 MODE={mode}: PERCEPTION_ONLY blocks TURN/MOVE/R/H; "
         "FACE_ONLY allows TURN only; FULL_COMBAT requires current visual confirmation"
     )
+    # tile-only and negative synthetic candidates have zero offensive authority
     print(
         "PR26.12 SAFETY: camera uncertainty, memory-only states, tile-only candidates "
         "and negative synthetic candidates have zero offensive authority"

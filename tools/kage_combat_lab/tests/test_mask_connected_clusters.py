@@ -141,11 +141,15 @@ def test_large_connected_field_is_split_by_humanoid_geometry_limits() -> None:
         for x in range(3):
             left = x * 64
             top = y * 64
-            frame[top + 8 : top + 56, left : left + 64] = (40, 180, 40)
+            # A thin cross touches all four cell boundaries but is too small to
+            # be mistaken for a full-cell scene shift.
+            frame[top + 28 : top + 36, left : left + 64] = (40, 180, 40)
+            frame[top : top + 64, left + 28 : left + 36] = (40, 180, 40)
 
     _, clusters = _observe(occupancy, frame, evidence, state)
 
     assert clusters
+    assert occupancy.last_scene_shift_cells == ()
     for cluster in clusters:
         xs = [cell.x for cell in cluster.cells]
         ys = [cell.y for cell in cluster.cells]

@@ -8,6 +8,7 @@ This is the active PR 24 physical milestone after grid calibration and manual ti
 capture only the Shinobi Story Online HWND
 → split the settled client frame into calibrated square cells
 → classify each crop using taught examples
+→ render the game frame with the 64 px grid, category and confidence
 → locate the Player cell
 → estimate relative player/world displacement
 → place stable classified cells in relative world coordinates
@@ -17,6 +18,37 @@ capture only the Shinobi Story Online HWND
 ```
 
 The mapper never sends keyboard or mouse input.
+
+## Live tile diagnostic view
+
+The main panel now shows the latest captured `Shinobi Story Online` client frame instead of using the ASCII world map as its primary visualization.
+
+Every calibrated cell displays:
+
+- its semantic symbol;
+- a short category name;
+- the nearest-example confidence percentage;
+- a colored translucent category overlay;
+- a confidence-aware border.
+
+```text
+.  walkable
+#  wall
+J  walkable with jutsu
+B  blocking object
+P  Player
+N  NPC
+T  transition
+!  danger
+I  ignored/dynamic
+?  unknown
+```
+
+Confirmed cells use their category color. Provisional cells receive a yellow border. Unknown cells receive a stronger orange border. The selected cell or the latest screen cell associated with the selected unknown group receives a white border.
+
+Click any visible cell to inspect its exact grid ID, category, confidence and pixel bounds. Clicking an unknown cell also selects the most recent matching review group when one exists.
+
+The persistent relative world model is still built and saved normally. Its terrain count, observed dimensions, conflicts and Player world coordinate remain visible in the status panel.
 
 ## Confidence policy
 
@@ -72,21 +104,9 @@ The mode requires:
 
 The window starts, begins mapping and minimizes. Play normally. Press `F7` when you want to review grouped unknown crops.
 
+Use `-KeepWindowVisible` during calibration review when the diagnostic grid should remain visible after startup.
+
 Use `-NewMap` only when intentionally starting a fresh relative world map. Existing learned tile examples are stored separately and are not deleted by that flag.
-
-## Interface symbols
-
-```text
-P  current player world position
-.  walkable terrain
-#  wall
-J  walkable with jutsu
-T  transition
-!  dangerous terrain
-N  NPC occupant
-B  blocking-object occupant
-?  unknown or unobserved
-```
 
 ## Persistent data
 
@@ -103,14 +123,17 @@ B  blocking-object occupant
 
 Test in a small safe area before exploring a large region:
 
-1. Player is recognized in most settled frames.
-2. Remaining still does not move the world coordinate.
-3. Moving one tile changes the relative Player coordinate by one tile.
-4. Returning to the starting tile returns close to the original coordinate.
-5. Walkable and wall terrain remain aligned after a short loop.
-6. NPCs appear as dynamic `N` occupants and disappear after leaving the observation area.
-7. Unknown groups accumulate without interrupting gameplay.
-8. Teaching one group through `F7` improves subsequent captures.
-9. Closing and reopening restores the relative map and review queue.
+1. The visual overlay grid remains aligned with the real 64 px game tiles.
+2. The category and confidence shown inside each cell match the underlying classifier result.
+3. Clicking a cell identifies its correct grid coordinates and pixel bounds.
+4. Player is recognized in most settled frames.
+5. Remaining still does not move the world coordinate.
+6. Moving one tile changes the relative Player coordinate by one tile.
+7. Returning to the starting tile returns close to the original coordinate.
+8. Walkable and wall terrain remain aligned after a short loop.
+9. NPCs appear as dynamic `N` occupants and disappear after leaving the observation area.
+10. Unknown groups accumulate without interrupting gameplay.
+11. Teaching one group through `F7` improves subsequent captures.
+12. Closing and reopening restores the relative map and review queue.
 
 Do not enable assisted or autonomous navigation until this gate is physically approved.

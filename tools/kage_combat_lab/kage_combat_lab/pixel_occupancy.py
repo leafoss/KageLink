@@ -27,6 +27,9 @@ class PixelOccupancyMap:
         self._samples: dict[GridCell, deque[np.ndarray]] = {}
         self._previous: dict[GridCell, np.ndarray] = {}
         self._votes: dict[GridCell, deque[bool]] = {}
+        self._scene_recovery_cells: set[GridCell] = set()
+        self.last_scene_shift_cells: tuple[GridCell, ...] = ()
+        self.scene_shift_generation = 0
         self.last_cells: dict[GridCell, CellOccupancy] = {}
         self.last_clusters: tuple[OccupancyCluster, ...] = ()
 
@@ -37,7 +40,10 @@ class PixelOccupancyMap:
     def _crop(frame: np.ndarray, state: Any, item: TileEvidence) -> np.ndarray | None:
         arena_x, arena_y, _, _ = (int(v) for v in state.arena_rect)
         left, top, width, height = (int(v) for v in item.bbox)
-        crop = frame[arena_y + top : arena_y + top + height, arena_x + left : arena_x + left + width]
+        crop = frame[
+            arena_y + top : arena_y + top + height,
+            arena_x + left : arena_x + left + width,
+        ]
         return crop.copy() if crop.shape[:2] == (CELL_SIZE_PX, CELL_SIZE_PX) else None
 
     def _reference(
@@ -54,10 +60,17 @@ class PixelOccupancyMap:
         if crop is None:
             examples = tuple(getattr(perception, "_terrain_examples", ()))
             selected = next(
-                (x for x in examples if str(getattr(x, "example_id", "")) == str(item.matched_example_id or "")),
+                (
+                    x
+                    for x in examples
+                    if str(getattr(x, "example_id", ""))
+                    == str(item.matched_example_id or "")
+                ),
                 None,
             )
-            if prefer_non_danger and (selected is None or getattr(selected, "category", None) is TileClass.DANGER):
+            if prefer_non_danger and (
+                selected is None or getattr(selected, "category", None) is TileClass.DANGER
+            ):
                 allowed = {
                     TileClass.WALKABLE,
                     TileClass.WALKABLE_WITH_JUTSU,
@@ -73,7 +86,10 @@ class PixelOccupancyMap:
                 ]
                 extractor = getattr(perception, "extractor", None)
                 if current is not None and extractor is not None and candidates:
-                    inset = max(0, min(8, int(getattr(perception.config, "crop_inset_px", 2))))
+                    inset = max(
+                        0,
+                        min(8, int(getattr(perception.config, "crop_inset_px", 2))),
+                    )
                     feature_crop = current[
                         inset : CELL_SIZE_PX - inset,
                         inset : CELL_SIZE_PX - inset,
@@ -100,12 +116,20 @@ class PixelOccupancyMap:
         if crop is None or getattr(crop, "size", 0) == 0:
             return None
         if crop.shape[:2] != (CELL_SIZE_PX, CELL_SIZE_PX):
-            crop = cv2.resize(crop, (CELL_SIZE_PX, CELL_SIZE_PX), interpolation=cv2.INTER_AREA)
+            crop = cv2.resize(
+                crop,
+                (CELL_SIZE_PX, CELL_SIZE_PX),
+                interpolation=cv2.INTER_AREA,
+            )
         return crop.copy()
 
     def _metrics(self, current: np.ndarray, baseline: np.ndarray):
         if current.shape != baseline.shape:
-            baseline = cv2.resize(baseline, (current.shape[1], current.shape[0]), interpolation=cv2.INTER_AREA)
+            baseline = cv2.resize(
+                baseline,
+                (current.shape[1], current.shape[0]),
+                interpolation=cv2.INTER_AREA,
+            )
         cur_lab = cv2.cvtColor(current, cv2.COLOR_BGR2LAB).astype(np.int16)
         base_lab = cv2.cvtColor(baseline, cv2.COLOR_BGR2LAB).astype(np.int16)
         lab_delta = np.linalg.norm(cur_lab - base_lab, axis=2)
@@ -113,7 +137,11 @@ class PixelOccupancyMap:
         base_gray = cv2.cvtColor(baseline, cv2.COLOR_BGR2GRAY)
         gray_delta = cv2.absdiff(cur_gray, base_gray)
         threshold = float(self.config.pixel_delta_threshold)
-        mask = np.where((lab_delta >= threshold) | (gray_delta >= max(10, int(threshold))), 255, 0).astype(np.uint8)
+        mask = np.where(
+            (lab_delta >= threshold) | (gray_delta >= max(10, int(threshold))),
+            255,
+            0,
+        ).astype(np.uint8)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
         ratio = float(np.count_nonzero(mask)) / float(mask.size)
@@ -123,30 +151,62 @@ class PixelOccupancyMap:
             _, _, w, h, a = (int(v) for v in stats[index])
             if a > area:
                 area, width, height = a, w, h
-        edge = float(np.mean(cv2.absdiff(cv2.Canny(cur_gray, 45, 135), cv2.Canny(base_gray, 45, 135)))) / 255.0
+        edge = float(
+            np.mean(
+                cv2.absdiff(
+                    cv2.Canny(cur_gray, 45, 135),
+                    cv2.Canny(base_gray, 45, 135),
+                )
+            )
+        ) / 255.0
         color = min(1.0, float(np.mean(lab_delta)) / 80.0)
-        return ratio, area, width, height, edge, color, cv2.absdiff(current, baseline), mask
+        return (
+            ratio,
+            area,
+            width,
+            height,
+            edge,
+            color,
+            cv2.absdiff(current, baseline),
+            mask,
+        )
 
     @staticmethod
     def _temporal(previous: np.ndarray | None, current: np.ndarray) -> float:
         if previous is None or previous.shape != current.shape:
             return 1.0
-        return float(np.mean(cv2.absdiff(cv2.cvtColor(previous, cv2.COLOR_BGR2GRAY), cv2.cvtColor(current, cv2.COLOR_BGR2GRAY)))) / 255.0
+        return float(
+            np.mean(
+                cv2.absdiff(
+                    cv2.cvtColor(previous, cv2.COLOR_BGR2GRAY),
+                    cv2.cvtColor(current, cv2.COLOR_BGR2GRAY),
+                )
+            )
+        ) / 255.0
 
     @staticmethod
     def _candidate_cells(candidate: CandidateObservation) -> frozenset[GridCell]:
         return frozenset(set(candidate.cells_touched) | {candidate.anchor_cell})
 
     @staticmethod
-    def _bbox_coverage(candidates: Iterable[CandidateObservation], item: TileEvidence) -> float:
+    def _bbox_coverage(
+        candidates: Iterable[CandidateObservation],
+        item: TileEvidence,
+    ) -> float:
         cell_left, cell_top, cell_width, cell_height = item.bbox
         best = 0.0
         for candidate in candidates:
             if candidate.bbox is None:
                 continue
             left, top, width, height = candidate.bbox
-            w = max(0, min(left + width, cell_left + cell_width) - max(left, cell_left))
-            h = max(0, min(top + height, cell_top + cell_height) - max(top, cell_top))
+            w = max(
+                0,
+                min(left + width, cell_left + cell_width) - max(left, cell_left),
+            )
+            h = max(
+                0,
+                min(top + height, cell_top + cell_height) - max(top, cell_top),
+            )
             best = max(best, float(w * h) / float(CELL_SIZE_PX * CELL_SIZE_PX))
         return min(1.0, best)
 
@@ -170,9 +230,15 @@ class PixelOccupancyMap:
     ) -> bool:
         if cell in self.exact_baselines:
             return False
-        if item.category in {TileClass.DANGER, TileClass.PLAYER, TileClass.IGNORE_DYNAMIC}:
+        if item.category in {
+            TileClass.DANGER,
+            TileClass.PLAYER,
+            TileClass.IGNORE_DYNAMIC,
+        }:
             return False
-        if cell in raw_occupied or any(cell.chebyshev_distance(danger) <= 1 for danger in danger_cells):
+        if cell in raw_occupied or any(
+            cell.chebyshev_distance(danger) <= 1 for danger in danger_cells
+        ):
             return False
         if self._temporal(self._previous.get(cell), crop) > self.config.baseline_stability:
             return False
@@ -180,12 +246,115 @@ class PixelOccupancyMap:
             ratio, area, *_ = self._metrics(crop, reference)
             if ratio > self.config.weak_ratio or area >= self.config.blob_area_min:
                 return False
-        samples = self._samples.setdefault(cell, deque(maxlen=self.config.baseline_samples))
+        samples = self._samples.setdefault(
+            cell,
+            deque(maxlen=self.config.baseline_samples),
+        )
         samples.append(crop.copy())
         if len(samples) < self.config.baseline_samples:
             return False
-        self.exact_baselines[cell] = np.median(np.stack(tuple(samples)), axis=0).astype(np.uint8)
+        self.exact_baselines[cell] = np.median(
+            np.stack(tuple(samples)),
+            axis=0,
+        ).astype(np.uint8)
         return True
+
+    def _learn_scene_recovery_baseline(
+        self,
+        cell: GridCell,
+        crop: np.ndarray,
+        item: TileEvidence,
+        raw_occupied: set[GridCell],
+    ) -> bool:
+        """Re-anchor a screen cell after a coherent viewport/background shift."""
+
+        if cell not in self._scene_recovery_cells:
+            return False
+        if item.category in {TileClass.PLAYER, TileClass.IGNORE_DYNAMIC} or cell in raw_occupied:
+            self._samples.pop(cell, None)
+            return False
+        if self._temporal(self._previous.get(cell), crop) > self.config.baseline_stability:
+            self._samples.pop(cell, None)
+            return False
+        samples = self._samples.setdefault(
+            cell,
+            deque(maxlen=self.config.baseline_samples),
+        )
+        samples.append(crop.copy())
+        if len(samples) < self.config.baseline_samples:
+            return False
+        self.exact_baselines[cell] = np.median(
+            np.stack(tuple(samples)),
+            axis=0,
+        ).astype(np.uint8)
+        self._scene_recovery_cells.discard(cell)
+        self._samples.pop(cell, None)
+        return True
+
+    @staticmethod
+    def _class_reference_reliable(
+        source: DiffSource,
+        ratio: float,
+        area: int,
+        width: int,
+        height: int,
+    ) -> bool:
+        if source is DiffSource.EXACT_CELL_BASELINE:
+            return True
+        if source is not DiffSource.CLASS_REFERENCE:
+            return False
+        # A generic reference that disagrees with nearly the whole cell is not
+        # a foreground mask. It is a reference mismatch and has zero authority.
+        return bool(
+            ratio <= 0.55
+            and area <= int(CELL_SIZE_PX * CELL_SIZE_PX * 0.75)
+            and not (
+                width >= CELL_SIZE_PX - 4 and height >= CELL_SIZE_PX - 4
+            )
+        )
+
+    def _detect_boundary_scene_shift(
+        self,
+        observed: dict[GridCell, CellOccupancy],
+    ) -> set[GridCell]:
+        """Detect coherent full-cell changes entering from a viewport edge."""
+
+        if not observed:
+            return set()
+        xs = [cell.x for cell in observed]
+        ys = [cell.y for cell in observed]
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+        row_count = max_y - min_y + 1
+        severe = {
+            cell
+            for cell, item in observed.items()
+            if item.diff_source is DiffSource.EXACT_CELL_BASELINE
+            and item.true_changed_ratio >= 0.60
+            and item.largest_blob_area >= 2500
+            and item.blob_width >= CELL_SIZE_PX - 16
+            and item.blob_height >= CELL_SIZE_PX - 16
+        }
+        if not severe:
+            return set()
+        minimum_column_hits = max(3, int(np.ceil(row_count * 0.75)))
+        seed_columns = {
+            boundary_x
+            for boundary_x in (min_x, max_x)
+            if sum(cell.x == boundary_x for cell in severe) >= minimum_column_hits
+        }
+        if not seed_columns:
+            return set()
+        seeds = {cell for cell in severe if cell.x in seed_columns}
+        selected = set(seeds)
+        queue = list(seeds)
+        while queue:
+            current = queue.pop()
+            for neighbor in self._neighbors(current):
+                if neighbor in severe and neighbor not in selected:
+                    selected.add(neighbor)
+                    queue.append(neighbor)
+        return selected
 
     def observe(
         self,
@@ -211,34 +380,73 @@ class PixelOccupancyMap:
         }
         baseline_ready: list[GridCell] = []
         observed: dict[GridCell, CellOccupancy] = {}
+        self.last_scene_shift_cells = ()
         for item in evidence.values():
             crop = self._crop(frame, state, item)
             if crop is None:
                 continue
             reference = self._reference(item, crop)
-            if self._learn_baseline(item.cell, crop, item, raw_occupied, danger_cells, reference):
+            if self._learn_scene_recovery_baseline(
+                item.cell,
+                crop,
+                item,
+                raw_occupied,
+            ):
                 baseline_ready.append(item.cell)
+            elif self._learn_baseline(
+                item.cell,
+                crop,
+                item,
+                raw_occupied,
+                danger_cells,
+                reference,
+            ):
+                baseline_ready.append(item.cell)
+
             baseline = self.exact_baselines.get(item.cell)
             source = DiffSource.EXACT_CELL_BASELINE
             if baseline is None:
                 baseline = reference
-                source = DiffSource.CLASS_REFERENCE if baseline is not None else DiffSource.NONE
+                source = (
+                    DiffSource.CLASS_REFERENCE
+                    if baseline is not None
+                    else DiffSource.NONE
+                )
             ratio = color = edge = 0.0
             area = width = height = 0
             diff = mask = None
             if baseline is not None:
-                ratio, area, width, height, edge, color, diff, mask = self._metrics(crop, baseline)
+                (
+                    ratio,
+                    area,
+                    width,
+                    height,
+                    edge,
+                    color,
+                    diff,
+                    mask,
+                ) = self._metrics(crop, baseline)
             coverage = self._bbox_coverage(candidates, item)
             danger_prior = item.similarity if item.cell in danger_cells else 0.0
+            reference_reliable = self._class_reference_reliable(
+                source,
+                ratio,
+                area,
+                width,
+                height,
+            )
+            recovering = item.cell in self._scene_recovery_cells
             structural = (
-                source is not DiffSource.NONE
+                reference_reliable
+                and not recovering
                 and ratio >= self.config.suspect_ratio
                 and area >= self.config.blob_area_min
                 and width >= self.config.blob_width_min
                 and height >= self.config.blob_height_min
             )
             strong = (
-                source is not DiffSource.NONE
+                reference_reliable
+                and not recovering
                 and ratio >= self.config.strong_ratio
                 and area >= self.config.blob_area_strong
                 and height >= self.config.blob_height_strong
@@ -252,14 +460,21 @@ class PixelOccupancyMap:
             )
             if source is DiffSource.CLASS_REFERENCE:
                 score *= 0.88
-            occupied_now = bool(danger_prior or structural or strong)
+            if not reference_reliable or recovering:
+                score = 0.0
+            # DANGER is a semantic prior, never occupancy by itself.
+            occupied_now = bool(structural or strong)
             votes = self._votes.setdefault(item.cell, deque(maxlen=3))
             votes.append(occupied_now)
             state_value = (
                 OccupancyState.OCCUPIED
                 if occupied_now
                 else OccupancyState.WEAK
-                if source is not DiffSource.NONE and ratio >= self.config.weak_ratio
+                if (
+                    reference_reliable
+                    and not recovering
+                    and ratio >= self.config.weak_ratio
+                )
                 else OccupancyState.EMPTY
             )
             observed[item.cell] = CellOccupancy(
@@ -283,6 +498,24 @@ class PixelOccupancyMap:
                 mask=mask,
             )
             self._previous[item.cell] = crop.copy()
+
+        shifted = self._detect_boundary_scene_shift(observed)
+        if shifted:
+            self.scene_shift_generation += 1
+            self.last_scene_shift_cells = tuple(
+                sorted(shifted, key=lambda cell: (cell.y, cell.x))
+            )
+            for cell in shifted:
+                self.exact_baselines.pop(cell, None)
+                self._samples.pop(cell, None)
+                self._votes.pop(cell, None)
+                self._scene_recovery_cells.add(cell)
+                item = observed[cell]
+                item.state = OccupancyState.EMPTY
+                item.occupancy_score = 0.0
+                item.danger_prior = 0.0
+                item.persistence = 0
+
         self.last_cells = observed
         return observed, tuple(baseline_ready)
 
@@ -291,13 +524,17 @@ class PixelOccupancyMap:
         cells: dict[GridCell, CellOccupancy],
         candidates: tuple[CandidateObservation, ...],
     ) -> tuple[OccupancyCluster, ...]:
-        occupied = {c for c, x in cells.items() if x.state is OccupancyState.OCCUPIED}
+        occupied = {
+            cell
+            for cell, item in cells.items()
+            if item.state is OccupancyState.OCCUPIED
+        }
         occupied |= {
-            c
-            for c, x in cells.items()
-            if x.state is OccupancyState.WEAK
-            and x.occupancy_score >= 0.30
-            and any(n in occupied for n in self._neighbors(c))
+            cell
+            for cell, item in cells.items()
+            if item.state is OccupancyState.WEAK
+            and item.occupancy_score >= 0.30
+            and any(neighbor in occupied for neighbor in self._neighbors(cell))
         }
         remaining = set(occupied)
         result: list[OccupancyCluster] = []
@@ -311,20 +548,31 @@ class PixelOccupancyMap:
                         remaining.remove(neighbor)
                         group.add(neighbor)
                         queue.append(neighbor)
-            items = tuple(cells[c] for c in group)
-            left = min(x.evidence.bbox[0] for x in items)
-            top = min(x.evidence.bbox[1] for x in items)
-            right = max(x.evidence.bbox[0] + x.evidence.bbox[2] for x in items)
-            bottom = max(x.evidence.bbox[1] + x.evidence.bbox[3] for x in items)
-            bottom_y = max(c.y for c in group)
-            bottoms = sorted((c for c in group if c.y == bottom_y), key=lambda c: c.x)
+            items = tuple(cells[cell] for cell in group)
+            left = min(item.evidence.bbox[0] for item in items)
+            top = min(item.evidence.bbox[1] for item in items)
+            right = max(
+                item.evidence.bbox[0] + item.evidence.bbox[2] for item in items
+            )
+            bottom = max(
+                item.evidence.bbox[1] + item.evidence.bbox[3] for item in items
+            )
+            bottom_y = max(cell.y for cell in group)
+            bottoms = sorted(
+                (cell for cell in group if cell.y == bottom_y),
+                key=lambda cell: cell.x,
+            )
             foot_cell = bottoms[len(bottoms) // 2]
             foot_box = cells[foot_cell].evidence.bbox
-            foot = (foot_box[0] + foot_box[2] / 2.0, foot_box[1] + foot_box[3])
+            foot = (
+                foot_box[0] + foot_box[2] / 2.0,
+                foot_box[1] + foot_box[3],
+            )
             raw_ids = {
                 candidate.track_id
                 for candidate in candidates
-                if candidate.track_id >= 0 and self._candidate_cells(candidate) & group
+                if candidate.track_id >= 0
+                and self._candidate_cells(candidate) & group
             }
             result.append(
                 OccupancyCluster(
@@ -333,14 +581,21 @@ class PixelOccupancyMap:
                     bbox=(left, top, right - left, bottom - top),
                     foot_point=foot,
                     foot_cell=foot_cell,
-                    occupancy_score=max(x.occupancy_score for x in items),
-                    danger_prior=max(x.danger_prior for x in items),
-                    true_changed_ratio=max(x.true_changed_ratio for x in items),
-                    largest_blob_area=max(x.largest_blob_area for x in items),
+                    occupancy_score=max(item.occupancy_score for item in items),
+                    danger_prior=max(item.danger_prior for item in items),
+                    true_changed_ratio=max(item.true_changed_ratio for item in items),
+                    largest_blob_area=max(item.largest_blob_area for item in items),
                     raw_track_ids=frozenset(raw_ids),
                     cell_observations=items,
                 )
             )
-        result.sort(key=lambda x: (-x.danger_prior, -x.occupancy_score, x.foot_cell.y, x.foot_cell.x))
+        result.sort(
+            key=lambda item: (
+                -item.danger_prior,
+                -item.occupancy_score,
+                item.foot_cell.y,
+                item.foot_cell.x,
+            )
+        )
         self.last_clusters = tuple(result)
         return self.last_clusters

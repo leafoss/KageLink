@@ -24,8 +24,12 @@ def test_runtime_uses_pr24_calibrated_offsets_for_cells_and_classification() -> 
     text = source("runtime_tile_perception.py")
     assert 'calibration_payload.get("offset_x_px", 0)' in text
     assert 'calibration_payload.get("offset_y_px", 0)' in text
-    assert "observer.grid_origin = calibrated_origin" in text
-    assert "observer.grid_origin = previous_origin" in text
+    assert "calibrated_full_origin[0] - float(arena_x)" in text
+    assert "calibrated_full_origin[1] - float(arena_y)" in text
+    assert "observer.grid_origin_x = calibrated_arena_origin[0]" in text
+    assert "observer.grid_origin_y = calibrated_arena_origin[1]" in text
+    assert "observer.grid_origin_x = previous_origin_x" in text
+    assert "observer.grid_origin_y = previous_origin_y" in text
 
 
 def test_old_unknown_activity_to_clean_body_path_is_not_called() -> None:

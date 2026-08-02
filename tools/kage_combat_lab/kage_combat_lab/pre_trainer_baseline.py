@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import contextlib
+import io
+
 
 _INSTALLED = False
 
@@ -31,7 +34,15 @@ def install_pre_trainer_baseline_capture() -> None:
                 "PR26_PRETRAINER_BASELINE phase=BEFORE_TRAINER_CLICK "
                 "dialog=CLOSED enemy=NOT_SPAWNED physical_input=BLOCKED"
             )
-            baseline_module._capture()
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                baseline_module._capture()
+            for line in buffer.getvalue().splitlines():
+                print(
+                    line.replace("PR26_PREOK_", "PR26_PRETRAINER_")
+                    .replace("dialog=OPEN", "dialog=CLOSED")
+                    .replace("source=BEFORE_DIALOG_OK", "source=BEFORE_TRAINER_CLICK")
+                )
             baseline_module._CAPTURED = True
             print(
                 "PR26_PRETRAINER_BASELINE_READY phase=BEFORE_TRAINER_CLICK "

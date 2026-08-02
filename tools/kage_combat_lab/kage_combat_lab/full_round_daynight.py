@@ -25,10 +25,14 @@ def main() -> int:
 
     from . import full_round as full_round_module
     from . import live_bridge as live_bridge_module
+    from .runtime_control_mode import install_runtime_control_mode
     from .runtime_engagement_recovery import install_runtime_engagement_recovery
     from .runtime_facing_patch import install_runtime_facing_patch
     from .runtime_startup_inherited import install_inherited_post_ok_startup
-    from .runtime_tile_perception import install_runtime_tile_perception
+    from .runtime_tile_perception import (
+        current_control_mode,
+        install_runtime_tile_perception,
+    )
 
     tile_perception = install_runtime_tile_perception(
         live_bridge_module,
@@ -36,22 +40,33 @@ def main() -> int:
     )
     install_runtime_facing_patch(full_round_module)
     install_inherited_post_ok_startup()
+    install_runtime_control_mode()
     install_runtime_engagement_recovery(full_round_module)
+    mode = current_control_mode().value
     print("TRAINER: day-64 + night-64 enabled for post-combat return")
     print("POST_OK_GATE: confirmed; child inherits the one outer RIGHT pulse")
-    print("ENGAGEMENT: R baseline starts with combat; H remains target/facing gated")
+    print("ENGAGEMENT: physical authority is controlled by PR26.3 validation mode")
     print(
-        "PR26.2 TILE CLASSIFICATION: PR24 DANGER seeds a continuity-aware "
-        f"passive visual signal; terrain_examples={tile_perception.terrain_example_count}"
+        "PR26.3 OCCUPANCY: PR24 DANGER creates a mobile identity; "
+        f"terrain_examples={tile_perception.terrain_example_count}"
     )
     print(
-        "PR26.2 FLOW: strict DANGER acquisition -> 1.25s danger memory -> "
-        "2-of-3 entity confirmation -> VISUAL_LOCK -> passive D trend -> "
-        "HOSTILE_CONFIRMED -> COMBAT_LOCK -> PR25 Target Capsule/facing/chase/H"
+        "PR26.3 FLOW: slow PR24 prior -> real pixel diff -> occupied cells -> "
+        "DANGER_CLUSTER -> mobile propagation -> FACE_ONLY_LOCK -> pixel approach -> "
+        "HOSTILE_CONFIRMED -> COMBAT_LOCK"
+    )
+    print("PR26.3 AUTHORITY: HOSTILE_CONFIRMED -> COMBAT_LOCK")
+    print(
+        "PR26.3 PIXEL TRUTH: true_changed_ratio requires EXACT_CELL_BASELINE or "
+        "CLASS_REFERENCE; bbox_coverage_ratio is telemetry only"
     )
     print(
-        "PR26.2 SAFETY: tile-only and negative synthetic candidates have zero "
-        "offensive authority; unseeded UNKNOWN is also blocked"
+        f"PR26.3 MODE={mode}: PERCEPTION_ONLY blocks TURN/MOVE/R/H; "
+        "FACE_ONLY allows TURN only; FULL_COMBAT requires COMBAT_LOCK"
+    )
+    print(
+        "PR26.3 SAFETY: tile-only and negative synthetic candidates have zero "
+        "offensive authority"
     )
     return int(full_round_module.main())
 

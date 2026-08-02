@@ -105,8 +105,8 @@ def main() -> int:
         "FACE_ONLY allows TURN only; FULL_COMBAT requires COMBAT_LOCK"
     )
     print(
-        "PR26.7 SAFETY: camera uncertainty, tile-only candidates and negative IDs "
-        "have zero offensive authority"
+        "PR26.7 SAFETY: camera uncertainty blocks authority; tile-only and negative "
+        "synthetic candidates have zero offensive authority"
     )
     return int(full_round_module.main())
 

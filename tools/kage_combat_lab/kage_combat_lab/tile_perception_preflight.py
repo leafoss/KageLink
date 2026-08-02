@@ -75,6 +75,11 @@ def main() -> int:
             "fresh_weak_raw_track_exact_pixel_promotion": True,
             "fresh_weak_raw_track_same_cell_only_promotion": False,
             "player_center_candidate_authority": False,
+            "provisional_body_retention_seconds": 3.0,
+            "provisional_body_requires_exact_raw_overlap": True,
+            "provisional_body_rawless_challenger_replacement": False,
+            "provisional_body_move_h_authority": False,
+            "provisional_body_requires_contact_votes_for_combat": "2-of-3",
             "true_changed_ratio_suspect": occupancy.suspect_ratio,
             "true_changed_ratio_strong": occupancy.strong_ratio,
             "largest_blob_min": occupancy.blob_area_min,
@@ -100,6 +105,10 @@ def main() -> int:
             "camera_low_response_static_hold_min": 0.035,
             "camera_low_response_static_hold_px": 2.5,
             "camera_static_hold_preserves_exact_baselines": True,
+            "camera_prelatch_transform": "FIXED_ACCEPTED_VIEWPORT",
+            "camera_prelatch_uncertain_frame_authority": True,
+            "camera_phase_alias_period_px": 32,
+            "camera_phase_alias_unwrap_after_latch": True,
             "camera_meaningful_shift_confirmation_frames": [2, 3],
             "camera_alignment_uncertain_authority": False,
             "camera_low_response_large_jump_authority": False,
@@ -107,13 +116,14 @@ def main() -> int:
             "selected_lock_hysteresis_frames": 3,
             "contact_combat_lock": "component_body_bound_2_of_3",
             "event_json_snapshot_timing": "EVENT_TRIGGER_FRAME",
+            "event_json_survives_close_hooks": True,
             "post_ok_spawn_wait_preserved": True,
             "synthetic_offensive_authority": False,
             "perception_only_physical_authority": False,
             "combat_lock_requires_hostile_confirmed": True,
         }
     )
-    print("PR26.16 BASELINE LIVENESS PREFLIGHT: READY")
+    print("PR26.17 PROVISIONAL TARGET RETENTION PREFLIGHT: READY")
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
     if CELL_SIZE_PX != 64:
         raise RuntimeError(f"PR26_CELL_SIZE_INVALID:{CELL_SIZE_PX}")

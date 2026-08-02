@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import time
 from pathlib import Path
+from typing import Mapping
 
 import numpy as np
 
@@ -48,6 +49,30 @@ class PR27CombatSystem:
         _, arena = self.cropper.crop(native_frame_bgr)
         cells = self.grid.build(arena.shape)
         return self.baselines.load_npz(path, cells)
+
+    def _focused_differences(
+        self,
+        differences: Mapping[tuple[int, int], CellDifference],
+    ) -> Mapping[tuple[int, int], CellDifference]:
+        target_id = self.tracker.enemy_track_id
+        if target_id is None:
+            return differences
+        target = self.tracker.tracks.get(target_id)
+        if target is None or not target.current_cells:
+            return differences
+        radius = self.config.target_focus_radius_cells
+        focus_keys = {
+            (row + dr, column + dc)
+            for row, column in target.current_cells
+            for dr in range(-radius, radius + 1)
+            for dc in range(-radius, radius + 1)
+        }
+        focused = {key: value for key, value in differences.items() if key in focus_keys}
+        if target.track_state is TrackState.TRACKED:
+            return focused
+        if self.frame_index % self.config.global_reacquire_interval_frames == 0:
+            return differences
+        return focused
 
     def process(self, native_frame_bgr: np.ndarray, *, timestamp: float | None = None) -> PR27FrameResult:
         now = time.monotonic() if timestamp is None else float(timestamp)
@@ -115,8 +140,9 @@ class PR27CombatSystem:
             self.frame_index += 1
             return result
 
-        groups = self.grouper.group(differences)
-        fragments = self.extractor.extract(arena, groups, differences)
+        search_differences = self._focused_differences(differences)
+        groups = self.grouper.group(search_differences)
+        fragments = self.extractor.extract(arena, groups, search_differences)
         observations = self.assembler.assemble(arena, groups, fragments)
         tracks = self.tracker.update(observations, frame_index=self.frame_index, arena_shape=arena.shape)
         target, action, state, reason = self.planner.plan(

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import time
+from collections import deque
 from pathlib import Path
 
 from .pr27_native_grid import KnownSpriteRegistry, PR27CombatSystem
@@ -19,6 +20,14 @@ from .pr27_runtime_support import (
     create_log,
     write_log,
 )
+
+
+def _int_env(name: str, default: int, minimum: int = 1) -> int:
+    return max(minimum, int(os.environ.get(name, str(default))))
+
+
+def _float_env(name: str, default: float, minimum: float = 0.0) -> float:
+    return max(minimum, float(os.environ.get(name, str(default))))
 
 
 def main() -> int:
@@ -64,9 +73,13 @@ def main() -> int:
     overlay = PR27DebugOverlay()
     debug_root = report_root / "pr27_debug" / round_stem
     overlay_enabled = bool_env("KAGE_PR27_DEBUG_OVERLAY", False)
-    save_debug = bool_env("KAGE_PR27_SAVE_DEBUG_FRAMES", True)
+    save_debug = bool_env("KAGE_PR27_SAVE_DEBUG_FRAMES", False)
+    overlay_every_frames = _int_env("KAGE_PR27_OVERLAY_EVERY_FRAMES", 3)
+    save_every_frames = _int_env("KAGE_PR27_SAVE_EVERY_FRAMES", 80)
+    log_every_frames = _int_env("KAGE_PR27_LOG_EVERY_FRAMES", 2)
+    target_fps = min(20.0, _float_env("KAGE_PR27_TARGET_FPS", 8.0, 1.0))
 
-    interval = 1.0 / max(1.0, min(20.0, float(args.fps)))
+    interval = 1.0 / target_fps
     telemetry_interval = max(0.10, float(args.telemetry_seconds))
     chat_poll_interval = max(0.10, min(2.0, float(args.chat_poll_seconds)))
     combat_seconds = max(1.0, float(args.seconds))
@@ -80,6 +93,10 @@ def main() -> int:
     print("PR27 IDENTITY: SpriteFragment -> SpriteObservation -> TrackedSprite ID")
     print(f"PR27 MODE={mode}; known_sprite_references={len(registry.sprites)}")
     print(f"PR27 BASELINE={baseline_path()}")
+    print(
+        f"PR27 PERFORMANCE target_fps={target_fps:.1f} overlay_every={overlay_every_frames} "
+        f"save_every={save_every_frames} log_every={log_every_frames}"
+    )
 
     frames = 0
     started = 0.0
@@ -87,7 +104,10 @@ def main() -> int:
     post_ready = False
     emergency_stop = False
     failure: Exception | None = None
-    last_saved_state = None
+    last_state: str | None = None
+    last_action: str | None = None
+    last_actions: tuple[str, ...] | None = None
+    rolling_durations: deque[float] = deque(maxlen=32)
 
     try:
         physical.activate()
@@ -117,36 +137,58 @@ def main() -> int:
                 if victory_signal is not None:
                     controller.release_all()
                     print(f"PR27_ROUND_FINISHED victory_chat={victory_signal.text}")
-                    write_log(log_handle, {"event": "PR27_ROUND_FINISHED", "text": victory_signal.text})
+                    write_log(
+                        log_handle,
+                        {"event": "PR27_ROUND_FINISHED", "text": victory_signal.text},
+                        flush=True,
+                    )
                     break
 
             native = first_native if frames == 0 else source.capture_native()
             result = combat.process(native.bgr, timestamp=now)
             actions = physical.execute(result.action, mode=mode)
-            rendered = overlay.render(result)
-            if overlay_enabled and not overlay.show(rendered):
-                raise EmergencyStop("PR27_DEBUG_WINDOW_CLOSED")
-            if save_debug and (frames % 20 == 0 or last_saved_state != result.state.value):
-                overlay.save(rendered, debug_root / f"frame_{frames:06d}_{result.state.value}.png")
-                last_saved_state = result.state.value
+            state_changed = result.state.value != last_state
+            action_changed = result.action.value != last_action
+            physical_changed = actions != last_actions
+            overlay_due = overlay_enabled and (frames % overlay_every_frames == 0 or state_changed)
+            save_due = save_debug and (frames % save_every_frames == 0 or state_changed)
+            if overlay_due or save_due:
+                rendered = overlay.render(result)
+                if overlay_due and not overlay.show(rendered):
+                    raise EmergencyStop("PR27_DEBUG_WINDOW_CLOSED")
+                if save_due:
+                    overlay.save(rendered, debug_root / f"frame_{frames:06d}_{result.state.value}.png")
 
+            loop_elapsed = time.monotonic() - loop_started
+            rolling_durations.append(max(1e-6, loop_elapsed))
+            rolling_fps = len(rolling_durations) / sum(rolling_durations)
+            if physical_changed or action_changed:
+                print(
+                    f"PR27_PHYSICAL frame={frames:05d} mode={mode} planned={result.action.value} "
+                    f"physical={','.join(actions)} target={result.target.track_id if result.target else '-'}"
+                )
             if now >= next_telemetry:
                 target_id = result.target.track_id if result.target else "-"
                 changed = sum(item.state.value == "CHANGED" for item in result.differences.values())
                 print(
                     f"PR27_FRAME frame={frames:05d} state={result.state.value} changed_cells={changed} "
                     f"groups={len(result.groups)} fragments={len(result.fragments)} tracks={len(result.tracks)} "
-                    f"target={target_id} action={result.action.value} reason={result.reason}"
+                    f"target={target_id} action={result.action.value} physical={','.join(actions)} "
+                    f"rolling_fps={rolling_fps:.1f} loop_ms={loop_elapsed * 1000.0:.1f} reason={result.reason}"
                 )
                 next_telemetry = now + telemetry_interval
-            write_log(log_handle, frame_payload(
-                result=result,
-                native=native,
-                actions=actions,
-                frame=frames,
-                started=started,
-                now=now,
-            ))
+            if frames % log_every_frames == 0 or state_changed or action_changed or physical_changed:
+                write_log(log_handle, frame_payload(
+                    result=result,
+                    native=native,
+                    actions=actions,
+                    frame=frames,
+                    started=started,
+                    now=now,
+                ))
+            last_state = result.state.value
+            last_action = result.action.value
+            last_actions = actions
             frames += 1
             elapsed = time.monotonic() - loop_started
             if elapsed < interval:
@@ -178,7 +220,11 @@ def main() -> int:
     except Exception as exc:
         failure = exc
         print(f"PR27_FAILURE {type(exc).__name__}: {exc}")
-        write_log(log_handle, {"event": "PR27_FAILURE", "type": type(exc).__name__, "error": str(exc)})
+        write_log(
+            log_handle,
+            {"event": "PR27_FAILURE", "type": type(exc).__name__, "error": str(exc)},
+            flush=True,
+        )
     finally:
         try:
             physical.close()
@@ -195,6 +241,7 @@ def main() -> int:
             except Exception:
                 pass
         overlay.close()
+        log_handle.flush()
         log_handle.close()
 
     duration = max(1e-6, time.monotonic() - started) if started else 0.0
@@ -206,7 +253,11 @@ def main() -> int:
         "stopped" if emergency_stop else
         "timeout"
     )
-    print(f"PR27_FINISHED result={result_name} frames={frames} fps={fps:.1f}")
+    performance_ready = fps >= 8.0
+    print(
+        f"PR27_FINISHED result={result_name} frames={frames} fps={fps:.1f} "
+        f"performance_ready={str(performance_ready).lower()} required_fps=8.0"
+    )
     return 1 if failure is not None else 0
 
 

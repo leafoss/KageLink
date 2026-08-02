@@ -24,17 +24,11 @@ def replace_source_round_command(command: list[str]) -> list[str]:
             "FULL_LOOP_SOURCE_CHECKOUT_ONLY: expected a Python round script, "
             f"got {round_entry!r}"
         )
-    replaced = [executable, "-m", ROUND_MODULE, POST_OK_GATE_ARG, *command[2:]]
-    baseline_seconds = max(0.0, float(os.environ.get(BASELINE_SECONDS_ENV, "0") or 0.0))
-    if baseline_seconds > 0.0 and "--startup-delay" in replaced:
-        index = replaced.index("--startup-delay")
-        if index + 1 < len(replaced):
-            replaced[index + 1] = str(baseline_seconds)
-    return replaced
+    return [executable, "-m", ROUND_MODULE, POST_OK_GATE_ARG, *command[2:]]
 
 
 def install_full_loop_round(validated_engine: Any) -> Callable[..., tuple[list[str], Path]]:
-    """Route the round and move the outer spawn wait into baseline capture."""
+    """Route the round while reserving SpawnDelay for pre-OK capture and actual spawn."""
 
     original = validated_engine._round_command
     request_owner = getattr(validated_engine, "legacy_loop", None)
@@ -42,13 +36,15 @@ def install_full_loop_round(validated_engine: Any) -> Callable[..., tuple[list[s
         original_request_kwargs = request_owner._request_kwargs
 
         def pr26_request_kwargs(args, *, round_number: int) -> dict:
+            from .pre_ok_baseline import reset_pre_ok_baseline_capture
+
             values = original_request_kwargs(args, round_number=round_number)
             spawn_seconds = max(0.0, float(values.get("spawn_delay_seconds", 0.0)))
             os.environ[BASELINE_SECONDS_ENV] = str(spawn_seconds)
-            values["spawn_delay_seconds"] = 0.0
+            reset_pre_ok_baseline_capture()
             print(
-                f"ROUND {round_number}: SPAWN_WAIT_TRANSFERRED_TO_BASELINE "
-                f"duration={spawn_seconds:.2f}s physical_input=BLOCKED"
+                f"ROUND {round_number}: PRE_OK_BASELINE_RESERVED "
+                f"duration={spawn_seconds:.2f}s; post_OK_spawn_wait={spawn_seconds:.2f}s"
             )
             return values
 
@@ -75,9 +71,11 @@ def install_full_loop_round(validated_engine: Any) -> Callable[..., tuple[list[s
 def main() -> int:
     from .dojo_multitemplate import install_day_night_dojo_detector
     from .post_ok_facing import install_post_ok_right_pulse
+    from .pre_ok_baseline import install_pre_ok_baseline_capture
 
     install_day_night_dojo_detector()
     install_post_ok_right_pulse()
+    install_pre_ok_baseline_capture()
     import kage_pilot_loop as canonical_loop
 
     validated_engine = getattr(canonical_loop, "_validated_engine", None)
@@ -87,8 +85,8 @@ def main() -> int:
     install_full_loop_round(validated_engine)
     print("KAGE COMBAT LAB - FULL DOJO LOOP")
     print("TRAINER: multi-template 64px day/night detector enabled")
-    print("FLOW: trainer -> dialog/OK -> pre-spawn baseline -> acquire -> align")
-    print("AUTHORITY: PR26.3 mode controls TURN/MOVE/R/H at final input boundary")
+    print("FLOW: trainer -> dialog confirmed -> pre-OK baseline -> click OK -> spawn -> acquire")
+    print("AUTHORITY: PR26.5 mode controls TURN/MOVE/R/H at final input boundary")
     print("FLOW: authoritative KO -> return to Trainer -> meditation -> READY")
     print("MEDITATION: second V is physically blocked for at least 5.25 seconds")
     print("F12: emergency stop remains active in search, startup, combat and recovery")

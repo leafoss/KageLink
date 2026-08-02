@@ -80,6 +80,6 @@ A última execução automática registrou:
 - 163 testes pytest aprovados;
 - 15 cenários determinísticos da PR25 aprovados;
 - dois launchers PowerShell analisados com sucesso;
-- GitHub Actions verde.
+- GitHub Actions verde no head `2857dd2`.
 
 A PR permanece Draft e não deve ser mesclada antes do teste físico.

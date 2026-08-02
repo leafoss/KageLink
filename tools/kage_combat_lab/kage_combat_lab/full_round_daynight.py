@@ -39,8 +39,6 @@ def main() -> int:
         install_runtime_tile_perception,
     )
 
-    # Install before the occupancy tracker is constructed so every runtime map
-    # receives player exclusion, mask-connected clustering and semantic affinity.
     install_runtime_mask_cluster_guard()
     install_semantic_entity_priority()
     tile_perception = install_runtime_tile_perception(
@@ -51,8 +49,6 @@ def main() -> int:
     install_runtime_facing_patch(full_round_module)
     install_inherited_post_ok_startup()
     install_runtime_engagement_recovery(full_round_module)
-    # Must remain last. EngagementRecoveryPhysical has direct baseline-R paths;
-    # the PR26 validation wrapper must surround them rather than be surrounded.
     install_runtime_control_mode()
     mode = current_control_mode().value
     print("TRAINER: day-64 + night-64 retained for outer request and FULL_COMBAT post-KO")
@@ -70,6 +66,7 @@ def main() -> int:
         "PR26.5 FLOW: exact pixel mask -> player exclusion -> edge-connected cluster -> "
         "DANGER_LOCK or persistent ENTITY_LOCK -> passive approach -> COMBAT_LOCK"
     )
+    print("PR26.5 AUTHORITY: HOSTILE_CONFIRMED -> COMBAT_LOCK")
     print(
         "PR26.5 SEMANTICS: UNKNOWN preserves danger_similarity, floor_similarity and "
         "danger_margin as CONFIRMED/LIKELY/WEAK prior"

@@ -111,8 +111,9 @@ def main() -> int:
         "PR26.9 MEMORY SAFETY: CONTACT_MEMORY, REID_PENDING and OUTSIDE_D3 preserve "
         "identity and facing memory while MOVE/H remain physically blocked"
     )
+    # HOSTILE_CONFIRMED -> COMBAT_LOCK remains the only offensive transition.
     print(
-        "PR26.9 AUTHORITY: VISUAL_CLUSTER/CAPSULE_REID/PIXEL_REID -> COMBAT_LOCK -> "
+        "PR26.9 AUTHORITY: HOSTILE_CONFIRMED -> COMBAT_LOCK -> "
         "Target Capsule + facing + chase + H"
     )
     print(

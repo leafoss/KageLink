@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 
 
@@ -8,6 +9,19 @@ def extract_post_ok_gate(argv: list[str]) -> tuple[bool, list[str]]:
 
     found = POST_OK_GATE_ARG in argv
     return found, [arg for arg in argv if arg != POST_OK_GATE_ARG]
+
+
+def _consume_transferred_startup_delay(argv: list[str]) -> list[str]:
+    seconds = max(
+        0.0,
+        float(os.environ.get("KAGE_PR26_PRESPAWN_BASELINE_SECONDS", "0") or 0.0),
+    )
+    result = list(argv)
+    if seconds > 0.0 and "--startup-delay" in result:
+        index = result.index("--startup-delay")
+        if index + 1 < len(result):
+            result[index + 1] = "0.0"
+    return result
 
 
 def main() -> int:
@@ -40,6 +54,7 @@ def main() -> int:
         full_round_module,
     )
     baseline_count = prime_pre_spawn_baselines(sys.argv[1:])
+    sys.argv = [sys.argv[0], *_consume_transferred_startup_delay(sys.argv[1:])]
     install_runtime_facing_patch(full_round_module)
     install_inherited_post_ok_startup()
     install_runtime_control_mode()
@@ -49,7 +64,7 @@ def main() -> int:
     print("POST_OK_GATE: confirmed; child inherits the one outer RIGHT pulse")
     print(
         f"PR26.3 PRESPAWN BASELINE: stored={baseline_count} "
-        "physical_input=BLOCKED"
+        "physical_input=BLOCKED startup_delay_consumed=true"
     )
     print("ENGAGEMENT: physical authority is controlled by PR26.3 validation mode")
     print(

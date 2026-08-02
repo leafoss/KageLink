@@ -3,6 +3,7 @@ param(
     [switch]$PerceptionOnly,
     [switch]$FaceOnly,
     [switch]$ControlEnabled,
+    [switch]$AcknowledgePhysicalRisk,
     [switch]$DebugOverlay,
     [switch]$SaveDebugFrames,
     [switch]$NoDebugFrames,
@@ -63,10 +64,16 @@ $SelectedModeCount = @(
 if ($SelectedModeCount -gt 1) {
     throw "Choose only one mode: -PerceptionOnly, -FaceOnly or -ControlEnabled."
 }
-if ($ControlEnabled) {
-    throw "PR27_CONTROL_LOCKED_PENDING_STABLE_8_FPS_VALIDATION. Use -PerceptionOnly or -FaceOnly."
+if ($ControlEnabled -and -not $AcknowledgePhysicalRisk) {
+    throw "CONTROL_ENABLED requires -AcknowledgePhysicalRisk and direct supervision with F12 ready."
 }
-$ControlMode = if ($FaceOnly) { "FACE_ONLY" } else { "PERCEPTION_ONLY" }
+$ControlMode = if ($ControlEnabled) {
+    "CONTROL_ENABLED"
+} elseif ($FaceOnly) {
+    "FACE_ONLY"
+} else {
+    "PERCEPTION_ONLY"
+}
 
 if ($PixelDelta -lt 1) { throw "PixelDelta must be >= 1." }
 if ($ChangedRatio -le 0 -or $ChangedRatio -gt 1) { throw "ChangedRatio must be in (0, 1]." }
@@ -109,9 +116,10 @@ function Set-InvariantDoubleEnv([string]$Name, [double]$Value) {
 $BaselineFile = Join-Path $Root "kage_pilot_loop_logs\pr27_native_baseline.npz"
 $SpriteRoot = Join-Path $Root "data\pr27_sprites"
 $SaveFrames = $SaveDebugFrames.IsPresent -and -not $NoDebugFrames.IsPresent
+$PhysicalMode = $ControlMode -in @("FACE_ONLY", "CONTROL_ENABLED")
 
 $env:KAGE_PR27_CONTROL_MODE = $ControlMode
-$env:KAGE_PR27_ALLOW_CONTROL = "0"
+$env:KAGE_PR27_ALLOW_CONTROL = if ($ControlEnabled -and $AcknowledgePhysicalRisk) { "1" } else { "0" }
 $env:KAGE_PR27_NATIVE_BASELINE_FILE = $BaselineFile
 $env:KAGE_PR27_SPRITE_ROOT = $SpriteRoot
 $env:KAGE_PR27_DEBUG_OVERLAY = if ($DebugOverlay) { "1" } else { "0" }
@@ -141,7 +149,14 @@ Set-InvariantDoubleEnv "KAGE_PR27_TARGET_FPS" $TargetFps
 
 Write-Host "PR27 NATIVE GRID SPRITE COMBAT" -ForegroundColor Green
 Write-Host "  Mode: $ControlMode" -ForegroundColor Cyan
-Write-Host "  CONTROL_ENABLED: LOCKED until stable >= 8 FPS validation" -ForegroundColor Yellow
+if ($ControlEnabled) {
+    Write-Host "  PHYSICAL CONTROL: ENABLED BY EXPLICIT ACKNOWLEDGEMENT" -ForegroundColor Red
+    Write-Host "  R: armed immediately after the post-OK combat subprocess starts" -ForegroundColor Yellow
+    Write-Host "  F12: emergency stop; keep it ready" -ForegroundColor Yellow
+}
+if ($PhysicalMode -and $DebugOverlay) {
+    Write-Host "  Live overlay: automatically disabled in physical modes to preserve game focus" -ForegroundColor Yellow
+}
 Write-Host "  Perception frame: original DreamSeeker client pixels"
 Write-Host "  JPEG in perception: OFF" -ForegroundColor Yellow
 Write-Host "  Resize in perception: OFF" -ForegroundColor Yellow
@@ -151,7 +166,6 @@ Write-Host "  Target missing grace: $TargetMissingGraceFrames frames"
 Write-Host "  Maximum active tracks: $MaximumActiveTracks"
 Write-Host "  Minimum observation pixels: $MinimumObservationPixels"
 Write-Host "  Target FPS: $TargetFps"
-Write-Host "  Overlay cadence: every $OverlayEveryFrames frames"
 Write-Host "  Debug frames enabled: $SaveFrames"
 Write-Host "  Baseline: $BaselineFile"
 Write-Host "  Sprite references: $SpriteRoot"

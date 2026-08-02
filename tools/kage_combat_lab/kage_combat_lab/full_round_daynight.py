@@ -157,6 +157,7 @@ def main() -> int:
         f"PR26.16 MODE={mode}: PERCEPTION_ONLY blocks TURN/MOVE/R/H; "
         "FACE_ONLY allows TURN only; FULL_COMBAT requires current visual body confirmation"
     )
+    # tile-only and negative synthetic candidates have zero offensive authority
 
     with RoundRuntimeDiagnostics() as diagnostics:
         exit_code = int(full_round_module.main())

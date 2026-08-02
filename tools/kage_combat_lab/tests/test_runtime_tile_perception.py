@@ -21,6 +21,10 @@ class _FakeGate:
     def __init__(self) -> None:
         self.last_snapshot = GateSnapshot()
         self.last_overlay_frame = None
+        self.map = SimpleNamespace(
+            last_scene_shift_cells=(),
+            scene_shift_generation=0,
+        )
 
     def filter_candidates(
         self,

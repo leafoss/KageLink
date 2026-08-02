@@ -30,6 +30,11 @@ def _float_env(name: str, default: float, minimum: float = 0.0) -> float:
     return max(minimum, float(os.environ.get(name, str(default))))
 
 
+def _stage(name: str, **values: object) -> None:
+    suffix = " ".join(f"{key}={value}" for key, value in values.items())
+    print(f"PR27_STAGE stage={name}{(' ' + suffix) if suffix else ''}", flush=True)
+
+
 def main() -> int:
     import kage_pilot_live_v03 as live_runtime
     import kage_pilot_live_v03k_round as validated_round
@@ -53,6 +58,7 @@ def main() -> int:
             time.sleep(min(0.01, remaining_seconds))
 
     mode = control_mode()
+    physical_mode = mode in {"FACE_ONLY", "CONTROL_ENABLED"}
     config = config_from_env()
     registry = KnownSpriteRegistry.from_directory(
         Path(os.environ.get("KAGE_PR27_SPRITE_ROOT", "data/pr27_sprites"))
@@ -63,16 +69,22 @@ def main() -> int:
     post_engine = configure_post_engine(live_runtime, args)
     source = GameCapture()
     controller = live_runtime.WindowsGameController(
-        recover_foreground=False,
-        debug=bool(args.debug_input),
-        repeat_delay_seconds=0.25,
-        repeat_interval_seconds=0.25,
+        recover_foreground=physical_mode,
+        debug=bool(args.debug_input) or physical_mode,
+        # Use the real-game verified BYOND held-R pattern. A 250 ms repeat
+        # interval was too slow and could look as if combat never armed.
+        repeat_delay_seconds=0.35,
+        repeat_interval_seconds=0.05,
     )
     physical = PR27PhysicalInput(controller, sleep_fn=interruptible_sleep)
     log_handle, report_root, round_stem = create_log(args, __file__)
     overlay = PR27DebugOverlay()
     debug_root = report_root / "pr27_debug" / round_stem
-    overlay_enabled = bool_env("KAGE_PR27_DEBUG_OVERLAY", False)
+    overlay_requested = bool_env("KAGE_PR27_DEBUG_OVERLAY", False)
+    # OpenCV windows can take foreground from DreamSeeker. In any physical mode
+    # the live window is disabled; console telemetry and optional PNG snapshots
+    # remain available without stealing focus or blocking the combat thread.
+    overlay_enabled = overlay_requested and not physical_mode
     save_debug = bool_env("KAGE_PR27_SAVE_DEBUG_FRAMES", False)
     overlay_every_frames = _int_env("KAGE_PR27_OVERLAY_EVERY_FRAMES", 3)
     save_every_frames = _int_env("KAGE_PR27_SAVE_EVERY_FRAMES", 80)
@@ -87,16 +99,23 @@ def main() -> int:
     move_pulse_seconds = max(0.03, min(0.14, float(args.move_pulse)))
     v_pulse_seconds = max(0.03, min(0.20, float(args.v_pulse)))
 
-    print("KAGE COMBAT LAB - PR27 NATIVE GRID SPRITE COMBAT")
-    print("PR27 CONTRACT: native frame -> arena -> native 64px cells -> per-cell baseline")
-    print("PR27 CLUSTER: search addresses only; no identity, direction, hostility or target authority")
-    print("PR27 IDENTITY: SpriteFragment -> SpriteObservation -> TrackedSprite ID")
-    print(f"PR27 MODE={mode}; known_sprite_references={len(registry.sprites)}")
-    print(f"PR27 BASELINE={baseline_path()}")
+    print("KAGE COMBAT LAB - PR27 NATIVE GRID SPRITE COMBAT", flush=True)
+    print("PR27 CONTRACT: native frame -> arena -> native 64px cells -> per-cell baseline", flush=True)
+    print("PR27 CLUSTER: search addresses only; no identity, direction, hostility or target authority", flush=True)
+    print("PR27 IDENTITY: SpriteFragment -> SpriteObservation -> TrackedSprite ID", flush=True)
+    print(f"PR27 MODE={mode}; known_sprite_references={len(registry.sprites)}", flush=True)
+    print(f"PR27 BASELINE={baseline_path()}", flush=True)
     print(
         f"PR27 PERFORMANCE target_fps={target_fps:.1f} overlay_every={overlay_every_frames} "
-        f"save_every={save_every_frames} log_every={log_every_frames}"
+        f"save_every={save_every_frames} log_every={log_every_frames}",
+        flush=True,
     )
+    if overlay_requested and physical_mode:
+        print(
+            "PR27_OVERLAY_DISABLED mode=PHYSICAL reason=prevent_foreground_theft_and_cv_wait_block; "
+            "console_and_optional_png_debug_remain_active",
+            flush=True,
+        )
 
     frames = 0
     started = 0.0
@@ -110,9 +129,26 @@ def main() -> int:
     rolling_durations: deque[float] = deque(maxlen=32)
 
     try:
-        physical.activate()
-        interruptible_sleep(max(0.0, float(args.startup_delay)))
+        _stage("INPUT_ACTIVATE_BEGIN", mode=mode, recover_foreground=physical_mode)
+        armed_actions = physical.activate(mode=mode)
+        print(
+            f"PR27_PHYSICAL_ARMED mode={mode} physical={','.join(armed_actions)}",
+            flush=True,
+        )
+        _stage("INPUT_ACTIVATE_DONE")
+
+        startup_delay = max(0.0, float(args.startup_delay))
+        if startup_delay > 0.0:
+            _stage("STARTUP_DELAY", seconds=f"{startup_delay:.2f}")
+            interruptible_sleep(startup_delay)
+
+        _stage("FIRST_CAPTURE_BEGIN")
         first_native = source.capture_native()
+        _stage(
+            "FIRST_CAPTURE_DONE",
+            native=f"{first_native.source_width}x{first_native.source_height}",
+        )
+        _stage("BASELINE_LOAD_BEGIN", path=baseline_path())
         loaded = combat.load_baseline(baseline_path(), first_native.bgr)
         metadata = combat.baselines.metadata
         expected_size = (metadata.get("frame_width"), metadata.get("frame_height"))
@@ -120,12 +156,14 @@ def main() -> int:
         if all(value is not None for value in expected_size):
             if tuple(int(value) for value in expected_size) != actual_size:
                 raise RuntimeError(f"PR27_NATIVE_FRAME_SIZE_CHANGED:baseline={expected_size} current={actual_size}")
-        print(f"PR27_BASELINE_LOADED cells={loaded} native={actual_size[0]}x{actual_size[1]}")
+        print(f"PR27_BASELINE_LOADED cells={loaded} native={actual_size[0]}x{actual_size[1]}", flush=True)
+        _stage("BASELINE_LOAD_DONE", cells=loaded)
 
         victory_watcher.prime()
         started = time.monotonic()
         next_telemetry = started
         next_chat_poll = started
+        _stage("COMBAT_LOOP_ACTIVE", target_fps=f"{target_fps:.1f}")
         while time.monotonic() - started < combat_seconds:
             loop_started = time.monotonic()
             if f12_pressed():
@@ -136,7 +174,7 @@ def main() -> int:
                 next_chat_poll = now + chat_poll_interval
                 if victory_signal is not None:
                     controller.release_all()
-                    print(f"PR27_ROUND_FINISHED victory_chat={victory_signal.text}")
+                    print(f"PR27_ROUND_FINISHED victory_chat={victory_signal.text}", flush=True)
                     write_log(
                         log_handle,
                         {"event": "PR27_ROUND_FINISHED", "text": victory_signal.text},
@@ -144,12 +182,20 @@ def main() -> int:
                     )
                     break
 
+            if frames == 0:
+                _stage("FRAME0_PROCESS_BEGIN")
             native = first_native if frames == 0 else source.capture_native()
             result = combat.process(native.bgr, timestamp=now)
-            actions = physical.execute(result.action, mode=mode)
+            if frames == 0:
+                _stage(
+                    "FRAME0_PROCESS_DONE",
+                    state=result.state.value,
+                    action=result.action.value,
+                    tracks=len(result.tracks),
+                )
+
             state_changed = result.state.value != last_state
             action_changed = result.action.value != last_action
-            physical_changed = actions != last_actions
             overlay_due = overlay_enabled and (frames % overlay_every_frames == 0 or state_changed)
             save_due = save_debug and (frames % save_every_frames == 0 or state_changed)
             if overlay_due or save_due:
@@ -159,13 +205,19 @@ def main() -> int:
                 if save_due:
                     overlay.save(rendered, debug_root / f"frame_{frames:06d}_{result.state.value}.png")
 
+            # Execute only after all optional OpenCV work. In physical modes the
+            # controller recovers exact DreamSeeker foreground before keys.
+            actions = physical.execute(result.action, mode=mode)
+            physical_changed = actions != last_actions
+
             loop_elapsed = time.monotonic() - loop_started
             rolling_durations.append(max(1e-6, loop_elapsed))
             rolling_fps = len(rolling_durations) / sum(rolling_durations)
             if physical_changed or action_changed:
                 print(
                     f"PR27_PHYSICAL frame={frames:05d} mode={mode} planned={result.action.value} "
-                    f"physical={','.join(actions)} target={result.target.track_id if result.target else '-'}"
+                    f"physical={','.join(actions)} target={result.target.track_id if result.target else '-'}",
+                    flush=True,
                 )
             if now >= next_telemetry:
                 target_id = result.target.track_id if result.target else "-"
@@ -174,7 +226,8 @@ def main() -> int:
                     f"PR27_FRAME frame={frames:05d} state={result.state.value} changed_cells={changed} "
                     f"groups={len(result.groups)} fragments={len(result.fragments)} tracks={len(result.tracks)} "
                     f"target={target_id} action={result.action.value} physical={','.join(actions)} "
-                    f"rolling_fps={rolling_fps:.1f} loop_ms={loop_elapsed * 1000.0:.1f} reason={result.reason}"
+                    f"rolling_fps={rolling_fps:.1f} loop_ms={loop_elapsed * 1000.0:.1f} reason={result.reason}",
+                    flush=True,
                 )
                 next_telemetry = now + telemetry_interval
             if frames % log_every_frames == 0 or state_changed or action_changed or physical_changed:
@@ -213,19 +266,20 @@ def main() -> int:
             )
     except EmergencyStop as exc:
         emergency_stop = True
-        print(f"PR27_STOP: {exc}")
+        print(f"PR27_STOP: {exc}", flush=True)
     except KeyboardInterrupt:
         emergency_stop = True
-        print("PR27_STOP: KeyboardInterrupt")
+        print("PR27_STOP: KeyboardInterrupt", flush=True)
     except Exception as exc:
         failure = exc
-        print(f"PR27_FAILURE {type(exc).__name__}: {exc}")
+        print(f"PR27_FAILURE {type(exc).__name__}: {exc}", flush=True)
         write_log(
             log_handle,
             {"event": "PR27_FAILURE", "type": type(exc).__name__, "error": str(exc)},
             flush=True,
         )
     finally:
+        _stage("SHUTDOWN_BEGIN")
         try:
             physical.close()
         except Exception:
@@ -243,6 +297,7 @@ def main() -> int:
         overlay.close()
         log_handle.flush()
         log_handle.close()
+        _stage("SHUTDOWN_DONE")
 
     duration = max(1e-6, time.monotonic() - started) if started else 0.0
     fps = frames / duration if duration else 0.0
@@ -256,7 +311,8 @@ def main() -> int:
     performance_ready = fps >= 8.0
     print(
         f"PR27_FINISHED result={result_name} frames={frames} fps={fps:.1f} "
-        f"performance_ready={str(performance_ready).lower()} required_fps=8.0"
+        f"performance_ready={str(performance_ready).lower()} required_fps=8.0",
+        flush=True,
     )
     return 1 if failure is not None else 0
 

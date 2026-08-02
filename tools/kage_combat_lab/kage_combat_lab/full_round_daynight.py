@@ -24,16 +24,27 @@ def main() -> int:
         )
 
     from . import full_round as full_round_module
+    from . import live_bridge as live_bridge_module
     from .runtime_engagement_recovery import install_runtime_engagement_recovery
     from .runtime_facing_patch import install_runtime_facing_patch
     from .runtime_startup_inherited import install_inherited_post_ok_startup
+    from .runtime_tile_perception import install_runtime_tile_perception
 
+    tile_perception = install_runtime_tile_perception(live_bridge_module)
     install_runtime_facing_patch(full_round_module)
     install_inherited_post_ok_startup()
     install_runtime_engagement_recovery(full_round_module)
     print("TRAINER: day-64 + night-64 enabled for post-combat return")
     print("POST_OK_GATE: confirmed; child inherits the one outer RIGHT pulse")
     print("ENGAGEMENT: R baseline starts with combat; H remains target/facing gated")
+    print(
+        "PR26 TILE PERCEPTION: ACTIVE and authoritative during acquisition; "
+        f"terrain_examples={tile_perception.terrain_example_count}"
+    )
+    print(
+        "PR26 FLOW: PR24 unknown tile -> raw/synthetic candidate -> "
+        "PR25 Target Capsule -> ReID/facing/combat"
+    )
     return int(full_round_module.main())
 
 

@@ -7,6 +7,29 @@ import io
 _INSTALLED = False
 
 
+def _rewrite_legacy_baseline_output(text: str) -> tuple[str, ...]:
+    return tuple(
+        line.replace("PR26_PREOK_", "PR26_PRETRAINER_")
+        .replace("dialog=OPEN", "dialog=CLOSED")
+        .replace("source=BEFORE_DIALOG_OK", "source=BEFORE_TRAINER_CLICK")
+        for line in text.splitlines()
+        if line.strip()
+    )
+
+
+def load_pre_trainer_baselines() -> int:
+    """Load the legacy NPZ while emitting truthful PR26.6 timing telemetry."""
+
+    from . import pre_ok_baseline as baseline_module
+
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        count = baseline_module.load_pre_ok_baselines()
+    for line in _rewrite_legacy_baseline_output(buffer.getvalue()):
+        print(line)
+    return count
+
+
 def install_pre_trainer_baseline_capture() -> None:
     """Capture the clean arena after trainer search but before the trainer click.
 
@@ -37,12 +60,8 @@ def install_pre_trainer_baseline_capture() -> None:
             buffer = io.StringIO()
             with contextlib.redirect_stdout(buffer):
                 baseline_module._capture()
-            for line in buffer.getvalue().splitlines():
-                print(
-                    line.replace("PR26_PREOK_", "PR26_PRETRAINER_")
-                    .replace("dialog=OPEN", "dialog=CLOSED")
-                    .replace("source=BEFORE_DIALOG_OK", "source=BEFORE_TRAINER_CLICK")
-                )
+            for line in _rewrite_legacy_baseline_output(buffer.getvalue()):
+                print(line)
             baseline_module._CAPTURED = True
             print(
                 "PR26_PRETRAINER_BASELINE_READY phase=BEFORE_TRAINER_CLICK "
@@ -58,4 +77,7 @@ def install_pre_trainer_baseline_capture() -> None:
     )
 
 
-__all__ = ["install_pre_trainer_baseline_capture"]
+__all__ = [
+    "install_pre_trainer_baseline_capture",
+    "load_pre_trainer_baselines",
+]

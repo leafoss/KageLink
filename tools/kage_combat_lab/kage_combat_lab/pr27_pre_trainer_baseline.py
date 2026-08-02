@@ -11,6 +11,7 @@ from .pr27_native_grid import ArenaCropper, CellBaselineStore, NativeGrid64
 
 _INSTALLED = False
 _CAPTURED = False
+TRAINER_BBOX_ENV = "KAGE_PR27_TRAINER_BBOX"
 
 
 def baseline_path() -> Path:
@@ -28,10 +29,24 @@ def baseline_duration() -> float:
 def reset_native_baseline_capture() -> None:
     global _CAPTURED
     _CAPTURED = False
+    os.environ.pop(TRAINER_BBOX_ENV, None)
     try:
         baseline_path().unlink()
     except OSError:
         pass
+
+
+def _trainer_bbox_tuple(target) -> tuple[int, int, int, int] | None:
+    raw = getattr(target, "bbox", None)
+    if raw is None:
+        return None
+    try:
+        values = tuple(int(value) for value in raw)
+    except (TypeError, ValueError):
+        return None
+    if len(values) != 4 or values[2] <= 0 or values[3] <= 0:
+        return None
+    return values
 
 
 def capture_native_pre_trainer_baseline() -> int:
@@ -103,7 +118,7 @@ def capture_native_pre_trainer_baseline() -> int:
 
     path = baseline_path()
     metadata = {
-        "version": "PR27.1",
+        "version": "PR27.4",
         "source": "BEFORE_TRAINER_CLICK",
         "jpeg": False,
         "resized": False,
@@ -116,6 +131,9 @@ def capture_native_pre_trainer_baseline() -> int:
         "captures": captures,
         "stored_cells": len(store),
     }
+    trainer_bbox = os.environ.get(TRAINER_BBOX_ENV)
+    if trainer_bbox:
+        metadata["trainer_bbox"] = [int(value) for value in trainer_bbox.split(",")]
     store.save_npz(path, metadata=metadata)
     print(
         f"PR27_NATIVE_BASELINE complete captures={captures} stored={len(store)} "
@@ -141,6 +159,13 @@ def install_native_pre_trainer_baseline_capture() -> None:
     def search_then_capture(*args, **kwargs):
         global _CAPTURED
         target = original(*args, **kwargs)
+        bbox = _trainer_bbox_tuple(target)
+        if bbox is not None:
+            os.environ[TRAINER_BBOX_ENV] = ",".join(str(value) for value in bbox)
+            print(f"PR27_TRAINER_EXCLUSION_RESERVED frame_bbox={bbox}")
+        else:
+            os.environ.pop(TRAINER_BBOX_ENV, None)
+            print("PR27_TRAINER_EXCLUSION_UNAVAILABLE")
         if not _CAPTURED:
             capture_native_pre_trainer_baseline()
             _CAPTURED = True
@@ -157,6 +182,7 @@ def install_native_pre_trainer_baseline_capture() -> None:
 
 
 __all__ = [
+    "TRAINER_BBOX_ENV",
     "baseline_path",
     "capture_native_pre_trainer_baseline",
     "install_native_pre_trainer_baseline_capture",

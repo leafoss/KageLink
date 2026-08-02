@@ -50,8 +50,8 @@ def main() -> int:
         "HOSTILE_CONFIRMED -> COMBAT_LOCK -> PR25 Target Capsule/facing/chase/H"
     )
     print(
-        "PR26.2 SAFETY: tile-only, unseeded UNKNOWN and negative synthetic "
-        "candidates have zero offensive authority"
+        "PR26.2 SAFETY: tile-only and negative synthetic candidates have zero "
+        "offensive authority; unseeded UNKNOWN is also blocked"
     )
     return int(full_round_module.main())
 

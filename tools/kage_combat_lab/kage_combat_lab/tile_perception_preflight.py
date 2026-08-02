@@ -29,8 +29,10 @@ def main() -> int:
             "danger_likely_similarity": 0.82,
             "danger_weak_similarity": 0.72,
             "danger_margin": 0.04,
+            "danger_requires_positive_margin": True,
             "danger_is_priority_not_hard_gate": True,
             "entity_lock_requires_exact_baseline": True,
+            "entity_lock_requires_motion_or_raw_mask_overlap": True,
             "entity_lock_persistence": "2-of-3",
             "true_changed_ratio_suspect": occupancy.suspect_ratio,
             "true_changed_ratio_strong": occupancy.strong_ratio,
@@ -48,14 +50,20 @@ def main() -> int:
             "diagonal_cluster_join": False,
             "player_pixels_removed_before_components": True,
             "bbox_coverage_authority": False,
-            "baseline_timing": "BEFORE_DIALOG_OK",
+            "baseline_timing": "BEFORE_TRAINER_CLICK",
+            "baseline_frozen_during_combat": True,
+            "camera_registration": "phase_correlation_translation",
+            "camera_alignment_uncertain_authority": False,
+            "raw_track_requires_component_overlap": True,
+            "selected_lock_hysteresis_frames": 3,
+            "contact_combat_lock": "selected_raw_confirmed_2_of_3",
             "post_ok_spawn_wait_preserved": True,
             "synthetic_offensive_authority": False,
             "perception_only_physical_authority": False,
             "combat_lock_requires_hostile_confirmed": True,
         }
     )
-    print("PR26.5 SEMANTIC ENTITY OCCUPANCY PREFLIGHT: READY")
+    print("PR26.7 CAMERA-COMPENSATED COMBAT PREFLIGHT: READY")
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
     if CELL_SIZE_PX != 64:
         raise RuntimeError(f"PR26_CELL_SIZE_INVALID:{CELL_SIZE_PX}")

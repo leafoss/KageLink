@@ -126,7 +126,7 @@ def test_three_distance_reductions_are_probable_but_not_combat_lock() -> None:
     gate = PR26HostilityGate()
     player = GridCell(0, 0)
     snapshots = []
-    for index, distance in enumerate((5, 4, 3, 2)):
+    for index, distance in enumerate((6, 5, 4, 3, 2)):
         cell = GridCell(distance, 0)
         snapshots.append(
             gate.observe_candidate(
@@ -166,6 +166,7 @@ def test_reaching_d1_after_approach_confirms_combat_lock() -> None:
 def test_reaching_d0_confirms_hostility() -> None:
     gate = PR26HostilityGate()
     player = GridCell(0, 0)
+    snapshot = None
     for index, distance in enumerate((2, 1, 0)):
         cell = GridCell(distance, 0)
         snapshot = gate.observe_candidate(
@@ -175,6 +176,7 @@ def test_reaching_d0_confirms_hostility() -> None:
             player_cell=player,
             now=float(index) * 0.5,
         )
+    assert snapshot is not None
     assert snapshot.hostility_state is HostilityState.HOSTILE_CONFIRMED
     assert snapshot.combat_lock
 
@@ -184,7 +186,8 @@ def test_stationary_similar_npc_becomes_non_aggressive() -> None:
     player = GridCell(0, 0)
     cell = GridCell(4, 0)
     danger = tile(cell, category=TileClass.DANGER, confidence=0.94)
-    for now in (0.0, 0.5, 3.2):
+    snapshot = None
+    for now in (0.0, 0.5, 1.0, 3.2):
         snapshot = gate.observe_candidate(
             candidate=candidate(16, cell),
             evidence=danger,
@@ -192,6 +195,7 @@ def test_stationary_similar_npc_becomes_non_aggressive() -> None:
             player_cell=player,
             now=now,
         )
+    assert snapshot is not None
     assert snapshot.entity_state is EntityState.ENTITY_CONFIRMED
     assert snapshot.hostility_state is HostilityState.NON_AGGRESSIVE_ENTITY
     assert snapshot.visual_lock

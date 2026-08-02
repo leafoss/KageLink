@@ -9,7 +9,7 @@ from pathlib import Path
 from .pr27_native_grid import KnownSpriteRegistry, PR27CombatSystem
 from .pr27_overlay import PR27DebugOverlay
 from .pr27_post_ko import configure_post_engine, run_post_ko
-from .pr27_pre_trainer_baseline import baseline_path
+from .pr27_pre_trainer_baseline import TRAINER_BBOX_ENV, baseline_path
 from .pr27_runtime_logging import frame_payload
 from .pr27_runtime_support import (
     EmergencyStop,
@@ -33,6 +33,73 @@ def _float_env(name: str, default: float, minimum: float = 0.0) -> float:
 def _stage(name: str, **values: object) -> None:
     suffix = " ".join(f"{key}={value}" for key, value in values.items())
     print(f"PR27_STAGE stage={name}{(' ' + suffix) if suffix else ''}", flush=True)
+
+
+def _parse_bbox(value: str | None) -> tuple[int, int, int, int] | None:
+    if not value:
+        return None
+    try:
+        values = tuple(int(part.strip()) for part in value.split(","))
+    except (TypeError, ValueError):
+        return None
+    if len(values) != 4 or values[2] <= 0 or values[3] <= 0:
+        return None
+    return values
+
+
+def _trainer_exclusion_local(
+    combat: PR27CombatSystem,
+    native_frame,
+    trainer_bbox: tuple[int, int, int, int] | None,
+) -> tuple[int, int, int, int] | None:
+    if trainer_bbox is None:
+        return None
+    rect, arena = combat.cropper.crop(native_frame)
+    x, y, width, height = trainer_bbox
+    left_margin = _int_env("KAGE_PR27_TRAINER_MARGIN_LEFT", 48, 0)
+    right_margin = _int_env("KAGE_PR27_TRAINER_MARGIN_RIGHT", 48, 0)
+    top_margin = _int_env("KAGE_PR27_TRAINER_MARGIN_TOP", 96, 0)
+    bottom_margin = _int_env("KAGE_PR27_TRAINER_MARGIN_BOTTOM", 20, 0)
+    left = max(0, x - rect.x - left_margin)
+    top = max(0, y - rect.y - top_margin)
+    right = min(arena.shape[1], x + width - rect.x + right_margin)
+    bottom = min(arena.shape[0], y + height - rect.y + bottom_margin)
+    if right <= left or bottom <= top:
+        return None
+    return left, top, right - left, bottom - top
+
+
+def _mask_trainer_with_baseline(
+    combat: PR27CombatSystem,
+    native_frame,
+    exclusion: tuple[int, int, int, int] | None,
+):
+    if exclusion is None:
+        return native_frame
+    sanitized = native_frame.copy()
+    rect, arena = combat.cropper.crop(sanitized)
+    left, top, width, height = exclusion
+    right, bottom = left + width, top + height
+    cells = combat.grid.build(arena.shape)
+    for cell in cells:
+        overlap_left = max(left, cell.x)
+        overlap_top = max(top, cell.y)
+        overlap_right = min(right, cell.x + cell.width)
+        overlap_bottom = min(bottom, cell.y + cell.height)
+        if overlap_right <= overlap_left or overlap_bottom <= overlap_top:
+            continue
+        baseline = combat.baselines.get(cell)
+        if baseline is None or not baseline.valid:
+            continue
+        source_left = overlap_left - cell.x
+        source_top = overlap_top - cell.y
+        source_right = overlap_right - cell.x
+        source_bottom = overlap_bottom - cell.y
+        arena[overlap_top:overlap_bottom, overlap_left:overlap_right] = baseline.image[
+            source_top:source_bottom,
+            source_left:source_right,
+        ]
+    return sanitized
 
 
 def main() -> int:
@@ -71,8 +138,6 @@ def main() -> int:
     controller = live_runtime.WindowsGameController(
         recover_foreground=physical_mode,
         debug=bool(args.debug_input) or physical_mode,
-        # Use the real-game verified BYOND held-R pattern. A 250 ms repeat
-        # interval was too slow and could look as if combat never armed.
         repeat_delay_seconds=0.35,
         repeat_interval_seconds=0.05,
     )
@@ -81,9 +146,6 @@ def main() -> int:
     overlay = PR27DebugOverlay()
     debug_root = report_root / "pr27_debug" / round_stem
     overlay_requested = bool_env("KAGE_PR27_DEBUG_OVERLAY", False)
-    # OpenCV windows can take foreground from DreamSeeker. In any physical mode
-    # the live window is disabled; console telemetry and optional PNG snapshots
-    # remain available without stealing focus or blocking the combat thread.
     overlay_enabled = overlay_requested and not physical_mode
     save_debug = bool_env("KAGE_PR27_SAVE_DEBUG_FRAMES", False)
     overlay_every_frames = _int_env("KAGE_PR27_OVERLAY_EVERY_FRAMES", 3)
@@ -110,6 +172,12 @@ def main() -> int:
         f"save_every={save_every_frames} log_every={log_every_frames}",
         flush=True,
     )
+    if not registry.sprites:
+        print(
+            "PR27_CONTEXT_ENEMY_SELECTION=COMPETITIVE_PERSISTENCE_SHAPE_SIZE_MOTION; "
+            "first-track-wins disabled",
+            flush=True,
+        )
     if overlay_requested and physical_mode:
         print(
             "PR27_OVERLAY_DISABLED mode=PHYSICAL reason=prevent_foreground_theft_and_cv_wait_block; "
@@ -127,6 +195,8 @@ def main() -> int:
     last_action: str | None = None
     last_actions: tuple[str, ...] | None = None
     rolling_durations: deque[float] = deque(maxlen=32)
+    trainer_bbox = _parse_bbox(os.environ.get(TRAINER_BBOX_ENV))
+    trainer_exclusion = None
 
     try:
         _stage("INPUT_ACTIVATE_BEGIN", mode=mode, recover_foreground=physical_mode)
@@ -159,6 +229,20 @@ def main() -> int:
         print(f"PR27_BASELINE_LOADED cells={loaded} native={actual_size[0]}x{actual_size[1]}", flush=True)
         _stage("BASELINE_LOAD_DONE", cells=loaded)
 
+        if trainer_bbox is None:
+            metadata_bbox = metadata.get("trainer_bbox")
+            if isinstance(metadata_bbox, list) and len(metadata_bbox) == 4:
+                trainer_bbox = tuple(int(value) for value in metadata_bbox)
+        trainer_exclusion = _trainer_exclusion_local(combat, first_native.bgr, trainer_bbox)
+        if trainer_exclusion is None:
+            print("PR27_TRAINER_EXCLUSION_INACTIVE reason=bbox_unavailable_or_outside_arena", flush=True)
+        else:
+            print(
+                f"PR27_TRAINER_EXCLUSION_ACTIVE frame_bbox={trainer_bbox} "
+                f"arena_bbox={trainer_exclusion} top_and_nameplate_masked=true",
+                flush=True,
+            )
+
         victory_watcher.prime()
         started = time.monotonic()
         next_telemetry = started
@@ -185,7 +269,8 @@ def main() -> int:
             if frames == 0:
                 _stage("FRAME0_PROCESS_BEGIN")
             native = first_native if frames == 0 else source.capture_native()
-            result = combat.process(native.bgr, timestamp=now)
+            sanitized_bgr = _mask_trainer_with_baseline(combat, native.bgr, trainer_exclusion)
+            result = combat.process(sanitized_bgr, timestamp=now)
             if frames == 0:
                 _stage(
                     "FRAME0_PROCESS_DONE",
@@ -205,8 +290,6 @@ def main() -> int:
                 if save_due:
                     overlay.save(rendered, debug_root / f"frame_{frames:06d}_{result.state.value}.png")
 
-            # Execute only after all optional OpenCV work. In physical modes the
-            # controller recovers exact DreamSeeker foreground before keys.
             actions = physical.execute(result.action, mode=mode)
             physical_changed = actions != last_actions
 
@@ -231,14 +314,17 @@ def main() -> int:
                 )
                 next_telemetry = now + telemetry_interval
             if frames % log_every_frames == 0 or state_changed or action_changed or physical_changed:
-                write_log(log_handle, frame_payload(
+                payload = frame_payload(
                     result=result,
                     native=native,
                     actions=actions,
                     frame=frames,
                     started=started,
                     now=now,
-                ))
+                )
+                payload["trainer_exclusion_frame"] = None if trainer_bbox is None else list(trainer_bbox)
+                payload["trainer_exclusion_arena"] = None if trainer_exclusion is None else list(trainer_exclusion)
+                write_log(log_handle, payload)
             last_state = result.state.value
             last_action = result.action.value
             last_actions = actions

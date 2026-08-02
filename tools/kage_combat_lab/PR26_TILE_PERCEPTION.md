@@ -72,6 +72,7 @@ DANGER_LOCK ou ENTITY_LOCK
 → contato confirmado
 → HOSTILE_CONFIRMED
 → COMBAT_LOCK
+→ Target Capsule + facing + chase + H
 ```
 
 Somente `COMBAT_LOCK` no modo `FULL_COMBAT` entrega o candidato à PR25.

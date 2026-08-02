@@ -1,186 +1,131 @@
-# PR26.5 — afinidade semântica `DANGER` e aquisição visual por baseline exata
+# PR26 — Percepção por células, identidade móvel e hostilidade
 
-Este trabalho mantém a PR26 empilhada sobre a PR25, especificamente sobre `agent/pr25-kage-combat-lab-64px`, permanece Draft e não altera os contratos físicos validados da PR25.
+Esta PR mantém a PR26 empilhada sobre a PR25.
 
-## Falha física corrigida
-
-O log da PR26.4 mostrou simultaneamente:
+A PR25 continua responsável por:
 
 ```text
-occupied=3 clusters=3
-danger=0 unknown=81
-cluster=None
-reason=no mobile DANGER identity
+Target Capsule + facing + chase + H
 ```
 
-A diferença real de pixels encontrava entidades visuais, mas nenhum cluster podia receber identidade porque `DANGER` ainda era um requisito obrigatório.
+A PR26 somente entrega autoridade física depois de confirmar uma entidade visual, selecionar um único lock e validar hostilidade.
 
-## Nova regra
+## Grade imutável
 
 ```text
-DANGER = prioridade forte, não requisito absoluto para reconhecer entidade
+CELL_SIZE=64x64
 ```
 
-Cada scan semântico agora preserva, mesmo quando a classe final é `UNKNOWN`:
-
-```text
-best_category
-best_similarity
-danger_similarity
-best_non_danger_similarity
-danger_margin
-```
-
-Níveis iniciais:
-
-```text
-DANGER_CONFIRMED: danger_similarity >= 0.90 e classe final DANGER
-DANGER_LIKELY:    danger_similarity >= 0.82 e danger_margin >= 0.04
-DANGER_WEAK:      danger_similarity >= 0.72
-```
-
-Esses níveis não confirmam hostilidade. Eles apenas priorizam clusters que já possuem foreground real.
-
-## Dois caminhos de lock visual
-
-### `DANGER_LOCK`
-
-Criado quando um cluster com `EXACT_CELL_BASELINE` recebe afinidade `DANGER` atual ou herdada.
-
-### `ENTITY_LOCK`
-
-Criado sem classificação perfeita de `DANGER` quando o cluster possui:
+A grade não pode ser redimensionada. Diferença de pixels usa somente:
 
 ```text
 EXACT_CELL_BASELINE
-componente real de pixels
-máscaras conectadas cardinalmente
-geometria máxima de 2x3 células / 6 células
-forma plausível
-persistência de 2 observações em 3
+CLASS_REFERENCE
 ```
 
-`ENTITY_LOCK` acompanha a entidade para validação de comportamento. Ele não autoriza ataque.
+`bbox_coverage_ratio` é apenas telemetria e nunca substitui `true_changed_ratio`.
 
-## Autoridade ofensiva
+## PR26.6 — correções do teste físico
+
+O teste da PR26.5 revelou seis falsos clusters estáticos logo no primeiro frame, principalmente faixas horizontais como `64x34`, `128x34` e `107x24`. O provável adversário real apareceu depois como um componente vertical central de aproximadamente `24x64`, com raw tracks e distância próxima ao jogador.
+
+A PR26.6 aplica os seguintes contratos:
+
+### Baseline limpa
 
 ```text
-DANGER_LOCK ou ENTITY_LOCK
-→ observar distância em pixels
-→ aproximação autônoma consistente
-→ HOSTILE_PROBABLE
-→ contato confirmado
-→ HOSTILE_CONFIRMED
-→ COMBAT_LOCK
-→ Target Capsule + facing + chase + H
+trainer search termina
+-> diálogo ainda fechado
+-> baseline capturada
+-> clique no treinador
+-> diálogo
+-> OK
+-> SpawnDelay
+-> percepção
 ```
 
-Somente `COMBAT_LOCK` no modo `FULL_COMBAT` entrega o candidato à PR25.
+A baseline não é mais capturada com o diálogo aberto.
 
-## Baseline antes do OK
+### Rejeição de artefatos
 
-A baseline exata agora é capturada com o diálogo validado ainda aberto:
+Os seguintes padrões não podem virar entidade:
 
 ```text
-diálogo confirmado
-→ bloquear toda entrada física
-→ capturar baseline limpa
-→ salvar baseline temporária
-→ clicar no OK validado
-→ manter SpawnDelay normal
-→ inimigo nasce
-→ processo filho carrega baseline pré-OK
+faixa horizontal larga e baixa
+faixa superior/inferior de UI
+coluna fina na borda
+campo quase totalmente alterado
+cluster fora do limite humanoide 2x3 / 6 células
 ```
 
-Assim, o inimigo não pode ser incorporado à referência de chão durante a janela de spawn.
+### Evidência real de entidade
 
-## Isolamento de desempenho
+Persistência estática, sozinha, não confirma entidade.
 
-Em `PERCEPTION_ONLY` e `FACE_ONLY`, o detector de templates do treinador é suspenso durante o runtime de percepção. A busca do treinador continua ativa no processo externo antes da luta. Em `FULL_COMBAT`, o retorno pós-KO continua preservado.
-
-## Telemetria por cluster
-
-Cada cluster gera:
+`ENTITY_CONFIRMED` exige pelo menos duas evidências em três observações, baseadas em:
 
 ```text
-PR26_CLUSTER_CANDIDATE
-local_id
-cells
-bbox
-foot point
-true_changed_ratio
-occupancy_score
-danger_level
-danger_similarity
-danger_margin
-raw track IDs
-distance to player
-persistence
+forma vertical + raw track
+raw track consistente entre frames
+movimento espacial plausível
 ```
 
-Legenda do overlay:
+Depois disso, somente um track selecionado recebe `SELECTED_VISUAL_LOCK`.
+
+### Autoridade DANGER
 
 ```text
-DC = DANGER_CONFIRMED
-DL = DANGER_LIKELY
-DW = DANGER_WEAK_PRIOR
--- = nenhuma afinidade DANGER
+DANGER_CONFIRMED / DANGER_LIKELY
+-> podem criar autoridade DANGER
+
+DANGER_WEAK_PRIOR
+-> somente ranking/telemetria
+-> nunca cria DANGER_LOCK sozinho
 ```
 
-O cabeçalho informa se o ativo é `DANGER_LOCK` ou `ENTITY_LOCK`.
+### Continuidade física rígida
 
-## Modos de segurança
+Raw-ID é evidência auxiliar e nunca autoriza teleporte.
+
+Saltos acima do limite de células/pixels calculado pelo tempo entre frames são rejeitados, mesmo quando existe raw-ID compartilhado.
+
+### Mudança global de cenário
+
+Quando várias células distribuídas em diferentes colunas apresentam alteração quase total simultaneamente:
 
 ```text
-PERCEPTION_ONLY: TURN/MOVE/R/H bloqueados
-FACE_ONLY: TURN somente após lock validado; MOVE/R/H bloqueados
-FULL_COMBAT: HOSTILE_CONFIRMED obrigatório para COMBAT_LOCK
+GLOBAL_SCENE_CHANGE
+-> invalidar todas as baselines afetadas
+-> apagar todos os tracks
+-> bloquear toda autoridade
+-> reaprender células estáveis
 ```
 
-IDs sintéticos negativos e candidatos apenas de tile continuam sem autoridade ofensiva.
-
-## Validação automática
+## Modos seguros
 
 ```text
-139 testes pytest
-15 cenários determinísticos da PR25
-parsing dos dois launchers PowerShell
+PERCEPTION_ONLY
+TURN/MOVE/R/H bloqueados
+
+FACE_ONLY
+somente TURN após SELECTED_VISUAL_LOCK
+MOVE/R/H bloqueados
+
+FULL_COMBAT
+HOSTILE_CONFIRMED -> COMBAT_LOCK -> Target Capsule + facing + chase + H
 ```
 
-Os testes novos cobrem:
+## Critério do próximo teste
 
-- `UNKNOWN` mantendo `DANGER_LIKELY`;
-- `UNKNOWN` mantendo `DANGER_WEAK_PRIOR`;
-- prioridade completa para `DANGER_CONFIRMED`;
-- cluster humanoide com baseline exata elegível a `ENTITY_LOCK`;
-- `CLASS_REFERENCE` inelegível;
-- cluster grande demais inelegível;
-- suspensão do treinador em `PERCEPTION_ONLY`;
-- preservação do treinador em `FULL_COMBAT`;
-- captura pré-OK e SpawnDelay pós-OK preservado.
+Executar somente `PERCEPTION_ONLY`.
 
-## Próxima validação física
-
-Executar somente:
-
-```powershell
-.\run_pr26_tile_combat.ps1 `
-  -PerceptionOnly `
-  -Rounds 1 `
-  -CombatSeconds 30 `
-  -PostCombatTimeout 240 `
-  -DialogDelay 5 `
-  -SpawnDelay 5 `
-  -TrainerSearchTimeout 90 `
-  -HostilityOverlay
-```
-
-Critérios:
+A percepção será considerada aprovada quando:
 
 ```text
-PR26_PREOK_BASELINE complete antes de DOJO_DIALOG_OK_CLICKED
-PR26_PREOK_BASELINE_LOADED depois do spawn
-PR26_CLUSTER_CANDIDATE para os clusters reais
-pelo menos um cluster persistente chegando a PR26_DANGER_LOCK ou PR26_ENTITY_LOCK
-zero TURN/MOVE/R/H
+PR26_PRETRAINER_BASELINE acontece antes de TRAINER_CLICK_ONCE
+faixas horizontais/bordas aparecem como rejeitadas
+um componente vertical central chega a PR26_ENTITY_CONFIRMED
+um único track chega a PR26_SELECTED_VISUAL_LOCK
+nenhum salto impossível preserva identidade
+nenhum TURN/MOVE/R/H é enviado
 ```

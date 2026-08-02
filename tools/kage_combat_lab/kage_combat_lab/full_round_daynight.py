@@ -29,6 +29,10 @@ def main() -> int:
     from . import full_round as full_round_module
     from . import live_bridge as live_bridge_module
     from .pre_trainer_baseline import load_pre_trainer_baselines
+    from .runtime_acquisition_liveness import (
+        install_exact_cell_acquisition_recovery,
+        install_static_camera_liveness,
+    )
     from .runtime_camera_compensation import install_runtime_camera_compensation
     from .runtime_cell_change_authority import install_cell_change_authority
     from .runtime_combat_target_memory import (
@@ -70,11 +74,13 @@ def main() -> int:
     install_near_enemy_focus_tracking()
     install_combat_target_continuity_tracking()
     install_cell_change_authority()
+    # Patch CameraStabilityGate before target-integrity creates its live instance.
+    install_static_camera_liveness()
     install_target_integrity_tracking()
-    # Final visual invariant: a latched identity cannot migrate to a wall/floor
-    # component. Same-cell is only a search location; current body overlap is
-    # mandatory before a visual continuation may update target geometry.
     install_visual_target_authority()
+    # Final acquisition rule: exact changed pixels may promote a weak fresh raw
+    # track, but same-cell equality, player-center tracks and terrain remain blocked.
+    install_exact_cell_acquisition_recovery()
     install_runtime_tile_perception(
         live_bridge_module,
         full_round_module,
@@ -92,97 +98,64 @@ def main() -> int:
 
     mode = current_control_mode().value
     print("TRAINER: day-64 + night-64 retained for outer request and FULL_COMBAT post-KO")
-    print("POST_OK_GATE: confirmed; baseline was captured before trainer click and spawn wait completed")
+    print("POST_OK_GATE: confirmed; robust baseline was captured before trainer click and spawn wait completed")
     print(
-        f"PR26.15 CLEAN BASELINE: stored={baseline_count} "
-        "source=BEFORE_TRAINER_CLICK player_core=INPAINTED "
-        "comparison_unit=INDIVIDUAL_64PX_CELL frozen_during_combat=true"
+        f"PR26.16 CLEAN BASELINE: stored={baseline_count} "
+        "source=BEFORE_TRAINER_CLICK player=FULL_PRESPAWN_INPAINT "
+        "local_D3_coverage=MANDATORY comparison_unit=INDIVIDUAL_64PX_CELL"
     )
-    print("ENGAGEMENT: physical authority is controlled by PR26.15 validation mode")
+    print("ENGAGEMENT: physical authority is controlled by PR26.16 validation mode")
     print(
-        "PR26.15 CELL AUTHORITY: every 64x64 cell owns its baseline, diff mask, "
-        "changed ratio, component bbox and body association"
-    )
-    print(
-        "PR26.15 CLUSTER ROLE: clusters are search hints only; aggregate cluster bbox, "
-        "foot, direction, identity, hostility and ReID have zero authority"
+        "PR26.16 CELL AUTHORITY: every 64x64 cell owns its baseline, diff mask, "
+        "component bbox and current-body association; clusters are search hints only"
     )
     print(
-        "PR26.15 SAME-CELL SAFETY: sharing one 64px cell is not identity; the raw/Target "
-        "Capsule body must overlap the changed pixels of that specific component"
+        "PR26.16 BASELINE COVERAGE: local D<=3 cells around the pre-spawn player are "
+        "mandatory exact baselines; semantic class references have zero acquisition authority"
     )
     print(
-        "PR26.15 CURRENT BODY: a latched target may update visible geometry only when "
-        "the current frame contains a raw body or confirmed Target Capsule ReID"
+        "PR26.16 CAMERA LIVENESS: low correlation with displacement <=2.5px holds the "
+        "accepted viewport and keeps exact baselines alive"
     )
     print(
-        "PR26.15 TERRAIN REJECTION: dominant 43x64, 64x23 and other high-ratio cell "
-        "fields are wall/floor evidence and cannot inherit the hostile identity"
+        "PR26.16 FRESH BODY RECOVERY: a weak raw track may be promoted only when its "
+        "bbox/foot overlaps changed pixels from that exact cell baseline"
     )
     print(
-        "PR26.15 CAMERA STABILITY: low-response jumps are rejected; meaningful "
-        "translations require consistent observations before moving frozen baselines"
+        "PR26.16 SELF SAFETY: raw tracks centered on the known player, same-cell-only "
+        "matches, dominant terrain fields and pixel-only ReID have zero target authority"
     )
     print(
-        "PR26.15 ORIENTATION SEPARATION: TURN_ONLY is an isolated physical hint and "
-        "is never forwarded as a clean combat candidate"
+        "PR26.16 CURRENT BODY: a latched target may update visible geometry only from "
+        "a current raw body or confirmed Target Capsule ReID"
     )
     print(
-        "PR26.15 LOGICAL TARGET: GridFocusStrategy receives candidates only after a "
-        "same-component raw body binding created HOSTILE_CONFIRMED and COMBAT_LOCK"
+        "PR26.16 CAMERA MOTION: meaningful viewport translations still require temporal "
+        "confirmation; low-confidence large jumps remain blocked"
     )
     print(
-        "PR26.15 REID INVARIANT: OCCLUDED_COAST and REID_LOCAL require a valid "
-        "round latch; pixel clusters only select search cells and cannot restore identity"
+        "PR26.16 ORIENTATION SEPARATION: TURN_ONLY remains outside GridFocusStrategy "
+        "and cannot create a logical target, chase, H or ReID"
     )
     print(
-        "PR26.15 BODY BINDING: raw detector or Target Capsule must overlap the actual "
-        "changed component; anchor-cell equality alone has zero authority"
+        "PR26.16 LOGICAL TARGET: EXACT_COMPONENT_OVERLAP -> CURRENT_BODY -> "
+        "HOSTILE_CONFIRMED -> COMBAT_LOCK -> ROUND_TARGET_LATCHED"
     )
     print(
-        "PR26.15 PLAYER OVERLAP: runtime exclusion is a narrow capsule rather than a "
-        "destructive rectangle; side and upper enemy pixels remain visible"
+        "PR26.16 REID: only a valid round latch may enter OCCLUDED_COAST/REID_LOCAL; "
+        "Target Capsule searches D1 -> D2 -> D3 while MOVE/H remain blocked"
     )
     print(
-        "PR26.15 SEARCH RADIUS: initial acquisition and all reacquisition remain "
-        "inside Chebyshev D<=3 from the player"
+        "PR26.16 TERRAIN SAFETY: 43x64, 64x23, saturated cells, top/UI bands and "
+        "raw-less fields cannot inherit or create hostile identity"
     )
     print(
-        "PR26.15 ROUND TARGET: the first body-bound COMBAT_LOCK latches one hostile "
-        "identity until KO; terrain components cannot replace its visual geometry"
+        "PR26.16 REPLAY/DIAGNOSTICS: complete replay, trigger-frame JSON, child console "
+        "and round_result.json remain enabled"
     )
     print(
-        "PR26.15 REPLAY: first successful source capture is written before observer "
-        "processing; MP4/AVI/PNG fallback remains enabled"
-    )
-    print(
-        "PR26.15 EVENT JSON: occupancy, decision and candidate snapshots are frozen "
-        "on the event trigger frame rather than overwritten at round close"
-    )
-    print(
-        "PR26.15 DIAGNOSTICS: complete child console, recorder bootstrap/final JSON "
-        "and round_result.json are always written"
-    )
-    print(
-        "PR26.15 TARGET CAPSULE: raw candidates are enriched before cell association; "
-        "confirmed capsule ReID expands progressively D1 -> D2 -> D3"
-    )
-    print(
-        "PR26.15 MEMORY SAFETY: CONTACT_MEMORY, REID_PENDING and OUTSIDE_D3 preserve "
-        "a legitimately latched identity while MOVE/H remain physically blocked"
-    )
-    print(
-        "PR26.15 AUTHORITY: COMPONENT_PIXEL_OVERLAP -> CURRENT_BODY -> "
-        "HOSTILE_CONFIRMED -> COMBAT_LOCK -> ROUND_TARGET_LATCHED -> facing + chase + H"
-    )
-    print(
-        f"PR26.15 MODE={mode}: PERCEPTION_ONLY blocks TURN/MOVE/R/H; "
+        f"PR26.16 MODE={mode}: PERCEPTION_ONLY blocks TURN/MOVE/R/H; "
         "FACE_ONLY allows TURN only; FULL_COMBAT requires current visual body confirmation"
-    )
-    # tile-only and negative synthetic candidates have zero offensive authority
-    print(
-        "PR26.15 SAFETY: camera uncertainty, TURN_ONLY, terrain cells, pixel-only ReID, "
-        "memory without current body and negative synthetic candidates have zero offense"
     )
 
     with RoundRuntimeDiagnostics() as diagnostics:

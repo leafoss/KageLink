@@ -8,9 +8,11 @@ def main(argv: list[str] | None = None) -> int:
     # its class aliases. Unlike FullLoop, this isolated mode performs its own
     # startup RIGHT pulse because there is no outer dialog/OK process.
     dummy_round = SimpleNamespace(_write_log=lambda handle, payload: None)
+    from .runtime_engagement_recovery import install_runtime_engagement_recovery
     from .runtime_facing_patch import _CONTEXT, install_runtime_facing_patch
 
     install_runtime_facing_patch(dummy_round)
+    install_runtime_engagement_recovery(dummy_round)
 
     from . import live_input as live_module
 
@@ -30,6 +32,7 @@ def main(argv: list[str] | None = None) -> int:
                 if decision.target_state.value == "LOCKED"
                 else decision.target_state.value
             )
+            actions = tuple(payload.get("actions") or ())
             payload.update(
                 {
                     "target_state": payload.get("state"),
@@ -42,6 +45,10 @@ def main(argv: list[str] | None = None) -> int:
                     "facing_confidence": decision.facing_confidence,
                     "turn_attempt": decision.turn_attempt,
                     "r_authorized": decision.r_authorized,
+                    "r_baseline_active": any(
+                        action in {"R_BASELINE", "R_AUTHORIZED"}
+                        for action in actions
+                    ),
                     "h_authorized": decision.h_authorized,
                     "orientation_invalidated_reason": decision.orientation_invalidated_reason,
                     "contact_deadzone_active": decision.contact_deadzone_active,
@@ -52,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
 
     live_module._write_log = facing_write
     print("LIVE INPUT: explicit Facing Authority enabled")
-    print("LIVE INPUT: startup RIGHT -> acquire -> align -> R/H authority")
+    print("LIVE INPUT: startup RIGHT -> R baseline -> acquire -> align -> H authority")
     return int(live_module.main(argv))
 
 

@@ -23,6 +23,10 @@ def _install(monkeypatch):
             return ("R_BASELINE_STARTED",)
 
         def execute(self, decision, *, confirm_aim=None):
+            if getattr(decision, "turn_direction", None):
+                direction = str(decision.turn_direction).lower()
+                self.controller.apply_keys((direction,))
+                return (f"TURN_{direction.upper()}",)
             self.controller.apply_keys(("r",))
             return ("R_BASELINE",)
 
@@ -95,9 +99,8 @@ def test_face_only_delegates_only_exclusive_turn(monkeypatch) -> None:
         SimpleNamespace(turn_direction="LEFT", r_authorized=False)
     )
 
-    # The fake inherited implementation represents the facing transaction. In
-    # production this path is handled by FacingPhysicalCombatInput.
-    assert actions == ("R_BASELINE",)
+    assert actions == ("TURN_LEFT",)
+    assert controller.applied == [("left",)]
     assert controller.repeat_keys == set()
 
 

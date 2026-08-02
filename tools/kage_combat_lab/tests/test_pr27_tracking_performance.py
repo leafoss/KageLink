@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import inspect
+
 import cv2
 import numpy as np
 
 from kage_combat_lab.pr27_native_grid import (
     ArenaCropper,
     ArenaRect,
+    CombatAction,
     PR27CombatSystem,
     PR27Config,
 )
+from kage_combat_lab.pr27_overlay import PR27DebugOverlay
+from kage_combat_lab.pr27_runtime_support import PR27PhysicalInput
 
 
 def blank_frame(width: int = 256, height: int = 192) -> np.ndarray:
@@ -144,3 +149,51 @@ def test_baseline_caches_lab_image_once() -> None:
     system, _ = build_system(enable_context_enemy=False)
     baseline = next(iter(system.baselines._baselines.values()))
     assert baseline.lab_image.shape == baseline.image.shape
+
+
+class FakeController:
+    def __init__(self) -> None:
+        self.repeat_keys: set[str] = set()
+        self.activated = False
+        self.states: list[tuple[str, ...]] = []
+
+    def activate(self) -> None:
+        self.activated = True
+
+    def release_all(self) -> None:
+        self.states.append(())
+
+    def apply_keys(self, keys: tuple[str, ...]) -> None:
+        self.states.append(tuple(keys))
+
+
+def test_control_mode_arms_and_keeps_repeat_r_during_search() -> None:
+    controller = FakeController()
+    physical = PR27PhysicalInput(controller, sleep_fn=lambda _seconds: None)
+
+    armed = physical.activate(mode="CONTROL_ENABLED")
+    idle = physical.execute(CombatAction.NONE, mode="CONTROL_ENABLED")
+
+    assert controller.activated is True
+    assert controller.repeat_keys == {"r"}
+    assert armed == ("R_ARMED",)
+    assert idle == ("R_HELD_IDLE",)
+    assert controller.states[-1] == ("r",)
+
+
+def test_control_attack_returns_to_held_r() -> None:
+    controller = FakeController()
+    physical = PR27PhysicalInput(controller, sleep_fn=lambda _seconds: None)
+    physical.activate(mode="CONTROL_ENABLED")
+
+    actions = physical.execute(CombatAction.ATTACK, mode="CONTROL_ENABLED")
+
+    assert actions == ("R_AUTHORIZED", "H_80MS")
+    assert ("h", "r") in controller.states
+    assert controller.states[-1] == ("r",)
+
+
+def test_debug_overlay_has_no_blocking_wait_key() -> None:
+    source = inspect.getsource(PR27DebugOverlay.show)
+    assert "waitKey(0)" not in source
+    assert "waitKey(1)" in source

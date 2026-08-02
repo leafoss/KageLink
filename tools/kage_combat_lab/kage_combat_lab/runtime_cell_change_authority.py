@@ -396,6 +396,30 @@ def install_cell_change_authority() -> None:
                     selected = preferred
 
         memory = getattr(self, "_pr26_round_target_memory", None)
+        if selected is not None and memory is None and selected.raw_track_ids:
+            near_votes = getattr(self, "_pr26_visual_contact_votes", {}).get(
+                selected.track_id,
+                (),
+            )
+            camera_votes = getattr(self, "_pr26_contact_votes", {}).get(
+                selected.track_id,
+                (),
+            )
+            body_bound_contact = max(sum(near_votes), sum(camera_votes)) >= 2
+            if body_bound_contact and not selected.combat_lock:
+                selected.hostility_state = HostilityState.HOSTILE_CONFIRMED
+                selected.combat_lock = True
+                selected.reason = (
+                    "same-cell body association sustained contact in 2-of-3 frames"
+                )
+                self._emit(
+                    f"PR26_CELL_BODY_COMBAT_LOCK id={selected.track_id} "
+                    f"raw_ids={sorted(selected.raw_track_ids)} votes="
+                    f"{max(sum(near_votes), sum(camera_votes))}/3 "
+                    "reason=SAME_CELL_BODY_CONTACT",
+                    "COMBAT_LOCK_CHANGED",
+                )
+
         if selected is not None and memory is None and not selected.raw_track_ids:
             selected.combat_lock = False
             if selected.hostility_state is HostilityState.HOSTILE_CONFIRMED:

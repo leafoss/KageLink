@@ -9,6 +9,10 @@ param(
     [double]$TerrainRejectSimilarity = 0.965,
     [double]$DangerConfidence = 0.80,
     [double]$DangerStrongConfidence = 0.90,
+    [double]$DangerConfirmedSimilarity = 0.90,
+    [double]$DangerLikelySimilarity = 0.82,
+    [double]$DangerWeakSimilarity = 0.72,
+    [double]$DangerMargin = 0.04,
     [double]$ChangedRatioWeak = 0.04,
     [double]$ChangedRatio = 0.08,
     [double]$ChangedRatioStrong = 0.12,
@@ -68,6 +72,7 @@ $ProfileRoot = Join-Path (Join-Path $DataRoot "profiles") $Profile
 $CalibrationPath = Join-Path (Join-Path $ProfileRoot "calibrations") "${RegionId}_grid.json"
 $KnowledgePath = Join-Path (Join-Path $ProfileRoot "tile_knowledge") "${RegionId}.json"
 $EvidenceDir = Join-Path $Root "kage_pilot_loop_logs\occupancy_evidence"
+$PreOkBaselineFile = Join-Path $Root "kage_pilot_loop_logs\pr26_pre_ok_baseline.npz"
 
 if (-not (Test-Path $CalibrationPath)) {
     throw "PR26 tile calibration was not found: $CalibrationPath"
@@ -105,16 +110,27 @@ if ($TerrainExamples.Count -lt 1) {
     throw "PR26 requires at least one taught PR24 terrain example."
 }
 if ($DangerExamples.Count -lt 1) {
-    throw "PR26.3 requires at least one taught PR24 DANGER example."
+    throw "PR26.5 requires at least one taught PR24 DANGER example."
 }
 if ($ReferenceCrops.Count -lt 1) {
-    throw "PR26.3 requires real PR24 crop images for CLASS_REFERENCE pixel comparison."
+    throw "PR26.5 requires real PR24 crop images for semantic affinity."
 }
 if ($DangerConfidence -lt 0.50 -or $DangerConfidence -gt 1.0) {
     throw "DangerConfidence must be between 0.50 and 1.0."
 }
 if ($DangerStrongConfidence -lt $DangerConfidence -or $DangerStrongConfidence -gt 1.0) {
     throw "DangerStrongConfidence must be >= DangerConfidence and <= 1.0."
+}
+if (
+    $DangerWeakSimilarity -lt 0.50 -or
+    $DangerLikelySimilarity -lt $DangerWeakSimilarity -or
+    $DangerConfirmedSimilarity -lt $DangerLikelySimilarity -or
+    $DangerConfirmedSimilarity -gt 1.0
+) {
+    throw "DANGER affinity thresholds must satisfy 0.50 <= weak <= likely <= confirmed <= 1.0."
+}
+if ($DangerMargin -lt 0.0 -or $DangerMargin -gt 1.0) {
+    throw "DangerMargin must be between 0.0 and 1.0."
 }
 if (
     $ChangedRatioWeak -lt 0.0 -or
@@ -150,12 +166,17 @@ $env:KAGE_PR26_TILE_PROFILE = $Profile
 $env:KAGE_PR26_TILE_REGION = $RegionId
 $env:KAGE_PR26_CONTROL_MODE = $ControlMode
 $env:KAGE_PR26_EVIDENCE_DIR = $EvidenceDir
+$env:KAGE_PR26_PREOK_BASELINE_FILE = $PreOkBaselineFile
 Set-InvariantDoubleEnv "KAGE_PR26_TILE_SIMILARITY" $SimilarityThreshold
 Set-InvariantDoubleEnv "KAGE_PR26_TILE_NOVELTY" $NoveltyThreshold
 Set-InvariantDoubleEnv "KAGE_PR26_TILE_ACTIVITY" $ActivityThreshold
 Set-InvariantDoubleEnv "KAGE_PR26_TILE_REJECT" $TerrainRejectSimilarity
 Set-InvariantDoubleEnv "KAGE_PR26_DANGER_CONFIDENCE" $DangerConfidence
 Set-InvariantDoubleEnv "KAGE_PR26_DANGER_STRONG" $DangerStrongConfidence
+Set-InvariantDoubleEnv "KAGE_PR26_DANGER_CONFIRMED_SIMILARITY" $DangerConfirmedSimilarity
+Set-InvariantDoubleEnv "KAGE_PR26_DANGER_LIKELY_SIMILARITY" $DangerLikelySimilarity
+Set-InvariantDoubleEnv "KAGE_PR26_DANGER_WEAK_SIMILARITY" $DangerWeakSimilarity
+Set-InvariantDoubleEnv "KAGE_PR26_DANGER_MARGIN" $DangerMargin
 Set-InvariantDoubleEnv "KAGE_PR26_OCCUPANCY_WEAK" $ChangedRatioWeak
 Set-InvariantDoubleEnv "KAGE_PR26_CHANGED_RATIO" $ChangedRatio
 Set-InvariantDoubleEnv "KAGE_PR26_CHANGED_RATIO_STRONG" $ChangedRatioStrong
@@ -175,7 +196,7 @@ $env:KAGE_PR26_BLOB_HEIGHT = [string]([Math]::Max(1, $BlobHeight))
 $env:KAGE_PR26_BLOB_HEIGHT_STRONG = [string]([Math]::Max($BlobHeight, $BlobHeightStrong))
 $env:KAGE_PR26_HOSTILITY_OVERLAY = if ($HostilityOverlay) { "1" } else { "0" }
 
-Write-Host "PR26.3 MOBILE DANGER OCCUPANCY PREFLIGHT: READY" -ForegroundColor Green
+Write-Host "PR26.5 SEMANTIC ENTITY OCCUPANCY PREFLIGHT: READY" -ForegroundColor Green
 Write-Host "  Grid: 64px"
 Write-Host "  Control mode: $ControlMode" -ForegroundColor Cyan
 Write-Host "  Profile: $Profile"
@@ -185,20 +206,25 @@ Write-Host "  Terrain examples: $($TerrainExamples.Count)"
 Write-Host "  DANGER examples: $($DangerExamples.Count)"
 Write-Host "  Real reference crops: $($ReferenceCrops.Count)"
 Write-Host "  PR24 semantic interval: $Pr24IntervalSeconds seconds"
+Write-Host "  DANGER affinity confirmed/likely/weak: $DangerConfirmedSimilarity / $DangerLikelySimilarity / $DangerWeakSimilarity"
+Write-Host "  DANGER likely margin over non-danger: $DangerMargin"
+Write-Host "  DANGER: strong priority, not a hard entity gate" -ForegroundColor Yellow
+Write-Host "  ENTITY_LOCK: exact baseline + humanoid cluster + 2-of-3 persistence"
+Write-Host "  Baseline timing: BEFORE dialog OK; post-OK SpawnDelay remains $SpawnDelay seconds"
 Write-Host "  Pixel difference source: EXACT_CELL_BASELINE or CLASS_REFERENCE only"
+Write-Host "  CLASS_REFERENCE: weak attention only; cannot seed occupancy"
 Write-Host "  bbox_coverage_ratio: telemetry only; never changed_ratio"
 Write-Host "  True changed ratio weak/suspect/strong: $ChangedRatioWeak / $ChangedRatio / $ChangedRatioStrong"
 Write-Host "  Blob area suspect/strong: $BlobArea / $BlobAreaStrong"
-Write-Host "  Pixel delta threshold: $PixelDeltaThreshold"
-Write-Host "  Baseline median samples: $BaselineSamples"
-Write-Host "  DANGER memory: $DangerMemorySeconds seconds OR $DangerMemoryFrames frames"
-Write-Host "  Dynamic movement allowance: $MaxSpeedCellsPerSecond cells/second"
-Write-Host "  DANGER identity: transfers to nearby occupied clusters"
+Write-Host "  Cluster: cardinal mask contact; maximum 2x3 cells / 6 total"
+Write-Host "  Player pixels: removed before component extraction"
+Write-Host "  Trainer templates during validation: suspended"
 Write-Host "  PERCEPTION_ONLY: TURN/MOVE/R/H blocked"
 Write-Host "  FACE_ONLY: TURN allowed; MOVE/R/H blocked"
-Write-Host "  FULL_COMBAT: requires behavior-confirmed COMBAT_LOCK"
+Write-Host "  FULL_COMBAT: requires HOSTILE_CONFIRMED -> COMBAT_LOCK"
 Write-Host "  Synthetic offensive authority: BLOCKED" -ForegroundColor Yellow
 Write-Host "  Evidence bundles: $EvidenceDir"
+Write-Host "  Pre-OK baseline file: $PreOkBaselineFile"
 Write-Host "  Calibration: $CalibrationPath"
 Write-Host "  Knowledge: $KnowledgePath"
 

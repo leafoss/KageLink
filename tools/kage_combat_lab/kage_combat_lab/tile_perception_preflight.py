@@ -25,8 +25,13 @@ def main() -> int:
             "calibrated_offset_x_px": int(calibration.get("offset_x_px", 0)),
             "calibrated_offset_y_px": int(calibration.get("offset_y_px", 0)),
             "danger_examples": danger_examples,
-            "danger_candidate_confidence": occupancy.danger_confidence,
-            "danger_strong_confidence": occupancy.danger_strong_confidence,
+            "danger_confirmed_similarity": 0.90,
+            "danger_likely_similarity": 0.82,
+            "danger_weak_similarity": 0.72,
+            "danger_margin": 0.04,
+            "danger_is_priority_not_hard_gate": True,
+            "entity_lock_requires_exact_baseline": True,
+            "entity_lock_persistence": "2-of-3",
             "true_changed_ratio_suspect": occupancy.suspect_ratio,
             "true_changed_ratio_strong": occupancy.strong_ratio,
             "largest_blob_min": occupancy.blob_area_min,
@@ -43,18 +48,21 @@ def main() -> int:
             "diagonal_cluster_join": False,
             "player_pixels_removed_before_components": True,
             "bbox_coverage_authority": False,
+            "baseline_timing": "BEFORE_DIALOG_OK",
+            "post_ok_spawn_wait_preserved": True,
             "synthetic_offensive_authority": False,
             "perception_only_physical_authority": False,
+            "combat_lock_requires_hostile_confirmed": True,
         }
     )
-    print("PR26.4 MASK-CONNECTED OCCUPANCY PREFLIGHT: READY")
+    print("PR26.5 SEMANTIC ENTITY OCCUPANCY PREFLIGHT: READY")
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
     if CELL_SIZE_PX != 64:
         raise RuntimeError(f"PR26_CELL_SIZE_INVALID:{CELL_SIZE_PX}")
     if danger_examples <= 0:
         raise RuntimeError(
             "PR26_DANGER_EXAMPLES_MISSING: teach at least one PR24 DANGER tile "
-            "before arming physical hostility validation"
+            "before semantic affinity validation"
         )
     return 0
 

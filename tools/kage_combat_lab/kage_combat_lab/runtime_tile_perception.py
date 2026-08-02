@@ -112,6 +112,34 @@ def install_runtime_tile_perception(
                 evidence=cached_evidence,
                 now=timestamp,
             )
+
+            shifted = tuple(getattr(gate.map, "last_scene_shift_cells", ()))
+            if shifted:
+                # A coherent full-height/full-cell change entering from an arena
+                # edge is a viewport/background shift, not a moving body. Drop
+                # all inherited identity immediately so FACE_ONLY/FULL_COMBAT
+                # cannot act on a stale cluster while baselines are re-anchored.
+                tracks = getattr(gate, "_tracks", None)
+                if tracks is not None:
+                    tracks.clear()
+                snapshot_type = type(gate.last_snapshot)
+                try:
+                    gate.last_snapshot = snapshot_type(
+                        control_mode=gate.mode.value,
+                        reason="scene shift invalidated mobile DANGER authority",
+                    )
+                except TypeError:
+                    gate.last_snapshot = snapshot_type()
+                emitter = getattr(gate, "_emit", None)
+                if emitter is not None:
+                    emitter(
+                        "PR26_SCENE_SHIFT "
+                        f"generation={getattr(gate.map, 'scene_shift_generation', 0)} "
+                        f"cells={shifted} baselines=INVALIDATED authority=BLOCKED",
+                        "SCENE_SHIFT",
+                    )
+                combat_authorized = ()
+
             return original_enrich(
                 frame_bgr=frame_bgr,
                 state=state,
@@ -156,6 +184,7 @@ def install_runtime_tile_perception(
                 f"unknown={summary.get('unknown', 0)} "
                 f"active_unknown={summary.get('active_unknown', 0)} "
                 f"pr24_interval={pr24_interval:.2f}s "
+                f"scene_shift_generation={getattr(gate.map, 'scene_shift_generation', 0)} "
                 "synthetic=0 synthetic_authority=BLOCKED"
             )
             print(
@@ -191,6 +220,15 @@ def install_runtime_tile_perception(
                 if as_log_fields is not None:
                     payload.update(as_log_fields())
                 payload["synthetic_offensive_authority"] = False
+                payload["scene_shift_generation"] = getattr(
+                    gate.map,
+                    "scene_shift_generation",
+                    0,
+                )
+                payload["scene_shift_cells"] = [
+                    [cell.x, cell.y]
+                    for cell in getattr(gate.map, "last_scene_shift_cells", ())
+                ]
                 payload["pr26_occupancy_contract"] = {
                     "true_changed_ratio": "real_pixel_reference_only",
                     "bbox_coverage_ratio": "telemetry_only",
@@ -199,6 +237,7 @@ def install_runtime_tile_perception(
                     "danger_memory_frames": 12,
                     "pr24_role": "slow_semantic_prior",
                     "occupancy_role": "fast_tracking_authority",
+                    "scene_shift": "invalidate_baseline_and_all_authority",
                     "control_mode": getattr(gate.mode, "value", str(gate.mode)),
                 }
                 payload["pr24_calibrated_full_origin"] = [

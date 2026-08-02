@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 from typing import Any, Callable
 
@@ -152,6 +153,42 @@ def install_runtime_tile_perception(
                 events=merged,
                 **kwargs,
             )
+
+        def close(self) -> None:
+            # FullRound calls close() from its finally block after F12, Ctrl+C,
+            # exceptions and normal completion. Persist the current circular
+            # buffer before the base recorder clears active events.
+            before = set(getattr(self, "saved_paths", ()))
+            buffered = list(getattr(self, "_buffer", ()))
+            if buffered:
+                clip_type = getattr(event_module, "_ActiveClip")
+                self._write_clip(
+                    clip_type(
+                        "F12_OR_SESSION_STOP",
+                        time.monotonic(),
+                        [frame.copy() for frame in buffered],
+                        0,
+                    )
+                )
+            super().close()
+            snapshot = gate.last_snapshot.as_log_fields()
+            for path in getattr(self, "saved_paths", ()):
+                if path in before:
+                    continue
+                metadata_path = path.with_suffix(".json")
+                metadata_path.write_text(
+                    json.dumps(
+                        {
+                            "event": path.stem,
+                            "saved_on_close": True,
+                            "includes_f12_shutdown": True,
+                            "hostility": snapshot,
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
 
     event_module.CombatEventVideoRecorder = HostilityEventRecorder
 

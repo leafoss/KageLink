@@ -41,17 +41,17 @@ def main() -> int:
     print("POST_OK_GATE: confirmed; child inherits the one outer RIGHT pulse")
     print("ENGAGEMENT: R baseline starts with combat; H remains target/facing gated")
     print(
-        "PR26.1 TILE CLASSIFICATION: PR24 DANGER is a passive visual signal; "
-        f"terrain_examples={tile_perception.terrain_example_count}"
+        "PR26.2 TILE CLASSIFICATION: PR24 DANGER seeds a continuity-aware "
+        f"passive visual signal; terrain_examples={tile_perception.terrain_example_count}"
     )
     print(
-        "PR26.1 FLOW: PR24 DANGER -> structural/persistence confirmation -> "
-        "VISUAL_LOCK -> passive D trend -> HOSTILE_CONFIRMED -> COMBAT_LOCK -> "
-        "PR25 Target Capsule/facing/chase/H"
+        "PR26.2 FLOW: strict DANGER acquisition -> 1.25s danger memory -> "
+        "2-of-3 entity confirmation -> VISUAL_LOCK -> passive D trend -> "
+        "HOSTILE_CONFIRMED -> COMBAT_LOCK -> PR25 Target Capsule/facing/chase/H"
     )
     print(
-        "PR26.1 SAFETY: tile-only and negative synthetic candidates have zero "
-        "offensive authority"
+        "PR26.2 SAFETY: tile-only, unseeded UNKNOWN and negative synthetic "
+        "candidates have zero offensive authority"
     )
     return int(full_round_module.main())
 

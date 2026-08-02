@@ -110,10 +110,10 @@ if ($TerrainExamples.Count -lt 1) {
     throw "PR26 requires at least one taught PR24 terrain example."
 }
 if ($DangerExamples.Count -lt 1) {
-    throw "PR26.15 requires at least one taught PR24 DANGER example."
+    throw "PR26.16 requires at least one taught PR24 DANGER example."
 }
 if ($ReferenceCrops.Count -lt 1) {
-    throw "PR26.15 requires real PR24 crop images for semantic affinity."
+    throw "PR26.16 requires real PR24 crop images for semantic affinity."
 }
 if ($DangerConfidence -lt 0.50 -or $DangerConfidence -gt 1.0) {
     throw "DangerConfidence must be between 0.50 and 1.0."
@@ -199,7 +199,7 @@ $env:KAGE_PR26_BLOB_HEIGHT = [string]([Math]::Max(1, $BlobHeight))
 $env:KAGE_PR26_BLOB_HEIGHT_STRONG = [string]([Math]::Max($BlobHeight, $BlobHeightStrong))
 $env:KAGE_PR26_HOSTILITY_OVERLAY = if ($HostilityOverlay) { "1" } else { "0" }
 
-Write-Host "PR26.15 CURRENT BODY AUTHORITY PREFLIGHT: READY" -ForegroundColor Green
+Write-Host "PR26.16 BASELINE LIVENESS PREFLIGHT: READY" -ForegroundColor Green
 Write-Host "  Grid: 64px immutable"
 Write-Host "  Control mode: $ControlMode" -ForegroundColor Cyan
 Write-Host "  Profile: $Profile"
@@ -212,18 +212,22 @@ Write-Host "  PR24 semantic interval: $Pr24IntervalSeconds seconds"
 Write-Host "  Evidence save interval: $EvidenceSaveSeconds seconds"
 Write-Host "  Comparison authority: EACH INDIVIDUAL 64x64 CELL" -ForegroundColor Yellow
 Write-Host "  Cluster role: SEARCH HINT ONLY; identity/hostility/ReID authority OFF"
+Write-Host "  Pre-spawn exact baseline: robust temporal median"
+Write-Host "  Pre-spawn player removal: FULL SILHOUETTE INPAINT during capture only"
+Write-Host "  Local D<=3 exact baseline coverage: MANDATORY" -ForegroundColor Yellow
+Write-Host "  Class-reference acquisition authority: BLOCKED"
+Write-Host "  Low-response static viewport <=2.5px: exact baselines RETAINED"
+Write-Host "  Low-confidence large camera jump: BLOCKED"
+Write-Host "  Fresh weak raw body: exact changed-pixel overlap required"
+Write-Host "  Player-centered raw track: BLOCKED"
 Write-Host "  Same-cell equality: SEARCH LOCATION ONLY; not body identity"
-Write-Host "  Body binding: bbox/foot must overlap changed pixels of the component"
 Write-Host "  Latched visual continuation: CURRENT RAW BODY or TARGET CAPSULE required"
 Write-Host "  Pixel-cluster ReID: BLOCKED"
 Write-Host "  Dominant 43x64 / 64x23 terrain fields: BLOCKED"
-Write-Host "  Baseline: every stable 64px cell retained; player core inpainted"
 Write-Host "  Runtime player exclusion: narrow capsule; side/top overlap preserved"
-Write-Host "  Camera: low-response jumps blocked; meaningful shifts require temporal confirmation"
 Write-Host "  Initial acquisition radius: D<=3"
-Write-Host "  Raw-less compact vertical change: isolated TURN hint only"
 Write-Host "  TURN_ONLY: never forwarded as a combat candidate or logical target"
-Write-Host "  Logical target: COMPONENT_OVERLAP -> CURRENT_BODY -> HOSTILE_CONFIRMED -> COMBAT_LOCK -> ROUND_TARGET_LATCHED" -ForegroundColor Yellow
+Write-Host "  Logical target: EXACT_COMPONENT_OVERLAP -> CURRENT_BODY -> HOSTILE_CONFIRMED -> COMBAT_LOCK -> ROUND_TARGET_LATCHED" -ForegroundColor Yellow
 Write-Host "  ReID/OCCLUDED_COAST: only after a valid round target latch"
 Write-Host "  ReID search after latch: Target Capsule D1 -> D2 -> D3; never beyond D3"
 Write-Host "  CONTACT_MEMORY / REID_PENDING / OUTSIDE_D3: valid identity retained; MOVE/H blocked"

@@ -4,6 +4,7 @@ import ctypes
 import io
 import threading
 from dataclasses import dataclass
+from typing import Any
 
 from pc_agent.game_image import transform_frame
 from pc_agent.game_protocol import GAME_WINDOW_TITLE, normalize_view_mode
@@ -18,6 +19,17 @@ class CapturedFrame:
     source_height: int
     target: CaptureTarget
     view_mode: str
+    window_state: str
+
+
+@dataclass(frozen=True, slots=True)
+class NativeCapturedFrame:
+    """Unscaled, uncompressed client image for computer vision."""
+
+    bgr: Any
+    source_width: int
+    source_height: int
+    target: CaptureTarget
     window_state: str
 
 
@@ -58,9 +70,6 @@ class GameCapture:
         bitmap.CreateCompatibleBitmap(source_dc, target.width, target.height)
         memory_dc.SelectObject(bitmap)
         try:
-            # PW_CLIENTONLY | PW_RENDERFULLCONTENT. BYOND normally renders its
-            # client through GDI, so this path stays window-specific even if
-            # another application overlaps the game.
             rendered = ctypes.windll.user32.PrintWindow(
                 target.capture_hwnd,
                 memory_dc.GetSafeHdc(),
@@ -121,19 +130,40 @@ class GameCapture:
         try:
             return self._print_window_capture(target), target
         except Exception:
-            # Screen capture is allowed only after the exact game window has
-            # been foregrounded, avoiding accidental capture of personal apps.
             return self._foreground_screen_capture(target)
 
-    def capture(self, mode: str = "full") -> CapturedFrame:
-        with self._lock:
-            target = locate_capture_target(self.title)
-            if target is None:
-                raise GameWindowMissing("GAME_NOT_FOUND")
-            if target.minimized:
-                raise GameWindowMinimized("GAME_MINIMIZED")
+    def _capture_pil_locked(self):
+        target = locate_capture_target(self.title)
+        if target is None:
+            raise GameWindowMissing("GAME_NOT_FOUND")
+        if target.minimized:
+            raise GameWindowMinimized("GAME_MINIMIZED")
+        return self._capture_source(target)
 
-            image, target = self._capture_source(target)
+    def capture_native(self) -> NativeCapturedFrame:
+        """Return original client pixels directly in BGR, without JPEG or resize."""
+
+        import cv2
+        import numpy as np
+
+        with self._lock:
+            image, target = self._capture_pil_locked()
+            rgb = np.asarray(image.convert("RGB"), dtype=np.uint8)
+            bgr = np.ascontiguousarray(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
+            source_height, source_width = bgr.shape[:2]
+            return NativeCapturedFrame(
+                bgr=bgr,
+                source_width=source_width,
+                source_height=source_height,
+                target=target,
+                window_state=show_state(target.game_hwnd),
+            )
+
+    def capture(self, mode: str = "full") -> CapturedFrame:
+        """Streaming path. PR27 perception must call capture_native instead."""
+
+        with self._lock:
+            image, target = self._capture_pil_locked()
             source_width, source_height = image.size
             processed = transform_frame(image, mode, self.output_size)
             output = io.BytesIO()

@@ -13,7 +13,7 @@ class PR27DebugOverlay:
 
     def __init__(self, *, window_name: str = "Kage Combat Lab - PR27") -> None:
         self.window_name = window_name
-        self.paused = False
+        self.created = False
 
     @staticmethod
     def _cell_color(state: CellState) -> tuple[int, int, int]:
@@ -133,10 +133,13 @@ class PR27DebugOverlay:
         return canvas
 
     def show(self, image: np.ndarray) -> bool:
+        # Never use waitKey(0): a paused OpenCV window used to block the entire
+        # combat subprocess and made the PowerShell console appear frozen.
+        if not self.created:
+            cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
+            self.created = True
         cv2.imshow(self.window_name, image)
-        key = cv2.waitKey(1 if not self.paused else 0) & 0xFF
-        if key in (ord("p"), ord(" ")):
-            self.paused = not self.paused
+        key = cv2.waitKey(1) & 0xFF
         return key not in (27, ord("q"))
 
     @staticmethod

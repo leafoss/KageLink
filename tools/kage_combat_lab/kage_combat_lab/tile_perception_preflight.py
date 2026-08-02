@@ -41,11 +41,20 @@ def main() -> int:
             "initial_acquisition_radius_cells": 3,
             "round_target_latched_until_ko": True,
             "initial_latch_requires_body_bound_cell_change": True,
+            "initial_latch_requires_raw_body_identity": True,
             "rawless_cell_change_combat_authority": False,
+            "rawless_whole_cell_entity_authority": False,
+            "rawless_compact_vertical_role": "ORIENTATION_HINT_ONLY",
+            "turn_only_forwarded_to_strategy": False,
+            "turn_only_creates_logical_target": False,
+            "logical_target_requires_round_target_latch": True,
+            "occluded_coast_requires_round_target_latch": True,
+            "local_reid_requires_round_target_latch": True,
+            "false_logical_target_reset_to_search": True,
             "target_capsule_before_occupancy_filter": True,
             "target_capsule_same_cell_overlap_required": True,
             "progressive_reid_radius_cells": [1, 2, 3],
-            "persistent_reid_seconds": 90.0,
+            "persistent_reid_seconds_after_valid_latch": 90.0,
             "player_runtime_mask": "NARROW_CAPSULE",
             "player_runtime_mask_max_px": [16, 34],
             "pretrainer_player_core_inpainted": True,
@@ -74,18 +83,22 @@ def main() -> int:
             "bbox_coverage_authority": False,
             "baseline_timing": "BEFORE_TRAINER_CLICK",
             "baseline_frozen_during_combat": True,
-            "camera_registration": "phase_correlation_translation",
+            "camera_registration": "PHASE_CORRELATION_WITH_TEMPORAL_CONFIRMATION",
+            "camera_min_response": 0.16,
+            "camera_meaningful_shift_confirmation_frames": [2, 3],
             "camera_alignment_uncertain_authority": False,
+            "camera_low_response_jump_authority": False,
             "raw_track_requires_component_overlap": True,
             "selected_lock_hysteresis_frames": 3,
             "contact_combat_lock": "same_cell_body_bound_2_of_3",
+            "event_json_snapshot_timing": "EVENT_TRIGGER_FRAME",
             "post_ok_spawn_wait_preserved": True,
             "synthetic_offensive_authority": False,
             "perception_only_physical_authority": False,
             "combat_lock_requires_hostile_confirmed": True,
         }
     )
-    print("PR26.13 PER-CELL CHANGE AUTHORITY PREFLIGHT: READY")
+    print("PR26.14 TARGET INTEGRITY PREFLIGHT: READY")
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
     if CELL_SIZE_PX != 64:
         raise RuntimeError(f"PR26_CELL_SIZE_INVALID:{CELL_SIZE_PX}")

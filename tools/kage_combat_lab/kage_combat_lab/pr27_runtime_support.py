@@ -15,19 +15,12 @@ class EmergencyStop(RuntimeError):
     pass
 
 
-def write_log(handle, payload: dict[str, Any]) -> None:
+def write_log(handle, payload: dict[str, Any], *, flush: bool = False) -> None:
     if handle is None:
         return
     handle.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
-    handle.flush()
-
-
-def control_mode() -> str:
-    value = os.environ.get("KAGE_PR27_CONTROL_MODE", "PERCEPTION_ONLY").strip().upper()
-    allowed = {"PERCEPTION_ONLY", "FACE_ONLY", "CONTROL_ENABLED"}
-    if value not in allowed:
-        raise RuntimeError(f"PR27_CONTROL_MODE_INVALID:{value}")
-    return value
+    if flush:
+        handle.flush()
 
 
 def bool_env(name: str, default: bool = False) -> bool:
@@ -37,16 +30,34 @@ def bool_env(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def control_mode() -> str:
+    value = os.environ.get("KAGE_PR27_CONTROL_MODE", "PERCEPTION_ONLY").strip().upper()
+    allowed = {"PERCEPTION_ONLY", "FACE_ONLY", "CONTROL_ENABLED"}
+    if value not in allowed:
+        raise RuntimeError(f"PR27_CONTROL_MODE_INVALID:{value}")
+    if value == "CONTROL_ENABLED" and not bool_env("KAGE_PR27_ALLOW_CONTROL", False):
+        raise RuntimeError("PR27_CONTROL_LOCKED_PENDING_STABLE_8_FPS_VALIDATION")
+    return value
+
+
 def config_from_env() -> PR27Config:
     return PR27Config(
         pixel_delta_threshold=int(os.environ.get("KAGE_PR27_PIXEL_DELTA", "18")),
         changed_ratio_threshold=float(os.environ.get("KAGE_PR27_CHANGED_RATIO", "0.035")),
         uncertain_ratio_threshold=float(os.environ.get("KAGE_PR27_UNCERTAIN_RATIO", "0.018")),
-        minimum_component_area=int(os.environ.get("KAGE_PR27_MIN_COMPONENT_AREA", "14")),
+        minimum_component_area=int(os.environ.get("KAGE_PR27_MIN_COMPONENT_AREA", "28")),
+        minimum_fragment_pixels=int(os.environ.get("KAGE_PR27_MIN_FRAGMENT_PIXELS", "28")),
+        minimum_observation_pixels=int(os.environ.get("KAGE_PR27_MIN_OBSERVATION_PIXELS", "72")),
+        maximum_fragments_per_group=int(os.environ.get("KAGE_PR27_MAX_FRAGMENTS_PER_GROUP", "32")),
         scene_changed_cell_ratio=float(os.environ.get("KAGE_PR27_SCENE_CHANGED_RATIO", "0.42")),
         scene_changed_min_cells=int(os.environ.get("KAGE_PR27_SCENE_CHANGED_MIN_CELLS", "8")),
         maximum_missing_frames=int(os.environ.get("KAGE_PR27_MAX_MISSING_FRAMES", "3")),
+        target_missing_grace_frames=int(os.environ.get("KAGE_PR27_TARGET_MISSING_GRACE", "10")),
+        target_focus_radius_cells=int(os.environ.get("KAGE_PR27_TARGET_FOCUS_RADIUS", "3")),
+        global_reacquire_interval_frames=int(os.environ.get("KAGE_PR27_GLOBAL_REACQUIRE_INTERVAL", "8")),
+        maximum_active_tracks=int(os.environ.get("KAGE_PR27_MAX_ACTIVE_TRACKS", "24")),
         association_min_score=float(os.environ.get("KAGE_PR27_ASSOCIATION_SCORE", "0.48")),
+        target_association_min_score=float(os.environ.get("KAGE_PR27_TARGET_ASSOCIATION_SCORE", "0.32")),
         player_anchor_x_ratio=float(os.environ.get("KAGE_PR27_PLAYER_X_RATIO", "0.50")),
         player_anchor_y_ratio=float(os.environ.get("KAGE_PR27_PLAYER_Y_RATIO", "0.54")),
         player_anchor_radius_px=float(os.environ.get("KAGE_PR27_PLAYER_RADIUS", "58")),
@@ -123,8 +134,8 @@ class PR27PhysicalInput:
 def create_log(args, module_file: str):
     if args.log is not None:
         args.log.parent.mkdir(parents=True, exist_ok=True)
-        return args.log.open("w", encoding="utf-8"), args.log.parent, args.log.stem
+        return args.log.open("w", encoding="utf-8", buffering=65536), args.log.parent, args.log.stem
     report_root = Path(module_file).resolve().parents[1] / "reports"
     report_root.mkdir(parents=True, exist_ok=True)
     stem = f"pr27_round_{time.strftime('%Y%m%d_%H%M%S')}"
-    return (report_root / f"{stem}.jsonl").open("w", encoding="utf-8"), report_root, stem
+    return (report_root / f"{stem}.jsonl").open("w", encoding="utf-8", buffering=65536), report_root, stem

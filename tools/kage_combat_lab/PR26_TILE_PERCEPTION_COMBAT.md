@@ -75,7 +75,7 @@ PR26_TARGET_OUTSIDE_D3
 
 ## Validação
 
-Head `5f2c453`:
+A última execução automática registrou:
 
 - 163 testes pytest aprovados;
 - 15 cenários determinísticos da PR25 aprovados;

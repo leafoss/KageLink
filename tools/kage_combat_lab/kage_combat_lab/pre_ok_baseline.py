@@ -26,6 +26,15 @@ def _path() -> Path:
     return Path(configured or "kage_pilot_loop_logs/pr26_pre_ok_baseline.npz")
 
 
+def reset_pre_ok_baseline_capture() -> None:
+    global _CAPTURED
+    _CAPTURED = False
+    try:
+        _path().unlink()
+    except OSError:
+        pass
+
+
 def _capture() -> int:
     duration = _duration()
     if duration <= 0.0:
@@ -64,7 +73,6 @@ def _capture() -> int:
     samples: dict[GridCell, deque[np.ndarray]] = {}
     previous: dict[GridCell, np.ndarray] = {}
     evidence = None
-    state = None
     captures = 0
 
     print(
@@ -99,7 +107,10 @@ def _capture() -> int:
             for dx in (-1, 0, 1)
             for dy in (-1, 0, 1)
         }
-        arena = frame[arena_y : arena_y + int(state.arena_rect[3]), arena_x : arena_x + int(state.arena_rect[2])]
+        arena = frame[
+            arena_y : arena_y + int(state.arena_rect[3]),
+            arena_x : arena_x + int(state.arena_rect[2]),
+        ]
         for item in evidence.values():
             if item.cell in excluded or item.category in {
                 TileClass.DANGER,
@@ -116,11 +127,7 @@ def _capture() -> int:
             if old is None:
                 continue
             temporal = float(
-                np.mean(
-                    np.abs(
-                        crop.astype(np.int16) - old.astype(np.int16)
-                    )
-                )
+                np.mean(np.abs(crop.astype(np.int16) - old.astype(np.int16)))
             ) / 255.0
             if temporal > 0.012:
                 samples.pop(item.cell, None)
@@ -139,10 +146,7 @@ def _capture() -> int:
         raise RuntimeError("PR26_PREOK_BASELINE_EMPTY")
     path = _path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        f"cell_{cell.x}_{cell.y}": image
-        for cell, image in baselines.items()
-    }
+    payload = {f"cell_{cell.x}_{cell.y}": image for cell, image in baselines.items()}
     payload["metadata"] = np.asarray(
         json.dumps(
             {
@@ -225,4 +229,8 @@ def install_pre_ok_baseline_capture() -> None:
     print("PR26.5 PRE-OK BASELINE HOOK: armed before validated dialog OK click")
 
 
-__all__ = ["install_pre_ok_baseline_capture", "load_pre_ok_baselines"]
+__all__ = [
+    "install_pre_ok_baseline_capture",
+    "load_pre_ok_baselines",
+    "reset_pre_ok_baseline_capture",
+]

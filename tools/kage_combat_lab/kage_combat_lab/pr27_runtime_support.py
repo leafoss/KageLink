@@ -73,19 +73,40 @@ class PR27PhysicalInput:
         self.controller = controller
         self.sleep_fn = sleep_fn
         self.active = False
+        self.mode = "PERCEPTION_ONLY"
 
-    def activate(self) -> None:
+    def activate(self, *, mode: str) -> tuple[str, ...]:
+        self.mode = str(mode).strip().upper()
         self.controller.repeat_keys = {"r"}
         self.controller.activate()
         self.controller.release_all()
         self.active = True
+        if self.mode == "CONTROL_ENABLED":
+            # R is the verified BYOND repeat-held combat key. Arm it as soon as
+            # the isolated post-OK combat subprocess owns physical control.
+            self.controller.apply_keys(("r",))
+            return ("R_ARMED",)
+        return ("INPUT_ARMED_SAFE",)
 
     def execute(self, action: CombatAction, *, mode: str) -> tuple[str, ...]:
         if not self.active:
             raise RuntimeError("PR27_INPUT_NOT_ACTIVE")
-        if mode == "PERCEPTION_ONLY" or action is CombatAction.NONE:
+        normalized_mode = str(mode).strip().upper()
+        if normalized_mode != self.mode:
+            raise RuntimeError(f"PR27_INPUT_MODE_CHANGED:{self.mode}->{normalized_mode}")
+
+        if normalized_mode == "PERCEPTION_ONLY":
             self.controller.release_all()
-            return ("PR27_INPUT_BLOCKED",) if mode == "PERCEPTION_ONLY" else ("RELEASE_ALL",)
+            return ("PR27_INPUT_BLOCKED",)
+
+        if action is CombatAction.NONE:
+            if normalized_mode == "CONTROL_ENABLED":
+                # Keep the combat key physically held while perception is still
+                # confirming or temporarily reacquiring the same enemy ID.
+                self.controller.apply_keys(("r",))
+                return ("R_HELD_IDLE",)
+            self.controller.release_all()
+            return ("FACE_ONLY_WAIT",)
 
         direction = None
         for suffix, key in (("LEFT", "left"), ("RIGHT", "right"), ("UP", "up"), ("DOWN", "down")):
@@ -93,7 +114,7 @@ class PR27PhysicalInput:
                 direction = key
                 break
 
-        if mode == "FACE_ONLY":
+        if normalized_mode == "FACE_ONLY":
             if direction is None:
                 self.controller.release_all()
                 return ("FACE_ONLY_WAIT",)
@@ -112,10 +133,13 @@ class PR27PhysicalInput:
             return ("R_AUTHORIZED", f"CHASE_{direction.upper()}_75MS")
 
         if direction is not None and action.value.startswith("TURN_"):
-            return self._turn(direction)
+            self.controller.apply_keys(tuple(sorted(("r", direction))))
+            self.sleep_fn(0.060)
+            self.controller.apply_keys(("r",))
+            return ("R_AUTHORIZED", f"TURN_{direction.upper()}_60MS")
 
-        self.controller.release_all()
-        return ("RELEASE_ALL",)
+        self.controller.apply_keys(("r",))
+        return ("R_HELD_IDLE",)
 
     def _turn(self, direction: str) -> tuple[str, ...]:
         self.controller.release_all()

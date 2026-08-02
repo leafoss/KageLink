@@ -25,6 +25,7 @@ def main() -> int:
 
     from . import full_round as full_round_module
     from . import live_bridge as live_bridge_module
+    from .precombat_baseline import prime_pre_spawn_baselines
     from .runtime_control_mode import install_runtime_control_mode
     from .runtime_engagement_recovery import install_runtime_engagement_recovery
     from .runtime_facing_patch import install_runtime_facing_patch
@@ -38,6 +39,7 @@ def main() -> int:
         live_bridge_module,
         full_round_module,
     )
+    baseline_count = prime_pre_spawn_baselines(sys.argv[1:])
     install_runtime_facing_patch(full_round_module)
     install_inherited_post_ok_startup()
     install_runtime_control_mode()
@@ -45,6 +47,10 @@ def main() -> int:
     mode = current_control_mode().value
     print("TRAINER: day-64 + night-64 enabled for post-combat return")
     print("POST_OK_GATE: confirmed; child inherits the one outer RIGHT pulse")
+    print(
+        f"PR26.3 PRESPAWN BASELINE: stored={baseline_count} "
+        "physical_input=BLOCKED"
+    )
     print("ENGAGEMENT: physical authority is controlled by PR26.3 validation mode")
     print(
         "PR26.3 OCCUPANCY: PR24 DANGER creates a mobile identity; "

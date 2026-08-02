@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from kage_combat_lab.hostility_gate import EntityState, HostilityState
 from kage_combat_lab.runtime_provisional_target_retention import (
     nearest_phase_alias,
@@ -17,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_repeating_dojo_phase_aliases_unwrap_to_accepted_viewport() -> None:
     assert nearest_phase_alias(-64.0, 2.0) == 0.0
     assert nearest_phase_alias(-96.0, 2.0) == 0.0
-    assert nearest_phase_alias(33.6, 0.0) == 1.6000000000000014
+    assert nearest_phase_alias(33.6, 0.0) == pytest.approx(1.6)
 
 
 def test_ordinary_small_camera_measurement_is_not_rewritten() -> None:

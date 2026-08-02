@@ -1,0 +1,293 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Final, Iterable
+
+CELL_SIZE_PX: Final[int] = 64
+GRID_CONTRACT_VERSION: Final[str] = "kage-grid-64-v1"
+
+H_PULSE_MS: Final[int] = 50
+H_COOLDOWN_SECONDS: Final[float] = 5.0
+VERY_SHORT_PULSE_MS: Final[int] = 50
+APPROACH_PULSE_MS: Final[int] = 100
+POST_PULSE_OBSERVE_MS: Final[int] = 150
+AIM_SETTLE_MS: Final[int] = 75
+MAX_AIM_CORRECTIONS: Final[int] = 2
+MOVEMENT_REPEAT_INTERVAL_SECONDS: Final[float] = 0.25
+R_KEYDOWN_HEARTBEAT_MS: Final[int] = 250
+MAX_H_RANGE_CELLS: Final[int] = 50
+
+POST_OK_SETTLE_MS: Final[int] = 300
+START_RIGHT_PULSE_MS: Final[int] = 90
+START_RIGHT_SETTLE_MS: Final[int] = 120
+TURN_PRE_RELEASE_MS: Final[int] = 30
+TURN_PULSE_MS: Final[int] = 80
+TURN_SETTLE_MS: Final[int] = 90
+MAX_TURN_ATTEMPTS: Final[int] = 2
+
+OCCLUDED_COAST_SECONDS: Final[float] = 0.45
+LOCAL_REID_SECONDS: Final[float] = 6.0
+HARD_LOST_SECONDS: Final[float] = LOCAL_REID_SECONDS
+SHORT_OCCLUSION_SECONDS: Final[float] = OCCLUDED_COAST_SECONDS
+
+D0_DEADZONE_PX: Final[float] = 16.0
+D0_SIDE_SWITCH_THRESHOLD_PX: Final[float] = 20.0
+D0_SIDE_SWITCH_CONFIRM_FRAMES: Final[int] = 2
+D0_AXIS_SWITCH_MARGIN_PX: Final[float] = 6.0
+D0_DIRECTION_CONFIRM_FRAMES: Final[int] = D0_SIDE_SWITCH_CONFIRM_FRAMES
+
+REID_ACCEPT_SCORE: Final[float] = 0.68
+REID_MIN_APPEARANCE_SCORE: Final[float] = 0.45
+BACKGROUND_REJECT_SCORE: Final[float] = 0.72
+
+FIRST_LIVE_TEST_MAX_SECONDS: Final[float] = 80.0
+EMERGENCY_STOP_KEY: Final[str] = "F12"
+DEFAULT_FRAME_SECONDS: Final[float] = 0.5
+
+_CARDINAL_DIRECTIONS: Final[frozenset[str]] = frozenset(
+    {"LEFT", "RIGHT", "UP", "DOWN"}
+)
+
+
+def require_canonical_cell_size(value: int | float) -> int:
+    normalized = int(value)
+    if float(value) != float(CELL_SIZE_PX) or normalized != CELL_SIZE_PX:
+        raise ValueError(
+            f"KAGE_GRID_CELL_SIZE_IMMUTABLE: expected {CELL_SIZE_PX}px, got {value!r}"
+        )
+    return CELL_SIZE_PX
+
+
+class ObservationKind(str, Enum):
+    CLEAN_BODY = "CLEAN_BODY"
+    REIDENTIFIED_BODY = "REIDENTIFIED_BODY"
+    CONTAMINATED_ACTIVITY = "CONTAMINATED_ACTIVITY"
+    MULTI_CELL_BLOB = "MULTI_CELL_BLOB"
+    EMPTY = "EMPTY"
+    KO = "KO"
+
+
+class TargetState(str, Enum):
+    SEARCH = "SEARCH"
+    ATTENTION = "ATTENTION"
+    LOCKED = "LOCKED"
+    LOCKED_UNALIGNED = "LOCKED_UNALIGNED"
+    TURN_ALIGN = "TURN_ALIGN"
+    LOCKED_ALIGNED = "LOCKED_ALIGNED"
+    CONTACT_LOCK = "CONTACT_LOCK"
+    OCCLUDED_COAST = "OCCLUDED_COAST"
+    REID_LOCAL = "REID_LOCAL"
+    SUSPENDED = "SUSPENDED"
+    ENDED = "ENDED"
+
+
+class FacingSource(str, Enum):
+    STARTUP_RIGHT_PULSE = "STARTUP_RIGHT_PULSE"
+    EXCLUSIVE_TURN_TRANSACTION = "EXCLUSIVE_TURN_TRANSACTION"
+    VISUAL_PLAYER_CLASSIFIER = "VISUAL_PLAYER_CLASSIFIER"
+    UNKNOWN = "UNKNOWN"
+
+
+class MovementPulseProfile(str, Enum):
+    VERY_SHORT = "VERY_SHORT"
+    APPROACH = "APPROACH"
+
+    @property
+    def duration_ms(self) -> int:
+        return VERY_SHORT_PULSE_MS if self is MovementPulseProfile.VERY_SHORT else APPROACH_PULSE_MS
+
+
+@dataclass(frozen=True, order=True, slots=True)
+class GridCell:
+    x: int
+    y: int
+
+    def chebyshev_distance(self, other: "GridCell") -> int:
+        return max(abs(self.x - other.x), abs(self.y - other.y))
+
+    def is_adjacent_to(self, other: "GridCell") -> bool:
+        return self.chebyshev_distance(other) <= 1
+
+    def step_toward(self, other: "GridCell") -> "GridCell":
+        def step(delta: int) -> int:
+            return 0 if delta == 0 else (1 if delta > 0 else -1)
+
+        return GridCell(self.x + step(other.x - self.x), self.y + step(other.y - self.y))
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateObservation:
+    track_id: int
+    anchor_cell: GridCell
+    kind: ObservationKind
+    visible: bool = True
+    body_like: bool = True
+    confidence: float = 1.0
+    cells_touched: frozenset[GridCell] = field(default_factory=frozenset)
+    face_hint: str | None = None
+    bbox: tuple[int, int, int, int] | None = None
+    foot_point: tuple[float, float] | None = None
+    relative_offset_px: tuple[float, float] | None = None
+    identity_score: float = 0.0
+    appearance_score: float = 0.0
+    position_score: float = 0.0
+    shape_similarity: float = 0.0
+    motion_score: float = 0.0
+    background_probability: float = 0.0
+    reidentified: bool = False
+
+    def __post_init__(self) -> None:
+        if not 0.0 <= float(self.confidence) <= 1.0:
+            raise ValueError("confidence must be between 0 and 1")
+        for name in (
+            "identity_score",
+            "appearance_score",
+            "position_score",
+            "shape_similarity",
+            "motion_score",
+            "background_probability",
+        ):
+            value = float(getattr(self, name))
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(f"{name} must be between 0 and 1")
+        if not self.cells_touched:
+            object.__setattr__(self, "cells_touched", frozenset({self.anchor_cell}))
+        if self.face_hint is not None:
+            normalized = str(self.face_hint).upper()
+            if normalized not in _CARDINAL_DIRECTIONS:
+                raise ValueError(f"face_hint must be cardinal, got {self.face_hint!r}")
+            object.__setattr__(self, "face_hint", normalized)
+
+    @property
+    def is_single_cell(self) -> bool:
+        return len(self.cells_touched) == 1
+
+    @property
+    def is_clean_body(self) -> bool:
+        return (
+            self.kind is ObservationKind.CLEAN_BODY
+            and self.visible
+            and self.body_like
+            and self.is_single_cell
+            and self.background_probability < BACKGROUND_REJECT_SCORE
+        )
+
+    @property
+    def is_target_body(self) -> bool:
+        return self.is_clean_body or (
+            self.kind is ObservationKind.REIDENTIFIED_BODY
+            and self.visible
+            and self.reidentified
+            and self.identity_score >= REID_ACCEPT_SCORE
+            and self.appearance_score >= REID_MIN_APPEARANCE_SCORE
+            and self.background_probability < BACKGROUND_REJECT_SCORE
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CombatFrame:
+    frame_index: int
+    player_cell: GridCell
+    candidates: tuple[CandidateObservation, ...] = ()
+    ko_confirmed: bool = False
+    timestamp_seconds: float | None = None
+
+    def __post_init__(self) -> None:
+        if self.frame_index < 0:
+            raise ValueError("frame_index must be non-negative")
+        if self.timestamp_seconds is not None and self.timestamp_seconds < 0:
+            raise ValueError("timestamp_seconds must be non-negative")
+
+    @property
+    def effective_time_seconds(self) -> float:
+        if self.timestamp_seconds is not None:
+            return float(self.timestamp_seconds)
+        return float(self.frame_index) * DEFAULT_FRAME_SECONDS
+
+    @classmethod
+    def from_iterable(
+        cls,
+        frame_index: int,
+        player_cell: GridCell,
+        candidates: Iterable[CandidateObservation],
+        *,
+        ko_confirmed: bool = False,
+        timestamp_seconds: float | None = None,
+    ) -> "CombatFrame":
+        return cls(frame_index, player_cell, tuple(candidates), ko_confirmed, timestamp_seconds)
+
+
+@dataclass(frozen=True, slots=True)
+class CombatDecision:
+    frame_index: int
+    target_state: TargetState
+    combat_target_id: int | None
+    visual_track_id: int | None
+    confirmed_cell: GridCell | None
+    predicted_cell: GridCell | None
+    grid_distance: int | None
+    face: str | None
+    move: str | None
+    move_pulse_profile: MovementPulseProfile | None
+    move_pulse_ms: int | None
+    post_pulse_observe_ms: int
+    hold_r: bool
+    r_keydown_heartbeat_ms: int | None
+    press_h: bool
+    h_pulse_ms: int | None
+    h_cooldown_remaining_seconds: float
+    identity_score: float
+    appearance_score: float
+    background_probability: float
+    reidentified: bool
+    aim_requires_confirmation: bool
+    action_sequence: tuple[str, ...]
+    reason: str
+
+    raw_target_bearing: str | None = None
+    stable_target_bearing: str | None = None
+    bearing_confirmation_frames: int = 0
+    commanded_facing: str | None = None
+    confirmed_facing: str | None = None
+    facing_source: str = FacingSource.UNKNOWN.value
+    facing_confidence: float = 0.0
+    facing_age_seconds: float = 0.0
+    turn_attempt: int = 0
+    turn_confirmed: bool = False
+    turn_direction: str | None = None
+    r_authorized: bool = False
+    h_authorized: bool = False
+    orientation_invalidated_reason: str | None = None
+    contact_deadzone_active: bool = False
+    side_crossing_frames: int = 0
+    startup_right_pulse: bool = False
+    startup_right_duration_ms: int = 0
+    player_crop_saved: bool = False
+    h_cancel_reason: str | None = None
+
+
+def cardinal_face(player: GridCell, target: GridCell, previous: str | None = None) -> str | None:
+    dx = target.x - player.x
+    dy = target.y - player.y
+    if dx == 0 and dy == 0:
+        return previous
+
+    if abs(dx) == abs(dy) and previous in _CARDINAL_DIRECTIONS:
+        if previous == "LEFT" and dx < 0:
+            return previous
+        if previous == "RIGHT" and dx > 0:
+            return previous
+        if previous == "UP" and dy < 0:
+            return previous
+        if previous == "DOWN" and dy > 0:
+            return previous
+
+    if abs(dx) >= abs(dy):
+        return "RIGHT" if dx > 0 else "LEFT"
+    return "DOWN" if dy > 0 else "UP"
+
+
+def cardinal_move(player: GridCell, target: GridCell, previous: str | None = None) -> str | None:
+    face = cardinal_face(player, target, previous)
+    return None if face is None else face.lower()

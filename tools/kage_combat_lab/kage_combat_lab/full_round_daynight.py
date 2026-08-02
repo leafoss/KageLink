@@ -57,8 +57,10 @@ def main() -> int:
     sys.argv = [sys.argv[0], *_consume_transferred_startup_delay(sys.argv[1:])]
     install_runtime_facing_patch(full_round_module)
     install_inherited_post_ok_startup()
-    install_runtime_control_mode()
     install_runtime_engagement_recovery(full_round_module)
+    # Must remain last. EngagementRecoveryPhysical has direct baseline-R paths;
+    # the PR26 validation wrapper must surround them rather than be surrounded.
+    install_runtime_control_mode()
     mode = current_control_mode().value
     print("TRAINER: day-64 + night-64 enabled for post-combat return")
     print("POST_OK_GATE: confirmed; child inherits the one outer RIGHT pulse")

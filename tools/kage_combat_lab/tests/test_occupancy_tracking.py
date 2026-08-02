@@ -102,6 +102,11 @@ def _changed_frame(cell: GridCell) -> np.ndarray:
     return frame
 
 
+def _exact(tracker: PR26OccupancyTracker, baseline: np.ndarray, *cells: GridCell) -> None:
+    for cell in cells:
+        tracker.map.exact_baselines[cell] = baseline.copy()
+
+
 def test_bbox_coverage_never_masquerades_as_true_pixel_difference(
     tmp_path,
     monkeypatch,
@@ -144,6 +149,7 @@ def test_danger_identity_moves_to_unknown_occupied_cell(
     state, observer = _state_observer()
     first = GridCell(2, 0)
     second = GridCell(1, 0)
+    _exact(tracker, baseline, first, second)
 
     first_result = tracker.filter_candidates(
         frame_bgr=_changed_frame(first),
@@ -187,6 +193,7 @@ def test_perception_only_never_exports_cluster_candidate(
     tracker.bind_perception(_Perception(baseline))
     state, observer = _state_observer()
     cell = GridCell(2, 0)
+    _exact(tracker, baseline, cell)
 
     for index in range(3):
         result = tracker.filter_candidates(
@@ -213,7 +220,14 @@ def test_full_combat_waits_for_pixel_approach_and_contact(
     tracker = PR26OccupancyTracker(_config(tmp_path))
     tracker.bind_perception(_Perception(baseline))
     state, observer = _state_observer()
-    cells = [GridCell(3, 0), GridCell(3, 0), GridCell(2, 0), GridCell(1, 0), GridCell(0, 0)]
+    cells = [
+        GridCell(3, 0),
+        GridCell(3, 0),
+        GridCell(2, 0),
+        GridCell(1, 0),
+        GridCell(0, 0),
+    ]
+    _exact(tracker, baseline, *set(cells))
     exported = ()
     for index, cell in enumerate(cells):
         category = TileClass.DANGER if index == 0 else TileClass.UNKNOWN

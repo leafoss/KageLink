@@ -1,354 +1,185 @@
-# PR26.3 — ocupação real por pixels e identidade móvel de `DANGER`
+# PR26.5 — afinidade semântica `DANGER` e aquisição visual por baseline exata
 
-## Objetivo / Objective
+A PR26 continua empilhada sobre `agent/pr25-kage-combat-lab-64px`, permanece Draft e não altera os contratos físicos validados da PR25.
 
-A PR26.3 mantém a PR26 empilhada sobre a PR25, mas substitui a aquisição baseada em raw bbox e classificação momentânea por um mapa de ocupação real da grade de 64 px.
+## Falha física corrigida
 
-PR26.3 keeps PR26 stacked on PR25 and replaces raw-bbox/momentary classification acquisition with a real 64 px occupancy map.
-
-```text
-PR24 classifica lentamente o terreno
-→ true pixel diff identifica células ocupadas
-→ células adjacentes formam DANGER_CLUSTER
-→ DANGER cria uma identidade móvel
-→ FACE_ONLY_LOCK acompanha orientação
-→ aproximação em pixels confirma hostilidade
-→ HOSTILE_CONFIRMED cria COMBAT_LOCK
-→ Target Capsule + facing + chase + H
-```
-
-## Regra central
+O log da PR26.4 mostrou simultaneamente:
 
 ```text
-DANGER não pertence para sempre à célula.
-DANGER cria uma identidade.
-
-Quando a célula original volta a UNKNOWN/WALKABLE,
-mas uma célula próxima passa a estar ocupada,
-a identidade DANGER é transferida para o novo cluster.
+occupied=3 clusters=3
+danger=0 unknown=81
+cluster=None
+reason=no mobile DANGER identity
 ```
 
-## Verdade dos pixels
+A diferença real de pixels encontrava entidades visuais, mas nenhum cluster podia receber identidade porque `DANGER` ainda era um requisito obrigatório.
 
-As métricas são separadas:
+## Nova regra
 
 ```text
-true_changed_ratio
-bbox_coverage_ratio
+DANGER = prioridade forte, não requisito absoluto para reconhecer entidade
 ```
 
-`true_changed_ratio` somente pode vir de:
+Cada scan semântico agora preserva, mesmo quando a classe final é `UNKNOWN`:
+
+```text
+best_category
+best_similarity
+danger_similarity
+best_non_danger_similarity
+danger_margin
+```
+
+Níveis iniciais:
+
+```text
+DANGER_CONFIRMED: danger_similarity >= 0.90 e classe final DANGER
+DANGER_LIKELY:    danger_similarity >= 0.82 e danger_margin >= 0.04
+DANGER_WEAK:      danger_similarity >= 0.72
+```
+
+Esses níveis não confirmam hostilidade. Eles apenas priorizam clusters que já possuem foreground real.
+
+## Dois caminhos de lock visual
+
+### `DANGER_LOCK`
+
+Criado quando um cluster com `EXACT_CELL_BASELINE` recebe afinidade `DANGER` atual ou herdada.
+
+### `ENTITY_LOCK`
+
+Criado sem classificação perfeita de `DANGER` quando o cluster possui:
 
 ```text
 EXACT_CELL_BASELINE
-CLASS_REFERENCE
+componente real de pixels
+máscaras conectadas cardinalmente
+geometria máxima de 2x3 células / 6 células
+forma plausível
+persistência de 2 observações em 3
 ```
 
-`bbox_coverage_ratio` é apenas telemetria. Nunca cria ocupação, lock, facing ou autorização ofensiva.
+`ENTITY_LOCK` acompanha a entidade para validação de comportamento. Ele não autoriza ataque.
 
-A comparação real usa:
-
-- diferença de cor em Lab;
-- diferença de luminância;
-- diferença de bordas;
-- opening e closing morfológicos;
-- componentes conectados;
-- maior blob, largura e altura.
-
-Thresholds iniciais:
+## Autoridade ofensiva
 
 ```text
-weak:    0.04
-suspect: 0.08
-strong:  0.12
-blob mínimo: 180 px
-blob forte: 250 px
-largura mínima: 8 px
-altura mínima: 14 px
-```
-
-## Baseline
-
-Uma célula recebe `EXACT_CELL_BASELINE` somente após pelo menos cinco capturas estáveis por padrão.
-
-A baseline não é aprendida quando:
-
-- existe raw track visível sobre a célula;
-- a célula é `DANGER`, `PLAYER` ou `IGNORE_DYNAMIC`;
-- está próxima de um `DANGER` recém-classificado;
-- existe atividade temporal acima do limite;
-- a imagem diverge excessivamente da referência de terreno.
-
-Depois de aceita, a baseline fica congelada durante a rodada.
-
-Enquanto a baseline exata ainda não existe, é usada uma imagem real da PR24 como `CLASS_REFERENCE`, com peso reduzido. Para `DANGER` e `UNKNOWN`, o sistema procura a referência não perigosa visualmente mais próxima, em vez de escolher uma amostra arbitrária.
-
-## Mapa de ocupação
-
-Todas as células calibradas são comparadas em cada frame rápido, independentemente da existência de raw track.
-
-Cada célula recebe:
-
-```text
-EMPTY
-WEAK
-OCCUPIED
-```
-
-E registra:
-
-```text
-true_changed_ratio
-bbox_coverage_ratio
-diff_source
-largest_blob
-edge_delta
-color_delta
-occupancy_score
-danger_prior
-persistence
-```
-
-## Clusters
-
-Células ocupadas adjacentes são agrupadas:
-
-```text
-cabeça (7,0)
-tronco (7,1)
-pés   (7,2)
-→ DANGER_CLUSTER {(7,0),(7,1),(7,2)}
-```
-
-A posição da entidade é o centro inferior do cluster. A célula antiga não controla mais a orientação depois que fica vazia.
-
-Raw track IDs são evidência secundária. A identidade principal considera:
-
-- células compartilhadas;
-- distância entre foot points;
-- tempo entre frames;
-- velocidade máxima configurada;
-- raw IDs compartilhados quando disponíveis;
-- ocupação e prior de perigo.
-
-## Propagação de `DANGER`
-
-Uma classificação `DANGER >= 0.80` cria `DANGER_SEED`.
-
-O seed mantém memória por condição híbrida:
-
-```text
-2,5 segundos
-OU
-12 frames rápidos
-```
-
-A busca de continuidade cresce de acordo com o tempo decorrido:
-
-```text
-max_jump = ceil(delta_time × max_speed_cells_per_second)
-```
-
-Quando um cluster descendente de `DANGER` entra em uma célula `UNKNOWN` ou `WALKABLE`, ele mantém seu `danger_score` e gera:
-
-```text
-PR26_DANGER_MOVED id=... from=... to=...
-```
-
-## Locks
-
-### `ATTENTION_LOCK`
-
-Criado pelo seed `DANGER`. Mantém memória e procura ocupação compatível.
-
-Sem autoridade física.
-
-### `FACE_ONLY_LOCK`
-
-Criado após duas observações válidas dentro de três frames.
-
-Usa o foot point atual do cluster e deadzone de 12 px.
-
-Autoridade:
-
-```text
-TURN permitido somente no modo FACE_ONLY
-MOVE bloqueado
-R bloqueado
-H bloqueado
-```
-
-### `COMBAT_LOCK`
-
-A aproximação é medida em pixels. Exige inicialmente:
-
-```text
-3 reduções nas últimas 5 observações
-redução total >= 32 px
-```
-
-Depois, contato em `D<=1` ou dentro da distância física configurada confirma:
-
-```text
-HOSTILE_CONFIRMED
+DANGER_LOCK ou ENTITY_LOCK
+→ observar distância em pixels
+→ aproximação autônoma consistente
+→ HOSTILE_PROBABLE
+→ contato confirmado
+→ HOSTILE_CONFIRMED
 → COMBAT_LOCK
 ```
 
-Somente em `FULL_COMBAT` o candidato é enviado à PR25.
+Somente `COMBAT_LOCK` no modo `FULL_COMBAT` entrega o candidato à PR25.
+
+## Baseline antes do OK
+
+A baseline exata agora é capturada com o diálogo validado ainda aberto:
+
+```text
+diálogo confirmado
+→ bloquear toda entrada física
+→ capturar baseline limpa
+→ salvar baseline temporária
+→ clicar no OK validado
+→ manter SpawnDelay normal
+→ inimigo nasce
+→ processo filho carrega baseline pré-OK
+```
+
+Assim, o inimigo não pode ser incorporado à referência de chão durante a janela de spawn.
+
+## Isolamento de desempenho
+
+Em `PERCEPTION_ONLY` e `FACE_ONLY`, o detector de templates do treinador é suspenso durante o runtime de percepção. A busca do treinador continua ativa no processo externo antes da luta. Em `FULL_COMBAT`, o retorno pós-KO continua preservado.
+
+## Telemetria por cluster
+
+Cada cluster gera:
+
+```text
+PR26_CLUSTER_CANDIDATE
+local_id
+cells
+bbox
+foot point
+true_changed_ratio
+occupancy_score
+danger_level
+danger_similarity
+danger_margin
+raw track IDs
+distance to player
+persistence
+```
+
+Legenda do overlay:
+
+```text
+DC = DANGER_CONFIRMED
+DL = DANGER_LIKELY
+DW = DANGER_WEAK_PRIOR
+-- = nenhuma afinidade DANGER
+```
+
+O cabeçalho informa se o ativo é `DANGER_LOCK` ou `ENTITY_LOCK`.
 
 ## Modos de segurança
 
-### `PERCEPTION_ONLY` — padrão
+```text
+PERCEPTION_ONLY: TURN/MOVE/R/H bloqueados
+FACE_ONLY: TURN somente após lock validado; MOVE/R/H bloqueados
+FULL_COMBAT: HOSTILE_CONFIRMED obrigatório para COMBAT_LOCK
+```
+
+IDs sintéticos negativos e candidatos apenas de tile continuam sem autoridade ofensiva.
+
+## Validação automática
 
 ```text
-TURN bloqueado
-MOVE bloqueado
-R bloqueado
-H bloqueado
+139 testes pytest
+15 cenários determinísticos da PR25
+parsing dos dois launchers PowerShell
 ```
 
-Serve para validar pixels, clusters e propagação sem risco de movimento.
+Os testes novos cobrem:
 
-### `FACE_ONLY`
+- `UNKNOWN` mantendo `DANGER_LIKELY`;
+- `UNKNOWN` mantendo `DANGER_WEAK_PRIOR`;
+- prioridade completa para `DANGER_CONFIRMED`;
+- cluster humanoide com baseline exata elegível a `ENTITY_LOCK`;
+- `CLASS_REFERENCE` inelegível;
+- cluster grande demais inelegível;
+- suspensão do treinador em `PERCEPTION_ONLY`;
+- preservação do treinador em `FULL_COMBAT`;
+- captura pré-OK e SpawnDelay pós-OK preservado.
 
-```text
-TURN permitido
-MOVE bloqueado
-R bloqueado
-H bloqueado
-```
+## Próxima validação física
 
-Serve para validar a orientação antes do combate.
-
-### `FULL_COMBAT`
-
-Disponível explicitamente, mas não deve ser utilizado até os dois modos anteriores serem aprovados fisicamente.
-
-## Pipeline lento e rápido
-
-```text
-PR24 semantic classification: aproximadamente 1 vez por segundo
-pixel occupancy / clusters / tracking: em todos os frames do runtime
-```
-
-A PR24 cria ou reforça seeds. O tracking rápido não depende de reclassificação semântica em cada frame.
-
-## Evidências
-
-A cada intervalo configurado, as cinco células mais relevantes são salvas em:
-
-```text
-kage_pilot_loop_logs/occupancy_evidence/frame_XXXXXX/
-```
-
-Arquivos:
-
-```text
-cell_x_y_baseline.png
-cell_x_y_current.png
-cell_x_y_diff.png
-cell_x_y_mask.png
-overlay.png
-metadata.json
-```
-
-O `metadata.json` registra classe, confiança, origem do diff, `true_changed_ratio`, cobertura da bbox, blob, ocupação e prior de perigo.
-
-## Preflight
-
-```powershell
-.\run_pr26_tile_combat.ps1 -PreflightOnly
-```
-
-Valida:
-
-- grade imutável de 64 px;
-- calibração e conhecimento PR24;
-- exemplos `DANGER`;
-- imagens reais de referência;
-- thresholds de pixels e blobs;
-- memória móvel de perigo;
-- modo físico selecionado.
-
-## Primeira validação física
+Executar somente:
 
 ```powershell
 .\run_pr26_tile_combat.ps1 `
   -PerceptionOnly `
   -Rounds 1 `
-  -CombatSeconds 60 `
+  -CombatSeconds 30 `
   -PostCombatTimeout 240 `
   -DialogDelay 5 `
   -SpawnDelay 5 `
   -TrainerSearchTimeout 90 `
   -HostilityOverlay
-```
-
-O personagem não pode enviar nenhuma tecla de combate. Avaliar:
-
-```text
-PR26_DANGER_SEED
-PR26_DANGER_MOVED
-PR26_OCCUPANCY_STATE
-PR26_MOBILE_DANGER
-PR26_EVIDENCE_SAVED
 ```
 
 Critérios:
 
-- chão estável próximo de zero;
-- inimigo com máscara conectada;
-- `true_changed_ratio` diferente de `bbox_coverage_ratio`;
-- cluster acompanhando o inimigo;
-- identidade mantida após `DANGER → UNKNOWN/WALKABLE`;
-- célula antiga vazia não controlando o foot point.
-
-## Segunda validação física
-
-Somente após aprovação do modo anterior:
-
-```powershell
-.\run_pr26_tile_combat.ps1 `
-  -FaceOnly `
-  -Rounds 1 `
-  -CombatSeconds 60 `
-  -PostCombatTimeout 240 `
-  -DialogDelay 5 `
-  -SpawnDelay 5 `
-  -TrainerSearchTimeout 90 `
-  -HostilityOverlay
-```
-
-Aceitação:
-
-- orientação correta em pelo menos 90% das observações válidas;
-- nenhum MOVE, R ou H;
-- ambiguidade bloqueia o giro;
-- o facing usa o cluster atual, não a célula original.
-
-## Contratos preservados
-
 ```text
-1 célula = 64 × 64 px
-pulso de aproximação PR25 = 100 ms
-pulso H = 50 ms
-cooldown H = 5 s
-F12 como parada imediata
-KO pelo chat
-Trainer day/night
-meditação mínima de 5,25 s
-fluxo pós-combate
+PR26_PREOK_BASELINE complete antes de DOJO_DIALOG_OK_CLICKED
+PR26_PREOK_BASELINE_LOADED depois do spawn
+PR26_CLUSTER_CANDIDATE para os clusters reais
+pelo menos um cluster persistente chegando a PR26_DANGER_LOCK ou PR26_ENTITY_LOCK
+zero TURN/MOVE/R/H
 ```
-
-## Testes
-
-A suíte inclui:
-
-- bbox grande com pixels iguais produz `true_changed_ratio=0`;
-- `bbox_coverage_ratio` nunca vira diferença de pixels;
-- `DANGER → UNKNOWN ocupado` transfere a identidade;
-- troca de raw track ID não destrói o cluster;
-- `PERCEPTION_ONLY` nunca exporta candidato;
-- `FACE_ONLY` bloqueia ações não relacionadas ao giro;
-- `FULL_COMBAT` aguarda aproximação e contato;
-- candidatos sintéticos negativos permanecem sem autoridade.

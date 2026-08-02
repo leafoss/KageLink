@@ -43,6 +43,10 @@ def main() -> int:
         install_near_enemy_focus_physical_gate,
         install_near_enemy_focus_tracking,
     )
+    from .runtime_round_diagnostics import (
+        RoundRuntimeDiagnostics,
+        install_round_runtime_diagnostics,
+    )
     from .runtime_semantic_entity import install_semantic_entity_priority
     from .runtime_startup_inherited import install_inherited_post_ok_startup
     from .runtime_tile_perception import (
@@ -50,9 +54,6 @@ def main() -> int:
         install_runtime_tile_perception,
     )
 
-    # PR24 is a slow semantic prior. The camera-compensated pixel tracker is the
-    # fast authority and must not be forced back to a full 474-example scan on
-    # nearly every physical frame.
     os.environ.setdefault("KAGE_PR26_PR24_INTERVAL_SECONDS", "2.0")
 
     install_runtime_mask_cluster_guard()
@@ -61,7 +62,7 @@ def main() -> int:
     install_runtime_camera_compensation()
     install_near_enemy_focus_tracking()
     install_combat_target_continuity_tracking()
-    tile_perception = install_runtime_tile_perception(
+    install_runtime_tile_perception(
         live_bridge_module,
         full_round_module,
     )
@@ -71,77 +72,66 @@ def main() -> int:
     install_runtime_engagement_recovery(full_round_module)
     install_runtime_control_mode()
     install_near_enemy_focus_physical_gate()
-    # This must remain the outermost physical boundary. Memory-only target
-    # states retain identity/R/facing but can never move or fire H.
     install_combat_target_continuity_physical_gate()
+    install_round_runtime_diagnostics()
 
     mode = current_control_mode().value
     print("TRAINER: day-64 + night-64 retained for outer request and FULL_COMBAT post-KO")
     print("POST_OK_GATE: confirmed; baseline was captured before trainer click and spawn wait completed")
     print(
-        f"PR26.9 CLEAN BASELINE: stored={baseline_count} "
+        f"PR26.12 CLEAN BASELINE: stored={baseline_count} "
         "source=BEFORE_TRAINER_CLICK frozen_during_combat=true"
     )
-    print("ENGAGEMENT: physical authority is controlled by PR26.9 validation mode")
+    print("ENGAGEMENT: physical authority is controlled by PR26.12 validation mode")
     print(
-        "PR26.9 CAMERA: absolute phase registration aligns the frozen world baseline "
+        "PR26.12 CAMERA: absolute phase registration aligns the frozen world baseline "
         "to the current screen; uncertain alignment blocks all authority"
     )
     print(
-        "PR26.9 SEARCH RADIUS: initial acquisition and all reacquisition remain "
+        "PR26.12 SEARCH RADIUS: initial acquisition and all reacquisition remain "
         "inside Chebyshev D<=3 from the player"
     )
     print(
-        "PR26.9 ROUND TARGET: first COMBAT_LOCK latches one hostile identity until KO; "
+        "PR26.12 ROUND TARGET: first COMBAT_LOCK latches one hostile identity until KO; "
         "score challengers cannot replace it during contact, animation or occlusion"
     )
     print(
-        "PR26.9 TARGET CAPSULE: raw candidates are enriched before occupancy filtering; "
+        "PR26.12 REPLAY: first successful source capture is written before observer "
+        "processing; MP4/AVI/PNG fallback remains enabled"
+    )
+    print(
+        "PR26.12 DIAGNOSTICS: complete child console, recorder bootstrap/final JSON "
+        "and round_result.json are always written"
+    )
+    print(
+        "PR26.12 TARGET CAPSULE: raw candidates are enriched before occupancy filtering; "
         "ReID expands progressively D1 -> D2 -> D3"
     )
     print(
-        "PR26.9 CONTACT OVERLAP: after hostile lock the player exclusion shrinks to a "
+        "PR26.12 CONTACT OVERLAP: after hostile lock the player exclusion shrinks to a "
         "22x42 core so overlapping enemy pixels are not erased"
     )
     print(
-        "PR26.9 REID: Target Capsule evidence or a compact local exact-baseline pixel "
-        "cluster may restore the same stable target ID"
-    )
-    print(
-        "PR26.9 MEMORY SAFETY: CONTACT_MEMORY, REID_PENDING and OUTSIDE_D3 preserve "
+        "PR26.12 MEMORY SAFETY: CONTACT_MEMORY, REID_PENDING and OUTSIDE_D3 preserve "
         "identity and facing memory while MOVE/H remain physically blocked"
     )
-    # HOSTILE_CONFIRMED -> COMBAT_LOCK remains the only offensive transition.
     print(
-        "PR26.9 AUTHORITY: HOSTILE_CONFIRMED -> COMBAT_LOCK -> "
+        "PR26.12 AUTHORITY: HOSTILE_CONFIRMED -> COMBAT_LOCK -> "
         "Target Capsule + facing + chase + H"
     )
     print(
-        "PR26.9 ARTIFACTS: wide non-humanoid fields, proportional horizontal bands "
-        "and multi-cell edge columns cannot become entities"
-    )
-    print(
-        "PR26.9 CONTINUITY: raw IDs require bbox/mask overlap and never authorize "
-        "teleportation; camera-compensated target geometry survives temporary loss"
-    )
-    print(
-        "PR26.9 PIXEL TRUTH: EXACT_CELL_BASELINE is camera-aligned and frozen; "
-        "CLASS_REFERENCE remains weak attention only"
-    )
-    print(
-        "PR26.9 CLUSTER: CELL_SIZE=64x64; cardinal mask contact only; "
-        "humanoid limit=2x3 cells / 6 total; player core removed"
-    )
-    print(
-        f"PR26.9 MODE={mode}: PERCEPTION_ONLY blocks TURN/MOVE/R/H; "
+        f"PR26.12 MODE={mode}: PERCEPTION_ONLY blocks TURN/MOVE/R/H; "
         "FACE_ONLY allows TURN only; FULL_COMBAT requires current visual confirmation"
     )
-    # tile-only and negative synthetic candidates have zero offensive authority
     print(
-        "PR26.9 SAFETY: camera uncertainty, memory-only states, tile-only candidates "
+        "PR26.12 SAFETY: camera uncertainty, memory-only states, tile-only candidates "
         "and negative synthetic candidates have zero offensive authority"
     )
-    return int(full_round_module.main())
+
+    with RoundRuntimeDiagnostics() as diagnostics:
+        exit_code = int(full_round_module.main())
+        diagnostics.finish(exit_code)
+        return exit_code
 
 
 if __name__ == "__main__":

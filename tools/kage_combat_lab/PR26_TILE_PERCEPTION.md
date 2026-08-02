@@ -1,6 +1,6 @@
 # PR26.5 — afinidade semântica `DANGER` e aquisição visual por baseline exata
 
-A PR26 continua empilhada sobre `agent/pr25-kage-combat-lab-64px`, permanece Draft e não altera os contratos físicos validados da PR25.
+Este trabalho mantém a PR26 empilhada sobre a PR25, especificamente sobre `agent/pr25-kage-combat-lab-64px`, permanece Draft e não altera os contratos físicos validados da PR25.
 
 ## Falha física corrigida
 

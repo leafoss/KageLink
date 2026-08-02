@@ -25,6 +25,23 @@ param(
 
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$RepoRoot = (Resolve-Path (Join-Path $Root "..\..")).Path
+$PcAgentRoot = Join-Path $RepoRoot "KageLink Installer\pc_agent"
+
+if (-not (Test-Path $PcAgentRoot)) {
+    throw "Full KageLink checkout required. Missing: $PcAgentRoot"
+}
+
+$PythonPaths = @($Root, $PcAgentRoot)
+$env:PYTHONPATH = ($PythonPaths -join [IO.Path]::PathSeparator)
+
+$Python = Get-Command python -ErrorAction SilentlyContinue
+if (-not $Python) {
+    $Python = Get-Command py -ErrorAction SilentlyContinue
+}
+if (-not $Python) {
+    throw "Python 3 was not found. Install Python or add it to PATH."
+}
 
 $SelectedModeCount = @(
     @($PerceptionOnly.IsPresent, $FaceOnly.IsPresent, $ControlEnabled.IsPresent) |
@@ -99,13 +116,22 @@ Write-Host "  Sprite references: $SpriteRoot"
 Write-Host "  Debug frames: $(-not $NoDebugFrames)"
 Write-Host "  Debug window: $($DebugOverlay.IsPresent)"
 
-& (Join-Path $Root "run_kage_combat_lab.ps1") `
-    -FullLoop `
-    -Rounds ([Math]::Max(1, $Rounds)) `
-    -CombatSeconds ([Math]::Max(10, $CombatSeconds)) `
-    -PostCombatTimeout ([Math]::Max(30, $PostCombatTimeout)) `
-    -DialogDelay ([Math]::Max(0, $DialogDelay)) `
-    -SpawnDelay ([Math]::Max(1, $SpawnDelay)) `
-    -TrainerSearchTimeout ([Math]::Max(10, $TrainerSearchTimeout))
+$Arguments = @(
+    "-m", "kage_combat_lab.full_loop_pr27",
+    "--rounds", "$([Math]::Max(1, $Rounds))",
+    "--combat-seconds", "$([Math]::Max(10, $CombatSeconds))",
+    "--post-combat-timeout", "$([Math]::Max(30, $PostCombatTimeout))",
+    "--dialog-delay", "$([Math]::Max(0, $DialogDelay))",
+    "--spawn-delay", "$([Math]::Max(1, $SpawnDelay))",
+    "--trainer-search-timeout", "$([Math]::Max(10, $TrainerSearchTimeout))"
+)
 
-exit $LASTEXITCODE
+Push-Location $PcAgentRoot
+try {
+    & $Python.Source @Arguments
+    $ExitCode = $LASTEXITCODE
+}
+finally {
+    Pop-Location
+}
+exit $ExitCode

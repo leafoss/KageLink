@@ -96,6 +96,7 @@ class GridCell:
 class CellBaseline:
     cell: GridCell
     image: np.ndarray
+    lab_image: np.ndarray
     captured_at: float
     valid: bool = True
     stability_score: float = 0.0
@@ -160,6 +161,10 @@ class SpriteObservation:
     def center(self) -> tuple[float, float]:
         left, top, width, height = self.native_bbox
         return left + width / 2.0, top + height / 2.0
+
+    @property
+    def pixel_count(self) -> int:
+        return sum(fragment.pixel_count for fragment in self.fragments)
 
 
 @dataclass(slots=True)
@@ -233,15 +238,26 @@ class PR27Config:
     pixel_delta_threshold: int = 18
     changed_ratio_threshold: float = 0.035
     uncertain_ratio_threshold: float = 0.018
-    minimum_component_area: int = 14
+    minimum_component_area: int = 28
+    minimum_fragment_pixels: int = 28
+    minimum_fragment_width: int = 4
+    minimum_fragment_height: int = 6
+    minimum_observation_pixels: int = 72
+    maximum_fragments_per_group: int = 32
     morphology_kernel: int = 3
     scene_changed_cell_ratio: float = 0.42
     scene_changed_min_cells: int = 8
     scene_stable_frames: int = 3
     fragment_join_gap_px: int = 10
     association_min_score: float = 0.48
-    maximum_track_cell_step: int = 2
+    target_association_min_score: float = 0.32
+    target_minimum_appearance: float = 0.42
+    maximum_track_cell_step: int = 3
     maximum_missing_frames: int = 3
+    target_missing_grace_frames: int = 10
+    target_focus_radius_cells: int = 3
+    global_reacquire_interval_frames: int = 8
+    maximum_active_tracks: int = 24
     player_anchor_x_ratio: float = 0.50
     player_anchor_y_ratio: float = 0.54
     player_anchor_radius_px: float = 58.0
@@ -260,10 +276,29 @@ class PR27Config:
             max(0.0, float(self.uncertain_ratio_threshold)),
         )
         self.minimum_component_area = max(1, int(self.minimum_component_area))
+        self.minimum_fragment_pixels = max(self.minimum_component_area, int(self.minimum_fragment_pixels))
+        self.minimum_fragment_width = max(1, int(self.minimum_fragment_width))
+        self.minimum_fragment_height = max(1, int(self.minimum_fragment_height))
+        self.minimum_observation_pixels = max(self.minimum_fragment_pixels, int(self.minimum_observation_pixels))
+        self.maximum_fragments_per_group = max(4, int(self.maximum_fragments_per_group))
         self.morphology_kernel = max(1, int(self.morphology_kernel) | 1)
         self.scene_changed_cell_ratio = min(1.0, max(0.05, float(self.scene_changed_cell_ratio)))
         self.scene_changed_min_cells = max(2, int(self.scene_changed_min_cells))
         self.scene_stable_frames = max(2, int(self.scene_stable_frames))
+        self.association_min_score = min(1.0, max(0.05, float(self.association_min_score)))
+        self.target_association_min_score = min(
+            self.association_min_score,
+            max(0.05, float(self.target_association_min_score)),
+        )
+        self.target_minimum_appearance = min(1.0, max(0.0, float(self.target_minimum_appearance)))
+        self.maximum_track_cell_step = max(1, int(self.maximum_track_cell_step))
         self.maximum_missing_frames = max(1, int(self.maximum_missing_frames))
+        self.target_missing_grace_frames = max(
+            self.maximum_missing_frames,
+            int(self.target_missing_grace_frames),
+        )
+        self.target_focus_radius_cells = max(1, int(self.target_focus_radius_cells))
+        self.global_reacquire_interval_frames = max(2, int(self.global_reacquire_interval_frames))
+        self.maximum_active_tracks = max(4, int(self.maximum_active_tracks))
         self.enemy_confirm_frames = max(2, int(self.enemy_confirm_frames))
         return self

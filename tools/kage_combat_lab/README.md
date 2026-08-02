@@ -1,206 +1,153 @@
 # Kage Combat Lab
 
-Laboratório determinístico, input real e loop completo do Dojo da PR #25.
+Laboratório determinístico, adapter de combate real e loop completo do Dojo da PR #25.
 
 ## Contratos protegidos
 
 ```text
 1 célula lógica = 64×64 pixels
 posição desejada = D0
-R = key-down renovado a cada 250 ms, somente com autoridade
-H = toque de 50 ms, cooldown mínimo de 5 s
+R = postura básica contínua, heartbeat de 250 ms durante o combate
+H = toque de 50 ms, cooldown mínimo de 5 s e autoridade estrita de alvo/orientação
 F12 = parada imediata e liberação de todas as teclas
 ```
 
-## Início obrigatório virado para a direita
-
-O pulso inicial ocorre exatamente depois do OK/refoco e antes da espera de spawn:
+## Início da luta
 
 ```text
 DOJO_DIALOG_OK_CLICKED
-→ refocar a janela do jogo
-→ liberar todas as teclas
-→ aguardar 300 ms
+→ refocar jogo
 → RIGHT sozinho por 90 ms
-→ liberar RIGHT
-→ aguardar 120 ms
-→ WAITING_FOR_SPAWN
+→ aguardar spawn
+→ iniciar processo da luta
+→ R_BASELINE_STARTED
 ```
 
-O processo filho recebe `--pr25-post-ok`, herda `confirmed_facing=RIGHT` e não envia um segundo pulso.
+O pulso RIGHT ocorre uma única vez depois do OK. O processo filho herda `confirmed_facing=RIGHT`, não repete o pulso e inicia imediatamente o heartbeat básico de R.
 
-## Autoridade explícita de orientação
+## Separação de autoridades
 
-São mantidos separadamente:
-
-```text
-raw_target_bearing
-stable_target_bearing
-commanded_facing
-confirmed_facing
-```
-
-Enviar uma direção não confirma automaticamente a orientação.
-
-Estados de orientação:
+R e H não representam a mesma permissão:
 
 ```text
-SEARCH
-ATTENTION
-OCCLUDED_COAST
-REID_LOCAL
-LOCKED_UNALIGNED
+SEARCH / ATTENTION / REID_LOCAL
+    R básico ativo
+    H bloqueado
+    movimento direcional bloqueado
+
 TURN_ALIGN
-LOCKED_ALIGNED
-CONTACT_LOCK
-ENDED
+    R temporariamente liberado
+    direção exclusiva por 80 ms
+    H bloqueado
+
+LOCKED_ALIGNED / CONTACT_LOCK
+    R ativo
+    chase autorizado
+    H autorizado conforme alcance e cooldown
+
+KO / ENDED
+    todas as teclas liberadas
 ```
 
-Autoridade:
+Isso evita o personagem permanecer imóvel enquanto o detector ainda está adquirindo o inimigo, sem voltar a permitir H ou perseguição cega.
+
+## Aquisição tolerante a ruído
+
+A aquisição continua exigindo duas evidências, mas elas não precisam mais ser perfeitamente consecutivas.
 
 ```text
-SEARCH / ATTENTION / OCCLUDED_COAST / REID_LOCAL → R OFF, H OFF
-TURN_ALIGN / LOCKED_UNALIGNED                   → R OFF, H OFF
-LOCKED_ALIGNED / CONTACT_LOCK                   → R autorizado
-ENDED / KO                                      → todas as teclas liberadas
+primeiro CLEAN_BODY
+→ ATTENTION por até 1,60 s
+→ um frame ruim não apaga a hipótese
+→ segundo CLEAN_BODY confirma o lock
 ```
 
-## Giro e ataque em frames separados
+O mesmo raw track também pode completar a segunda evidência quando estiver:
 
-```text
-Frame A — TURN_ALIGN
-liberar R e direcionais
-→ aguardar 30 ms
-→ direção sozinha por 80 ms
-→ liberar direção
-→ aguardar 90 ms
+- visível;
+- na mesma região local;
+- com movimento independente suficiente;
+- abaixo do limite de background;
+- fora da classe multicell;
+- com confiança mínima.
 
-Frame B — confirmação
-reobservar o alvo
-→ aceitar ou rejeitar o giro
-→ manter R/H desligados durante o frame de confirmação
+Tracks estáticos, regiões de fundo e tracks diferentes não recebem essa promoção.
 
-Frame C — ataque
-alvo ainda visível e bearing compatível
-→ R autorizado
-→ H autorizado quando cooldown e alcance permitirem
-```
-
-Máximo de duas tentativas. Giro falho não consome o cooldown de H.
-
-## Contact Lock em D0
-
-```text
-deadzone = 16 px
-troca de lado = pelo menos 20 px
-confirmação da troca = 2 frames
-margem para trocar de eixo = 6 px
-```
-
-Dentro da deadzone, não há microchase nem inversão de facing. Pequenas variações do bounding box deixam de produzir `LEFT → RIGHT → LEFT`.
-
-## Invalidação por empurrão
-
-A orientação aceita é invalidada quando houver evidência de:
-
-```text
-KNOCKBACK
-TARGET_CROSSED_PLAYER
-BEARING_JUMP
-AIM_UNCONFIRMED
-```
-
-Após invalidação, R e H são desligados e o sistema retorna ao `TURN_ALIGN`.
-
-## Target Capsule e ReID
-
-O raw `track_id` continua descartável. A rodada preserva um `logical_target_id` e memória visual temporária:
-
-```text
-kage_pilot_loop_logs\target_cache\round_001\
-├── target_session.json
-├── exemplar_001.png
-├── descriptor_001.npz
-└── ...
-```
-
-Score de ReID:
-
-```text
-35% aparência
-25% posição prevista
-15% tamanho e formato
-15% movimento independente da câmera
-10% foreground
-```
-
-Perda visual:
+## Perda visual e ReID
 
 ```text
 LOCKED
-→ OCCLUDED_COAST por até 0,45 s, com R/H desligados
-→ REID_LOCAL por até 6 s, sem perseguição cega
+→ OCCLUDED_COAST por até 1,25 s
+→ REID_LOCAL por até 6 s
 → SEARCH somente após hard lost
 ```
 
-A memória negativa do ambiente continua reduzindo falsas aquisições de chão, água, decoração e partículas.
+O valor de 1,25 s cobre uma captura ausente no FPS físico observado. Durante o coast:
 
-## Dataset futuro de orientação do jogador
+- R permanece ativo;
+- apenas uma microcorreção de 50 ms na última direção é permitida;
+- H permanece proibido.
 
-Após giros exclusivos confirmados, recortes confiáveis de 64×64 são salvos em:
+Durante `REID_LOCAL`, R básico permanece ativo, mas não há movimento nem H.
+
+## CHASE_ALWAYS_ON
+
+| Distância | Perseguição | H |
+|---|---|---|
+| `D=0` | Contact Lock com deadzone de 16 px | Somente com facing confirmado |
+| `D>=1` | Aproximação de 100 ms em frame confiável | Permitido até D50 |
+| `D>50` | Continua perseguindo | Bloqueado por alcance |
+
+## Target Capsule por rodada
+
+O `track_id` do OpenCV é descartável. A rodada mantém um `logical_target_id` e salva memória visual temporária em:
 
 ```text
-KageLink Installer\pc_agent\kage_pilot_loop_logs\player_facing_dataset\
-├── right\
-├── left\
-├── up\
-└── down\
+kage_pilot_loop_logs\target_cache\round_001\
 ```
 
-Cada PNG possui JSON associado com round, frame, direção, fonte, confiança e contaminação. Recortes com baixa confiança, muito movimento ou sobreposição do inimigo são rejeitados.
+A Target Capsule, o ReID e a memória negativa do ambiente permanecem ativos.
 
-## Vídeos de diagnóstico
+## Trainer dia/noite
 
-Clipes com aproximadamente cinco segundos antes e cinco depois são criados para:
+As referências `day-64` e `night-64` continuam ativas na busca inicial, no retorno pós-combate e na autorização visual da meditação.
+
+## Diagnóstico
+
+Logs:
 
 ```text
-STARTUP_RIGHT_PULSE
-TURN_ALIGN_STARTED
-TURN_ALIGN_CONFIRMED
-TURN_ALIGN_FAILED
-AIM_UNCONFIRMED
-FACING_INVALIDATED
-R_AUTHORITY_CHANGED
-CONTACT_SIDE_SWITCH
-TARGET_HARD_LOST
-REID_SUCCESS
-DIRECTION_FLIP
+KageLink Installer\pc_agent\kage_pilot_loop_logs\round_001.jsonl
 ```
 
-Local:
+Campos adicionais desta correção:
+
+```text
+r_baseline_active
+engagement_policy
+```
+
+Ações esperadas durante aquisição:
+
+```text
+R_BASELINE,H_BLOCKED_WAITING_FOR_TARGET_OR_ALIGNMENT
+```
+
+Quando alinhado:
+
+```text
+R_AUTHORIZED
+MOVE_<DIRECTION>_100MS
+H_50MS
+```
+
+Vídeos de evento:
 
 ```text
 KageLink Installer\pc_agent\kage_pilot_loop_logs\event_videos\round_001\
 ```
 
-O overlay mostra estado, alvo lógico, raw track, D, raw/stable bearing, commanded/confirmed facing, confiança, tentativa de giro, autoridade de R/H e causa da invalidação.
-
-## Trainer e recuperação
-
-`day-64` e `night-64` continuam ativos na busca inicial, retorno pós-combate e confirmação visual da meditação.
-
-Preservado:
-
-```text
-KO autoritativo pelo chat
-retorno ao Trainer
-meditação V/Y
-HP >= 90%
-Chakra >= 50%
-intervalo mínimo de 5,25 s antes do segundo V
-```
-
-## Testes determinísticos
+## Testes
 
 ```powershell
 cd "C:\Users\Rafael\Desktop\Powershell\Kagelink2\tools\kage_combat_lab"
@@ -209,30 +156,30 @@ cd "C:\Users\Rafael\Desktop\Powershell\Kagelink2\tools\kage_combat_lab"
 
 ## Teste físico inicial
 
+Comece com uma rodada:
+
 ```powershell
-.\run_kage_combat_lab.ps1 -FullLoop -Rounds 3
+.\run_kage_combat_lab.ps1 -FullLoop -Rounds 1
 ```
 
-Fluxo:
+Depois de confirmar `R_BASELINE_STARTED`, aquisição e chase, avance para três rodadas.
+
+O loop completo continua:
 
 ```text
 Trainer
-→ diálogo/OK
-→ RIGHT antes do spawn
-→ aquisição com R desligado
-→ alinhamento exclusivo
-→ combate autorizado
-→ KO
+→ diálogo e OK
+→ RIGHT
+→ spawn
+→ R baseline
+→ aquisição
+→ alinhamento
+→ combate
+→ KO pelo chat
 → retorno
-→ meditação
+→ meditação protegida por 5,25 s
 → recuperação
-→ próxima rodada
+→ READY
 ```
 
-Logs:
-
-```text
-KageLink Installer\pc_agent\kage_pilot_loop_logs\round_001.jsonl
-```
-
-Use F12 diante de alvo incorreto, input inesperado, ataque após KO ou falha de retorno/meditação.
+Use F12 diante de qualquer sequência inesperada.

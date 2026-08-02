@@ -23,6 +23,7 @@ def prime_pre_spawn_baselines(argv: Iterable[str]) -> int:
         return 0
 
     import kage_pilot_live_v03 as live_runtime
+    import kage_pilot_live_v03k_round as validated_round
 
     from pc_agent.kage_pilot.entity_observer import decode_jpeg
     from pc_agent.kage_pilot.observer_runtime_v03 import V03ObserverConfig
@@ -38,7 +39,8 @@ def prime_pre_spawn_baselines(argv: Iterable[str]) -> int:
     if gate is None or perception is None:
         raise RuntimeError("PR26_PRESPAWN_RUNTIME_NOT_INSTALLED")
 
-    args = live_runtime.build_parser().parse_args(list(argv))
+    _, public_args = validated_round._extract_internal_args(list(argv))
+    args = live_runtime.build_parser().parse_args(public_args)
     observer_config = V03ObserverConfig(
         player_x=args.player_x,
         player_y=args.player_y,

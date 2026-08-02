@@ -40,7 +40,11 @@ class PixelOccupancyMap:
         crop = frame[arena_y + top : arena_y + top + height, arena_x + left : arena_x + left + width]
         return crop.copy() if crop.shape[:2] == (CELL_SIZE_PX, CELL_SIZE_PX) else None
 
-    def _reference(self, item: TileEvidence) -> np.ndarray | None:
+    def _reference(
+        self,
+        item: TileEvidence,
+        current: np.ndarray | None = None,
+    ) -> np.ndarray | None:
         perception = self.perception
         if perception is None:
             return None
@@ -54,23 +58,36 @@ class PixelOccupancyMap:
                 None,
             )
             if prefer_non_danger and (selected is None or getattr(selected, "category", None) is TileClass.DANGER):
-                preferred = (
+                allowed = {
                     TileClass.WALKABLE,
                     TileClass.WALKABLE_WITH_JUTSU,
                     TileClass.BLOCKING_OBJECT,
                     TileClass.TRANSITION,
                     TileClass.WALL,
-                )
-                selected = next(
-                    (
-                        x
-                        for category in preferred
-                        for x in examples
-                        if getattr(x, "category", None) is category
-                        and getattr(x, "crop_path", None) is not None
-                    ),
-                    selected,
-                )
+                }
+                candidates = [
+                    x
+                    for x in examples
+                    if getattr(x, "category", None) in allowed
+                    and getattr(x, "crop_path", None) is not None
+                ]
+                extractor = getattr(perception, "extractor", None)
+                if current is not None and extractor is not None and candidates:
+                    inset = max(0, min(8, int(getattr(perception.config, "crop_inset_px", 2))))
+                    feature_crop = current[
+                        inset : CELL_SIZE_PX - inset,
+                        inset : CELL_SIZE_PX - inset,
+                    ]
+                    current_feature = extractor.extract(feature_crop)
+                    selected = max(
+                        candidates,
+                        key=lambda example: extractor.similarity(
+                            current_feature,
+                            getattr(example, "feature"),
+                        ),
+                    )
+                elif candidates:
+                    selected = candidates[0]
             if selected is not None:
                 crop = getattr(selected, "crop", None)
                 if crop is None and getattr(selected, "crop_path", None) is not None:
@@ -198,7 +215,7 @@ class PixelOccupancyMap:
             crop = self._crop(frame, state, item)
             if crop is None:
                 continue
-            reference = self._reference(item)
+            reference = self._reference(item, crop)
             if self._learn_baseline(item.cell, crop, item, raw_occupied, danger_cells, reference):
                 baseline_ready.append(item.cell)
             baseline = self.exact_baselines.get(item.cell)

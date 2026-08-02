@@ -11,6 +11,7 @@ from typing import Any
 from ..storage import JsonRepository
 from .continuous_mapping import ContinuousMappingResult, ContinuousSemanticMapper, UnknownTileGroup
 from .tile_knowledge import TILE_CLASS_LABELS_PT_BR, TileClass
+from .tile_overlay import display_category, render_tile_classification_overlay, tile_overlay_text
 from .window_capture import WindowsClientCapture
 
 
@@ -52,7 +53,7 @@ class _ReviewHotkey:
 
 
 class ContinuousMapperWindow:
-    """Background semantic mapper with a non-interrupting grouped review queue."""
+    """Background semantic mapper with live tile diagnostics and grouped review."""
 
     def __init__(
         self,
@@ -76,8 +77,8 @@ class ContinuousMapperWindow:
 
         self.root = tk.Tk()
         self.root.title("Kage Continuous Semantic Mapper — PR 24")
-        self.root.geometry("1500x920")
-        self.root.minsize(1120, 720)
+        self.root.geometry("1600x940")
+        self.root.minsize(1180, 760)
         self._events: queue.Queue[tuple[str, Any]] = queue.Queue()
         self._running = threading.Event()
         self._closing = threading.Event()
@@ -85,8 +86,15 @@ class ContinuousMapperWindow:
         self._worker: threading.Thread | None = None
         self._review_hotkey = _ReviewHotkey(lambda: self._events.put(("show", None)))
         self._selected_group_id: str | None = None
+        self._selected_cell_id: str | None = None
         self._group_ids: list[str] = []
         self._crop_photo: Any | None = None
+        self._frame_photo: Any | None = None
+        self._display_scale = 1.0
+        self._display_left = 0.0
+        self._display_top = 0.0
+        self._display_width = 0
+        self._display_height = 0
 
         self.status_var = tk.StringVar(value="Pronto. F7 abre esta janela sem interromper automaticamente o jogo.")
         self.stats_var = tk.StringVar(value="Nenhuma captura processada.")
@@ -114,7 +122,7 @@ class ContinuousMapperWindow:
         header.columnconfigure(0, weight=1)
         ttk.Label(
             header,
-            text="Mapeamento contínuo: classifica, agrupa dúvidas e costura tiles em coordenadas relativas.",
+            text="Mapeamento contínuo: captura o jogo, mostra o grid 64×64 e agrupa dúvidas para revisão.",
             font=("Segoe UI", 11, "bold"),
         ).grid(row=0, column=0, sticky="w")
         ttk.Button(header, textvariable=self.running_var, command=self._toggle).grid(row=0, column=1, padx=4)
@@ -125,24 +133,27 @@ class ContinuousMapperWindow:
         body = ttk.Panedwindow(self.root, orient="horizontal")
         body.grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 8))
 
-        map_frame = ttk.LabelFrame(body, text="Mapa mundial relativo / Relative world map", padding=8)
-        map_frame.columnconfigure(0, weight=1)
-        map_frame.rowconfigure(0, weight=1)
-        self.map_text = tk.Text(
-            map_frame,
-            wrap="none",
-            font=("Consolas", 13),
-            background="#111111",
-            foreground="#e8e8e8",
-            insertbackground="#e8e8e8",
+        preview_frame = ttk.LabelFrame(
+            body,
+            text="Shinobi Story Online — grid calibrado + classificação e confiança por tile",
+            padding=6,
         )
-        self.map_text.grid(row=0, column=0, sticky="nsew")
-        map_y = ttk.Scrollbar(map_frame, orient="vertical", command=self.map_text.yview)
-        map_y.grid(row=0, column=1, sticky="ns")
-        map_x = ttk.Scrollbar(map_frame, orient="horizontal", command=self.map_text.xview)
-        map_x.grid(row=1, column=0, sticky="ew")
-        self.map_text.configure(yscrollcommand=map_y.set, xscrollcommand=map_x.set, state="disabled")
-        body.add(map_frame, weight=3)
+        preview_frame.columnconfigure(0, weight=1)
+        preview_frame.rowconfigure(0, weight=1)
+        self.preview_canvas = tk.Canvas(preview_frame, background="#111111", highlightthickness=0)
+        self.preview_canvas.grid(row=0, column=0, sticky="nsew")
+        self.preview_canvas.bind("<Configure>", lambda _event: self._redraw_preview())
+        self.preview_canvas.bind("<Button-1>", self._select_from_preview)
+        ttk.Label(
+            preview_frame,
+            text=(
+                ". chão  # parede  J jutsu  B bloqueio  P jogador  N NPC  "
+                "T transição  ! perigo  I ignorar  ? desconhecido — clique em uma célula para inspecionar"
+            ),
+            anchor="w",
+            justify="left",
+        ).grid(row=1, column=0, sticky="ew", pady=(5, 0))
+        body.add(preview_frame, weight=4)
 
         right = ttk.Frame(body, padding=(8, 0, 0, 0))
         right.columnconfigure(0, weight=1)
@@ -303,12 +314,6 @@ class ContinuousMapperWindow:
     def _refresh_all(self, result: ContinuousMappingResult | None = None) -> None:
         result = result or self.mapper.last_result
         player = self.mapper.player_world
-        ascii_map = self.mapper.world.render_ascii(player, radius=16)
-        self.map_text.configure(state="normal")
-        self.map_text.delete("1.0", "end")
-        self.map_text.insert("1.0", ascii_map)
-        self.map_text.configure(state="disabled")
-
         bounds = self.mapper.world.bounds()
         dimensions = "0×0"
         if bounds is not None:
@@ -321,6 +326,7 @@ class ContinuousMapperWindow:
             f"Área observada: {dimensions}",
             f"Grupos desconhecidos: {len(self.mapper.review_queue.groups)}",
             f"Conflitos semânticos: {self.mapper.world.conflict_count}",
+            f"Grid visual: {self.mapper.calibration.tile_size_px}×{self.mapper.calibration.tile_size_px} px",
         ]
         if result is not None:
             lines.extend(
@@ -333,6 +339,88 @@ class ContinuousMapperWindow:
             )
         self.stats_var.set("\n".join(lines))
         self._refresh_group_list()
+        self._redraw_preview(result)
+
+    def _redraw_preview(self, result: ContinuousMappingResult | None = None) -> None:
+        if not hasattr(self, "preview_canvas"):
+            return
+        result = result or self.mapper.last_result
+        self.preview_canvas.delete("all")
+        if result is None:
+            width = max(1, self.preview_canvas.winfo_width())
+            height = max(1, self.preview_canvas.winfo_height())
+            self.preview_canvas.create_text(
+                width // 2,
+                height // 2,
+                text="Aguardando a primeira captura do Shinobi Story Online...",
+                fill="#e8e8e8",
+                font=("Segoe UI", 12, "bold"),
+            )
+            return
+
+        import cv2
+        from PIL import Image, ImageTk
+
+        rendered = render_tile_classification_overlay(
+            result.scan,
+            selected_cell_id=self._selected_cell_id,
+            auto_threshold=self.mapper.auto_threshold,
+            review_threshold=self.mapper.review_threshold,
+        )
+        rgb = cv2.cvtColor(rendered, cv2.COLOR_BGR2RGB)
+        image = Image.fromarray(rgb)
+        canvas_width = max(1, self.preview_canvas.winfo_width())
+        canvas_height = max(1, self.preview_canvas.winfo_height())
+        scale = min(canvas_width / image.width, canvas_height / image.height)
+        display_width = max(1, int(image.width * scale))
+        display_height = max(1, int(image.height * scale))
+        image = image.resize((display_width, display_height), Image.Resampling.LANCZOS)
+        self._frame_photo = ImageTk.PhotoImage(image)
+        self._display_scale = scale
+        self._display_width = display_width
+        self._display_height = display_height
+        self._display_left = (canvas_width - display_width) / 2.0
+        self._display_top = (canvas_height - display_height) / 2.0
+        self.preview_canvas.create_image(
+            self._display_left,
+            self._display_top,
+            image=self._frame_photo,
+            anchor="nw",
+        )
+
+    def _select_from_preview(self, event: tk.Event[Any]) -> None:
+        result = self.mapper.last_result
+        if result is None or self._display_scale <= 0:
+            return
+        local_x = event.x - self._display_left
+        local_y = event.y - self._display_top
+        if not (0 <= local_x < self._display_width and 0 <= local_y < self._display_height):
+            return
+        source_x = int(local_x / self._display_scale)
+        source_y = int(local_y / self._display_scale)
+        cell = result.scan.find_at(source_x, source_y)
+        if cell is None:
+            return
+
+        self._selected_cell_id = cell.crop.id
+        category = display_category(cell)
+        primary, _secondary = tile_overlay_text(cell)
+        self.status_var.set(
+            f"Tile {cell.crop.id}: {TILE_CLASS_LABELS_PT_BR[category]} — {primary}; "
+            f"área=({cell.crop.x0},{cell.crop.y0})–({cell.crop.x1},{cell.crop.y1})."
+        )
+
+        matches = [
+            group
+            for group in self.mapper.review_queue.groups.values()
+            if group.latest_screen_cell == cell.crop.id
+        ]
+        if matches:
+            group = max(matches, key=lambda item: item.last_seen_frame)
+            self._selected_group_id = group.id
+            self._refresh_group_list()
+        else:
+            self._redraw_preview(result)
 
     def _refresh_group_list(self) -> None:
         previous = self._selected_group_id
@@ -377,7 +465,9 @@ class ContinuousMapperWindow:
         if group is None:
             self.crop_label.configure(image="")
             self.selected_var.set("Nenhum grupo desconhecido pendente.")
+            self._redraw_preview()
             return
+        self._selected_cell_id = group.latest_screen_cell
         image = group.representative_image
         if image is not None:
             import cv2
@@ -400,6 +490,7 @@ class ContinuousMapperWindow:
                 ]
             )
         )
+        self._redraw_preview()
 
     def _teach_selected(self, category: TileClass) -> None:
         group = self._selected_group()
@@ -416,6 +507,7 @@ class ContinuousMapperWindow:
                 self.repository.save_tile_knowledge(self.region_id, self.mapper.knowledge.to_dict())
                 self._save_state()
             self._selected_group_id = None
+            self._selected_cell_id = None
             self.status_var.set(
                 f"Grupo ensinado como {TILE_CLASS_LABELS_PT_BR[category]}. Próximas capturas serão reclassificadas."
             )

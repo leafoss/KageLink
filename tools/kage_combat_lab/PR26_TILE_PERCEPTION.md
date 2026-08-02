@@ -123,6 +123,7 @@ A percepção será considerada aprovada quando:
 
 ```text
 PR26_PRETRAINER_BASELINE acontece antes de TRAINER_CLICK_ONCE
+PR26_ENTITY_HARDENING aparece no runtime
 faixas horizontais/bordas aparecem como rejeitadas
 um componente vertical central chega a PR26_ENTITY_CONFIRMED
 um único track chega a PR26_SELECTED_VISUAL_LOCK

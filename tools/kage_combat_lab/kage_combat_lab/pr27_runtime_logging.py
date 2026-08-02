@@ -24,24 +24,32 @@ def frame_payload(*, result, native, actions, frame: int, started: float, now: f
                 "fragment_id": fragment.fragment_id,
                 "cell": [fragment.cell.row, fragment.cell.column],
                 "bbox": list(fragment.native_bbox),
+                "pixels": fragment.pixel_count,
             }
             for fragment in result.fragments
         ],
         "tracks": [
             {
                 "track_id": track.track_id,
+                "bbox": list(track.native_bbox),
+                "center": [round(track.center[0], 2), round(track.center[1], 2)],
                 "cells": sorted([list(cell) for cell in track.current_cells]),
                 "class": track.classification.value,
                 "state": track.track_state.value,
                 "confidence": round(track.confidence, 4),
+                "observations": track.observations,
+                "missing_frames": track.missing_frames,
+                "known_enemy": track.known_enemy,
             }
             for track in result.tracks
         ],
         "target": None if result.target is None else {
             "track_id": result.target.track_id,
             "cells": sorted([list(cell) for cell in result.target.cells]),
+            "position": [round(result.target.position[0], 2), round(result.target.position[1], 2)],
             "direction": result.target.direction,
             "distance_cells": result.target.distance_cells,
+            "confidence": round(result.target.confidence, 4),
             "visible": result.target.visible,
         },
         "action": result.action.value,

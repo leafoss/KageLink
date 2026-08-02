@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import time
 from collections import deque
@@ -24,11 +25,17 @@ class _ActiveClip:
 class CombatEventVideoRecorder:
     """Record a mandatory full-round replay plus optional event clips.
 
-    The original implementation only wrote MP4 files when a hard-loss, ReID,
-    direction-flip or aim-failure event occurred. A clean victory therefore
-    produced no replay at all. The full replay is now streamed frame-by-frame to
-    disk, so memory usage remains bounded while every combat round is preserved.
+    The recorder first tries several video codecs and containers. If the local
+    OpenCV build cannot open any writer, it falls back to a numbered PNG
+    sequence plus a JSON manifest. Recording failure must never be silent.
     """
+
+    _VIDEO_PROFILES = (
+        ("mp4v", ".mp4"),
+        ("avc1", ".mp4"),
+        ("XVID", ".avi"),
+        ("MJPG", ".avi"),
+    )
 
     def __init__(
         self,
@@ -54,7 +61,11 @@ class CombatEventVideoRecorder:
         self._full_replay_path: Path | None = None
         self._full_size: tuple[int, int] | None = None
         self._full_frames = 0
-        self._full_open_failed = False
+        self._full_codec: str | None = None
+        self._full_mode: str | None = None
+        self._full_open_attempted = False
+        self._writer_errors: list[str] = []
+        self._png_sequence_dir: Path | None = None
         self._closed = False
         if self.enabled:
             self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -67,17 +78,36 @@ class CombatEventVideoRecorder:
     def full_replay_frames(self) -> int:
         return int(self._full_frames)
 
+    @property
+    def full_replay_mode(self) -> str | None:
+        return self._full_mode
+
+    @property
+    def full_replay_codec(self) -> str | None:
+        return self._full_codec
+
+    @property
+    def writer_errors(self) -> tuple[str, ...]:
+        return tuple(self._writer_errors)
+
     @staticmethod
     def _sanitize(value: str) -> str:
         cleaned = re.sub(r"[^A-Za-z0-9_-]+", "_", str(value).strip())
         return cleaned.strip("_") or "event"
 
-    def _unique_path(self, stem: str) -> Path:
-        base = self.output_dir / stem
-        path = base.with_suffix(".mp4")
+    def _unique_path(self, stem: str, suffix: str) -> Path:
+        path = self.output_dir / f"{stem}{suffix}"
         index = 2
         while path.exists():
-            path = self.output_dir / f"{base.name}_{index}.mp4"
+            path = self.output_dir / f"{stem}_{index}{suffix}"
+            index += 1
+        return path
+
+    def _unique_directory(self, stem: str) -> Path:
+        path = self.output_dir / stem
+        index = 2
+        while path.exists():
+            path = self.output_dir / f"{stem}_{index}"
             index += 1
         return path
 
@@ -171,45 +201,133 @@ class CombatEventVideoRecorder:
         )
         return result
 
-    def _open_full_writer(self, frame: np.ndarray) -> bool:
-        if (
-            not self.full_replay_enabled
-            or self._full_writer is not None
-            or self._full_open_failed
-        ):
-            return self._full_writer is not None
+    @staticmethod
+    def _prepare_video_frame(frame: np.ndarray) -> np.ndarray:
+        current = np.asarray(frame)
+        if current.ndim == 2:
+            current = cv2.cvtColor(current, cv2.COLOR_GRAY2BGR)
+        elif current.ndim == 3 and current.shape[2] == 4:
+            current = cv2.cvtColor(current, cv2.COLOR_BGRA2BGR)
+        elif current.ndim != 3 or current.shape[2] != 3:
+            raise ValueError(f"UNSUPPORTED_REPLAY_FRAME_SHAPE:{current.shape}")
+        if current.dtype != np.uint8:
+            current = np.clip(current, 0, 255).astype(np.uint8)
+        current = np.ascontiguousarray(current)
+
+        # Several Windows codecs silently refuse odd frame dimensions.
+        height, width = current.shape[:2]
+        pad_right = width % 2
+        pad_bottom = height % 2
+        if pad_right or pad_bottom:
+            current = cv2.copyMakeBorder(
+                current,
+                0,
+                pad_bottom,
+                0,
+                pad_right,
+                cv2.BORDER_CONSTANT,
+                value=(0, 0, 0),
+            )
+        return current
+
+    def _remove_failed_file(self, path: Path) -> None:
+        try:
+            if path.exists() and path.stat().st_size <= 4096:
+                path.unlink()
+        except OSError:
+            pass
+
+    def _try_video_writer(
+        self,
+        *,
+        stem: str,
+        frame: np.ndarray,
+    ) -> tuple[cv2.VideoWriter | None, Path | None, str | None]:
         height, width = frame.shape[:2]
-        path = self._unique_path("full_combat_replay")
-        writer = cv2.VideoWriter(
-            str(path),
-            cv2.VideoWriter_fourcc(*"mp4v"),
-            self.fps,
-            (int(width), int(height)),
-        )
-        if not writer.isOpened():
-            writer.release()
-            self._full_open_failed = True
-            return False
-        self._full_writer = writer
-        self._full_replay_path = path
+        for codec, suffix in self._VIDEO_PROFILES:
+            path = self._unique_path(stem, suffix)
+            writer: cv2.VideoWriter | None = None
+            try:
+                writer = cv2.VideoWriter(
+                    str(path),
+                    cv2.VideoWriter_fourcc(*codec),
+                    self.fps,
+                    (int(width), int(height)),
+                )
+                if writer.isOpened():
+                    return writer, path, codec
+                self._writer_errors.append(
+                    f"codec={codec} container={suffix} opened=false"
+                )
+            except Exception as exc:
+                self._writer_errors.append(
+                    f"codec={codec} container={suffix} error={type(exc).__name__}:{exc}"
+                )
+            finally:
+                if writer is not None and not writer.isOpened():
+                    writer.release()
+                self._remove_failed_file(path)
+        return None, None, None
+
+    def _open_full_output(self, frame: np.ndarray) -> None:
+        if self._full_open_attempted or not self.full_replay_enabled:
+            return
+        self._full_open_attempted = True
+        prepared = self._prepare_video_frame(frame)
+        height, width = prepared.shape[:2]
         self._full_size = (int(width), int(height))
-        return True
+        writer, path, codec = self._try_video_writer(
+            stem="full_combat_replay",
+            frame=prepared,
+        )
+        if writer is not None and path is not None and codec is not None:
+            self._full_writer = writer
+            self._full_replay_path = path
+            self._full_codec = codec
+            self._full_mode = "VIDEO"
+            print(
+                f"FULL_REPLAY_RECORDER_OPEN mode=VIDEO codec={codec} "
+                f"size={width}x{height} fps={self.fps:.2f} path={path}"
+            )
+            return
+
+        sequence_dir = self._unique_directory("full_combat_replay_frames")
+        sequence_dir.mkdir(parents=True, exist_ok=False)
+        self._png_sequence_dir = sequence_dir
+        self._full_replay_path = sequence_dir
+        self._full_codec = "PNG"
+        self._full_mode = "PNG_SEQUENCE"
+        print(
+            "FULL_REPLAY_VIDEO_WRITER_FAILED "
+            f"fallback=PNG_SEQUENCE path={sequence_dir} "
+            f"attempts={' | '.join(self._writer_errors) or 'none'}"
+        )
 
     def _write_full_frame(self, frame: np.ndarray) -> None:
-        if not self._open_full_writer(frame):
+        prepared = self._prepare_video_frame(frame)
+        self._open_full_output(prepared)
+        if self._full_size is None:
             return
-        assert self._full_writer is not None
-        assert self._full_size is not None
         width, height = self._full_size
-        current = frame
+        current = prepared
         if current.shape[1] != width or current.shape[0] != height:
             current = cv2.resize(
                 current,
                 (width, height),
                 interpolation=cv2.INTER_AREA,
             )
-        self._full_writer.write(current)
-        self._full_frames += 1
+
+        if self._full_writer is not None:
+            self._full_writer.write(current)
+            self._full_frames += 1
+            return
+
+        if self._png_sequence_dir is not None:
+            path = self._png_sequence_dir / f"frame_{self._full_frames:06d}.png"
+            if not cv2.imwrite(str(path), current):
+                self._writer_errors.append(f"png_write_failed:{path}")
+                return
+            self._full_frames += 1
 
     def push(
         self,
@@ -239,7 +357,7 @@ class CombatEventVideoRecorder:
         )
 
         # Mandatory continuous replay. This happens before event processing so a
-        # clean round with no diagnostic event still produces an MP4.
+        # clean round with no diagnostic event still creates visual evidence.
         self._write_full_frame(annotated)
 
         completed: list[_ActiveClip] = []
@@ -271,7 +389,7 @@ class CombatEventVideoRecorder:
         self._buffer.append(annotated)
 
     def mark_terminal_event(self, event_text: str, *, seconds: float = 1.0) -> None:
-        """Append a visible final marker to the mandatory full replay."""
+        """Append a visible final marker to the mandatory replay output."""
 
         if self._closed or not self._buffer:
             return
@@ -284,21 +402,17 @@ class CombatEventVideoRecorder:
     def _write_clip(self, clip: _ActiveClip) -> None:
         if not clip.frames:
             return
-        height, width = clip.frames[0].shape[:2]
-        stamp = time.strftime("%Y%m%d_%H%M%S")
-        path = self._unique_path(f"{stamp}_{clip.event}")
-        writer = cv2.VideoWriter(
-            str(path),
-            cv2.VideoWriter_fourcc(*"mp4v"),
-            self.fps,
-            (width, height),
+        prepared = self._prepare_video_frame(clip.frames[0])
+        writer, path, _codec = self._try_video_writer(
+            stem=f"{time.strftime('%Y%m%d_%H%M%S')}_{clip.event}",
+            frame=prepared,
         )
-        if not writer.isOpened():
-            writer.release()
+        if writer is None or path is None:
             return
+        height, width = prepared.shape[:2]
         try:
             for frame in clip.frames:
-                current = frame
+                current = self._prepare_video_frame(frame)
                 if current.shape[1] != width or current.shape[0] != height:
                     current = cv2.resize(
                         current,
@@ -310,6 +424,33 @@ class CombatEventVideoRecorder:
             writer.release()
         self.saved_paths.append(path)
 
+    def _write_png_manifest(self) -> None:
+        if self._png_sequence_dir is None:
+            return
+        manifest = {
+            "format": "PNG_SEQUENCE",
+            "fps": self.fps,
+            "frames": self._full_frames,
+            "frame_pattern": "frame_%06d.png",
+            "writer_errors": list(self._writer_errors),
+        }
+        path = self._png_sequence_dir / "replay_manifest.json"
+        path.write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    def summary_line(self) -> str:
+        if self._full_replay_path is None or self._full_frames <= 0:
+            return (
+                "FULL_REPLAY_NOT_CREATED "
+                f"errors={' | '.join(self._writer_errors) or 'no combat frames received'}"
+            )
+        return (
+            f"FULL_REPLAY_SAVED mode={self._full_mode} codec={self._full_codec} "
+            f"frames={self._full_frames} path={self._full_replay_path}"
+        )
+
     def close(self) -> None:
         if self._closed:
             return
@@ -319,9 +460,11 @@ class CombatEventVideoRecorder:
         if self._full_writer is not None:
             self._full_writer.release()
             self._full_writer = None
+        self._write_png_manifest()
         if self._full_replay_path is not None and self._full_frames > 0:
             self.saved_paths.append(self._full_replay_path)
         self._closed = True
+        print(self.summary_line())
 
 
 __all__ = ["CombatEventVideoRecorder"]

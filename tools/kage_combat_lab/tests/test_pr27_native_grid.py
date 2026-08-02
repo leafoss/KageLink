@@ -117,7 +117,7 @@ def test_context_enemy_requires_persistent_visual_identity() -> None:
     seed_blank_baseline(system, baseline)
 
     result = None
-    for frame_index in range(3):
+    for frame_index in range(4):
         frame = baseline.copy()
         draw_sprite(frame, 120, 96, (240, 120, 40))
         draw_sprite(frame, 30 + frame_index * 3, 30, (40, 210, 70))
@@ -171,7 +171,7 @@ def test_temporarily_missing_id_is_retained_without_blind_action() -> None:
     seed_blank_baseline(system, baseline)
 
     result = None
-    for _ in range(2):
+    for _ in range(3):
         frame = baseline.copy()
         draw_sprite(frame, 120, 96, (240, 120, 40))
         draw_sprite(frame, 30, 30, (40, 210, 70))

@@ -4,7 +4,7 @@ import math
 from typing import Sequence
 
 from .pr27_fragments import DescriptorFactory
-from .pr27_model import PR27Config, SpriteClass, SpriteObservation, TrackState, TrackedSprite
+from .pr27_model import CELL_SIZE_PX, PR27Config, SpriteClass, SpriteObservation, TrackState, TrackedSprite
 from .pr27_registry import KnownSpriteRegistry
 
 
@@ -33,17 +33,58 @@ class SpriteTracker:
         union = max(1, aw * ah + bw * bh - intersection)
         return intersection / union
 
-    def _association_score(self, track: TrackedSprite, observation: SpriteObservation) -> float:
+    @staticmethod
+    def _predicted_center(track: TrackedSprite) -> tuple[float, float]:
+        if len(track.movement_history) < 2:
+            return track.center
+        previous = track.movement_history[-2]
+        current = track.movement_history[-1]
+        return current[0] + (current[0] - previous[0]), current[1] + (current[1] - previous[1])
+
+    def _association_score(
+        self,
+        track: TrackedSprite,
+        observation: SpriteObservation,
+        *,
+        target_track: bool,
+        arena_shape: Sequence[int],
+    ) -> float:
         distance = self._cell_distance(track.current_cells, observation.cells)
-        if distance > self.config.maximum_track_cell_step + track.missing_frames:
+        allowed_step = self.config.maximum_track_cell_step + track.missing_frames
+        if target_track:
+            allowed_step += self.config.target_focus_radius_cells
+        if distance > allowed_step:
             return 0.0
         appearance = DescriptorFactory.similarity(track.appearance_signature, observation.descriptor)
-        temporal = max(0.0, 1.0 - distance / max(1.0, self.config.maximum_track_cell_step + 1.0))
+        if target_track:
+            arena_h, arena_w = int(arena_shape[0]), int(arena_shape[1])
+            player_anchor = (
+                arena_w * self.config.player_anchor_x_ratio,
+                arena_h * self.config.player_anchor_y_ratio,
+            )
+            player_distance = math.hypot(
+                observation.center[0] - player_anchor[0],
+                observation.center[1] - player_anchor[1],
+            )
+            if player_distance <= self.config.player_anchor_radius_px * 1.25:
+                return 0.0
+            if appearance < self.config.target_minimum_appearance:
+                return 0.0
+        temporal = max(0.0, 1.0 - distance / max(1.0, allowed_step + 1.0))
+        predicted = self._predicted_center(track)
+        center_distance = math.hypot(
+            observation.center[0] - predicted[0],
+            observation.center[1] - predicted[1],
+        )
+        proximity = max(0.0, 1.0 - center_distance / max(CELL_SIZE_PX, CELL_SIZE_PX * (allowed_step + 1)))
         overlap = self._bbox_iou(track.native_bbox, observation.native_bbox)
         old_area = max(1, track.native_bbox[2] * track.native_bbox[3])
         new_area = max(1, observation.native_bbox[2] * observation.native_bbox[3])
         size = min(old_area, new_area) / max(old_area, new_area)
-        return 0.48 * appearance + 0.24 * temporal + 0.16 * overlap + 0.12 * size
+        score = 0.50 * appearance + 0.20 * temporal + 0.15 * proximity + 0.10 * size + 0.05 * overlap
+        if target_track:
+            score = min(1.0, score + 0.08)
+        return score
 
     def _update_track(self, track: TrackedSprite, observation: SpriteObservation, frame_index: int, score: float) -> None:
         track.previous_cells = track.current_cells
@@ -120,42 +161,68 @@ class SpriteTracker:
         frame_index: int,
         arena_shape: Sequence[int],
     ) -> tuple[TrackedSprite, ...]:
-        candidates: list[tuple[float, int, int]] = []
-        active_tracks = [
-            track for track in self.tracks.values() if track.track_state is not TrackState.LOST
-        ]
+        candidates: list[tuple[int, float, int, int]] = []
+        active_tracks = list(self.tracks.values())
         for track in active_tracks:
+            target_track = track.track_id == self.enemy_track_id
+            threshold = (
+                self.config.target_association_min_score
+                if target_track
+                else self.config.association_min_score
+            )
             for observation_index, observation in enumerate(observations):
-                score = self._association_score(track, observation)
-                if score >= self.config.association_min_score:
-                    candidates.append((score, track.track_id, observation_index))
+                score = self._association_score(
+                    track,
+                    observation,
+                    target_track=target_track,
+                    arena_shape=arena_shape,
+                )
+                if score >= threshold:
+                    candidates.append((1 if target_track else 0, score, track.track_id, observation_index))
         candidates.sort(reverse=True)
         used_tracks: set[int] = set()
         used_observations: set[int] = set()
-        for score, track_id, observation_index in candidates:
+        for _, score, track_id, observation_index in candidates:
             if track_id in used_tracks or observation_index in used_observations:
                 continue
             self._update_track(self.tracks[track_id], observations[observation_index], frame_index, score)
             used_tracks.add(track_id)
             used_observations.add(observation_index)
 
-        for observation_index, observation in enumerate(observations):
-            if observation_index not in used_observations:
-                track = self._create_track(observation, frame_index)
-                used_tracks.add(track.track_id)
+        unmatched = [
+            observation
+            for index, observation in enumerate(observations)
+            if index not in used_observations
+        ]
+        unmatched.sort(key=lambda item: item.pixel_count, reverse=True)
+        for observation in unmatched:
+            if len(self.tracks) >= self.config.maximum_active_tracks:
+                break
+            track = self._create_track(observation, frame_index)
+            used_tracks.add(track.track_id)
 
+        purge_ids: list[int] = []
         for track in active_tracks:
             if track.track_id in used_tracks:
                 continue
             track.missing_frames += 1
-            if track.missing_frames <= self.config.maximum_missing_frames:
+            missing_limit = (
+                self.config.target_missing_grace_frames
+                if track.track_id == self.enemy_track_id
+                else self.config.maximum_missing_frames
+            )
+            if track.missing_frames <= missing_limit:
                 track.track_state = TrackState.TEMPORARILY_MISSING
             else:
                 track.track_state = TrackState.LOST
-                if self.player_track_id == track.track_id:
-                    self.player_track_id = None
-                if self.enemy_track_id == track.track_id:
-                    self.enemy_track_id = None
+                purge_ids.append(track.track_id)
+
+        for track_id in purge_ids:
+            if self.player_track_id == track_id:
+                self.player_track_id = None
+            if self.enemy_track_id == track_id:
+                self.enemy_track_id = None
+            self.tracks.pop(track_id, None)
 
         for track in self.tracks.values():
             if track.track_state is TrackState.TRACKED:

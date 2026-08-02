@@ -1,166 +1,149 @@
-# PR26.16 — Cobertura de baseline e vivacidade da aquisição
+# PR26.17 — Retenção do alvo corporal provisório
 
-A PR26 permanece empilhada sobre a PR25 e mantém a grade imutável de `64x64`, comparação individual por célula, Target Capsule, replay integral, diagnóstico de falhas, facing, R, pulso H, F12, KO por chat e recuperação pós-combate.
+A PR26 permanece empilhada sobre a PR25 e mantém a grade imutável de `64x64`, comparação individual por célula, Target Capsule, replay integral, diagnósticos, facing, R, pulso H, F12, KO por chat e recuperação pós-combate.
 
-## Falha física corrigida
+## O raio de esperança da rodada física
 
-A PR26.15 impediu a migração da identidade para paredes, mas a nova rodada revelou uma falha anterior à identidade:
+A PR26.16 finalmente encontrou o inimigo real:
 
 ```text
-baseline pré-luta armazenou somente 72 de 84 células
--> células centrais do spawn não receberam baseline exata garantida
--> inimigo apareceu ao lado do jogador
--> frame 11 mediu raw=(0.1,0.2), response=0.144
--> viewport estava praticamente imóvel
--> câmera foi marcada como não autoritativa
--> exact_baselines foi substituído por {}
--> todos os masks/estados de ocupação foram zerados
--> o sistema permaneceu em SEARCH até F12/timeout
+frame 6
+PR26_CELL_BODY_SELECTION id=3 raw_ids=[7]
+PR26_MOBILE_DANGER id=3 cells={(7,2)}
+reason=raw body and changed 64px cell are geometrically bound
 ```
 
-O inimigo continuava visível no vídeo, mas a percepção havia apagado sua própria referência visual.
+Isso confirmou que a baseline `84/84`, a máscara de diferença da célula e a associação corpo↔pixels funcionaram em conjunto.
 
-## Célula de 64 px continua sendo a verdade visual
-
-Cada célula mantém individualmente:
+A aquisição, porém, foi descartada antes dos dois votos necessários para `COMBAT_LOCK`:
 
 ```text
-baseline exata
-imagem atual
-máscara de diferença
-changed ratio
-componente
-bbox
-associação com corpo atual
+frame 6: corpo real id=3/raw=7 selecionado
+frame 7: detector bruto perde momentaneamente o corpo
+frame 7: seletor troca para id=2, componente vertical raw-less
+frame 8: correlação de câmera fica incerta
+frame 8: exact_baselines passa de 84 para 0 naquele frame
 ```
 
-Clusters continuam sendo apenas dicas de busca. Classe semântica e igualdade de célula não criam identidade nem autoridade ofensiva.
+Depois disso surgiram estimativas periódicas como `-64`, `-96` e `-32` pixels, embora o viewport permanecesse visualmente parado. O piso repetitivo do dojo e a estrutura de 32/64 px estavam criando aliases da correlação de fase.
 
-## Baseline pré-spawn robusta
+## Alvo corporal provisório
 
-A captura antiga descartava toda a sequência de uma célula quando um único par de frames excedia a estabilidade temporal. Animação do jogador, efeitos e variação visual podiam impedir que justamente as células centrais fossem armazenadas.
-
-A PR26.16 substitui esse comportamento por mediana temporal robusta:
+A primeira associação válida entre corpo bruto e pixels alterados da baseline exata agora cria um alvo **provisório**, ainda sem autoridade ofensiva:
 
 ```text
-vários crops da mesma célula
--> remoção da silhueta completa do jogador somente durante a captura pré-spawn
--> mediana temporal por pixel
--> um frame animado não elimina toda a célula
-```
-
-A máscara ampla é usada apenas antes do inimigo nascer. Durante o combate, permanece a cápsula estreita, preservando pixels do inimigo em sobreposição.
-
-## Cobertura local obrigatória
-
-Todas as células disponíveis em `D<=3` do jogador pré-spawn precisam possuir baseline exata.
-
-```text
-local_D3 armazenado integralmente
--> combate pode comparar o inimigo com o piso real da própria célula
-
-qualquer célula local ausente
--> captura falha antes do clique no treinador
--> rodada não começa cega
-```
-
-A telemetria obrigatória é:
-
-```text
-PR26_PRETRAINER_BASELINE_COVERAGE stored=<n>/<total> local_D3=<n>/<required> authority=EXACT_CELL_BASELINE
-```
-
-Referências genéricas de classe continuam úteis para semântica, mas têm autoridade zero na aquisição inicial.
-
-## Câmera estática não apaga baseline
-
-Resposta baixa da correlação de fase não significa necessariamente movimento. Uma arena estática com poucos detalhes pode produzir resposta baixa mesmo quando o deslocamento medido permanece próximo de zero.
-
-Agora:
-
-```text
-response >= 0.035
-E distância entre tradução bruta e tradução aceita <= 2.5 px
--> LOW_RESPONSE_STATIC_VIEWPORT_HOLD
--> mantém a última tradução aceita
--> mantém exact_baselines
--> percepção continua ativa
-```
-
-Deslocamentos grandes e pouco confiáveis, como `(-11,+29, response=0.100)`, continuam rejeitados e não recebem autoridade.
-
-## Recuperação do corpo recém-spawnado
-
-O detector bruto pode classificar o inimigo recém-aparecido ou sobreposto como `CONTAMINATED_ACTIVITY` antes de acumular duas observações limpas. Exigir imediatamente `body_like=True` criava um impasse: a célula enxergava mudança, mas nenhum corpo era permitido para provar que aquela mudança era o inimigo.
-
-A PR26.16 permite promoção controlada quando todos os requisitos são satisfeitos:
-
-```text
-track bruto visível
+EXACT_CELL_BASELINE
 +
-geometria corporal plausível
+raw body visível
 +
-bbox ou pé sobrepõe pixels alterados
-+
-baseline EXATA daquela célula
-+
-confiança ou movimento mínimo
-+
-track não está centrado no próprio jogador
-+
-componente não é terreno dominante
--> corpo atual elegível para confirmação
+bbox/pé sobre os pixels do componente
+-> PR26_PROVISIONAL_BODY_LATCH
 ```
 
-Ainda são bloqueados:
+Esse alvo permanece selecionado por até `3.0 s` durante uma falha curta do detector bruto.
 
 ```text
-mesma célula sem sobreposição de pixels
-track no centro conhecido do jogador
-MULTI_CELL_BLOB
-campo 43x64 / 64x23
-célula saturada
-classe genérica sem baseline exata
-cluster sem corpo
+corpo bruto desaparece por um ou dois frames
+-> mesma identidade provisória permanece selecionada
+-> challenger raw-less é bloqueado
+-> MOVE/H continuam bloqueados
+-> sistema espera o próximo voto do mesmo corpo
 ```
 
-## Continuidade preservada
-
-Depois de um latch legítimo:
+Telemetria:
 
 ```text
-corpo atual ou Target Capsule confirmado
--> geometria pode ser atualizada
-
-perda visual
--> identidade lógica preservada
--> Target Capsule procura D1 -> D2 -> D3
--> MOVE/H bloqueados
-
-parede/piso/cluster raw-less
--> não pode mover a identidade
+PR26_PROVISIONAL_BODY_LATCH
+PR26_PROVISIONAL_BODY_COAST
+PR26_PROVISIONAL_BODY_RELEASED
 ```
 
-As proteções das PR26.14 e PR26.15 permanecem:
+A retenção provisória não equivale a `ROUND_TARGET_LATCHED`. Para liberar combate continua obrigatório:
 
-- `TURN_ONLY` fora do `GridFocusStrategy`;
-- alvo lógico somente depois de `ROUND_TARGET_LATCHED`;
-- ReID impossível antes do latch;
-- pixel cluster sem autoridade de identidade;
-- corpo atual obrigatório para MOVE/H;
-- JSON de evento congelado no frame do gatilho.
+```text
+mesmo corpo confirmado em contato 2-de-3 frames
+-> HOSTILE_CONFIRMED
+-> COMBAT_LOCK
+-> ROUND_TARGET_LATCHED
+```
+
+## Câmera fixa antes do latch
+
+Antes de um latch hostil legítimo, a camada física permite somente pulsos isolados de orientação. Chase e H estão bloqueados; portanto, não existe movimento de câmera legítimo produzido pelo agente nessa fase.
+
+A PR26.17 mantém a transformação aceita da baseline durante toda a aquisição pré-latch:
+
+```text
+sem ROUND_TARGET_LATCHED válido
+-> PRELATCH_STATIC_VIEWPORT_HOLD
+-> transformação aceita preservada
+-> exact_baselines permanecem carregadas
+-> estimativas -64/-96/-32 não cegam a percepção
+```
+
+Após um latch válido, movimento de câmera volta a exigir confirmação temporal. Aliases periódicos de `32 px` são desembrulhados para a posição equivalente mais próxima da tradução aceita.
+
+## Segurança preservada
+
+A correção não permite combate por memória provisória:
+
+- `MOVE/H` continuam bloqueados até `COMBAT_LOCK`;
+- componente raw-less não pode substituir o corpo provisório;
+- mesma célula sem sobreposição de pixels continua inválida;
+- track centrado no jogador continua bloqueado;
+- campos `43x64`, `64x23`, células saturadas e faixas de UI continuam terreno;
+- cluster continua sendo somente dica de busca;
+- ReID continua impossível antes de um latch legítimo;
+- depois do latch, geometria visual ainda exige corpo atual ou Target Capsule confirmado.
+
+## JSON dos eventos
+
+Os arquivos `FACE_ONLY_LOCK_CHANGED` e `DANGER_MOVED` da rodada chegaram com `CLIP_CLOSE_FALLBACK`, porque o wrapper de fechamento sobrescrevia o snapshot do gatilho.
+
+A ordem dos gravadores foi corrigida e um wrapper final restaura os payloads congelados depois de todos os hooks de fechamento:
+
+```text
+snapshot no frame do evento
+-> OccupancyEventRecorder
+-> fechamento dos clips
+-> restauração final do payload
+-> snapshot_timing=EVENT_TRIGGER_FRAME
+```
+
+Telemetria:
+
+```text
+PR26_EVENT_TRIGGER_JSON_RESTORED
+```
+
+## Baseline e aquisição mantidas
+
+Continuam válidas as correções da PR26.16:
+
+- baseline pré-spawn por mediana temporal robusta;
+- silhueta completa do jogador removida somente durante a captura;
+- cobertura exata obrigatória em todas as células disponíveis de `D<=3`;
+- promoção de track bruto fraco somente quando há sobreposição real com pixels alterados da baseline exata;
+- referências genéricas de classe sem autoridade de aquisição.
 
 ## Validação automática
 
-A suíte cobre especificamente:
+A suíte cobre:
 
-- resposta `0.144` com deslocamento estático mantendo a baseline;
-- salto `(-11,+29, response=0.100)` continuando bloqueado;
-- mediana temporal ignorando um frame animado isolado;
-- track bruto fraco promovido somente por sobreposição real com pixels alterados da baseline exata;
-- mesma célula sem sobreposição sendo rejeitada;
-- track centrado no jogador sendo rejeitado;
-- contratos determinísticos da PR25;
+- aliases `-64` e `-96` sendo normalizados para o viewport aceito;
+- deslocamentos pequenos comuns permanecendo inalterados;
+- retenção provisória durante falhas curtas do detector;
+- expiração obrigatória após `3.0 s`;
+- impossibilidade de a retenção provisória substituir um latch legítimo;
+- ordem correta dos wrappers de snapshot, ocupação e fechamento;
+- todos os contratos anteriores da PR26;
+- os 15 cenários determinísticos da PR25;
 - parsing dos launchers PowerShell.
 
-A PR permanece Draft e não deve ser mesclada antes de uma nova rodada física no Windows confirmar a aquisição real.
+No head automatizado, `200` testes pytest, os `15` cenários determinísticos e os dois launchers PowerShell passaram. A PR permanece Draft e não deve ser mesclada antes de uma nova rodada física no Windows confirmar a passagem:
+
+```text
+PR26_PROVISIONAL_BODY_LATCH
+-> PR26_CELL_BODY_COMBAT_LOCK
+-> PR26_ROUND_TARGET_LATCHED
+```

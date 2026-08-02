@@ -1,0 +1,28 @@
+name: PR 24 Navigation Lab
+
+on:
+  pull_request:
+    paths:
+      - "navigation_lab/**"
+      - ".github/workflows/navigation-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mapping-and-simulator:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install mapping observer dependencies
+        run: python -m pip install -r navigation_lab/requirements-observer.txt
+      - name: Compile independent navigation package
+        run: python -m compileall -q navigation_lab
+      - name: Run unit and scenario tests
+        run: python -m unittest discover -s navigation_lab/tests -v
+      - name: Smoke simulator CLI
+        run: python -m navigation_lab --mode simulator --scenario 12_route_replanning --json

@@ -1,0 +1,8 @@
+{
+  "app.title": "Laboratório de Navegação Kage",
+  "state.idle": "Ocioso",
+  "state.planning": "Planejando",
+  "state.navigating": "Navegando",
+  "state.arrived": "Destino alcançado",
+  "safety.physical_validation_required": "Validação física Windows/BYOND necessária"
+}

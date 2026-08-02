@@ -1,0 +1,29 @@
+{
+  "window_title": "Shinobi Story Online",
+  "language": "pt-BR",
+  "capture_fps": 12,
+  "processing_fps": 12,
+  "cell_size": 64,
+  "mapping_strategy": "input",
+  "camera_mode": "following",
+  "command_timeout_seconds": 0.7,
+  "min_command_shift_px": 2.0,
+  "auto_start_observer": true,
+  "minimize_observer_on_start": true,
+  "minimum_navigation_confidence": 0.55,
+  "minimum_control_confidence": 0.75,
+  "max_recoveries": 5,
+  "max_no_progress_seconds": 2.5,
+  "movement_pulse_ms": 250,
+  "input_armed_by_default": false,
+  "emergency_stop": "ESC",
+  "teaching_keys": {
+    "mark_location": "F6",
+    "mark_entry_exit": "F7",
+    "mark_obstacle": "F8",
+    "name_region": "F9",
+    "save_route": "F10",
+    "mark_destination": "F11",
+    "pause_learning": "F12"
+  }
+}

@@ -30,6 +30,7 @@ def main() -> int:
     from .pre_ok_baseline import load_pre_ok_baselines
     from .runtime_control_mode import install_runtime_control_mode
     from .runtime_engagement_recovery import install_runtime_engagement_recovery
+    from .runtime_entity_hardening import install_runtime_entity_hardening
     from .runtime_facing_patch import install_runtime_facing_patch
     from .runtime_mask_cluster_guard import install_runtime_mask_cluster_guard
     from .runtime_semantic_entity import install_semantic_entity_priority
@@ -41,6 +42,7 @@ def main() -> int:
 
     install_runtime_mask_cluster_guard()
     install_semantic_entity_priority()
+    install_runtime_entity_hardening()
     tile_perception = install_runtime_tile_perception(
         live_bridge_module,
         full_round_module,
@@ -52,39 +54,44 @@ def main() -> int:
     install_runtime_control_mode()
     mode = current_control_mode().value
     print("TRAINER: day-64 + night-64 retained for outer request and FULL_COMBAT post-KO")
-    print("POST_OK_GATE: confirmed; baseline was captured before OK and spawn wait completed")
+    print("POST_OK_GATE: confirmed; baseline was captured before trainer click and spawn wait completed")
     print(
-        f"PR26.5 PRE-OK BASELINE: stored={baseline_count} "
-        "source=BEFORE_DIALOG_OK enemy_not_spawned=true"
+        f"PR26.6 CLEAN BASELINE: stored={baseline_count} "
+        "source=BEFORE_TRAINER_CLICK dialog_open=false enemy_not_spawned=true"
     )
-    print("ENGAGEMENT: physical authority is controlled by PR26.5 validation mode")
+    print("ENGAGEMENT: physical authority is controlled by PR26.6 validation mode")
     print(
-        "PR26.5 OCCUPANCY: DANGER is a strong priority, not a hard acquisition gate; "
+        "PR26.6 OCCUPANCY: DANGER_CONFIRMED/LIKELY is strong priority; "
+        "DANGER_WEAK is ranking telemetry only; "
         f"terrain_examples={tile_perception.terrain_example_count}"
     )
     print(
-        "PR26.5 FLOW: exact pixel mask -> player exclusion -> edge-connected cluster -> "
-        "DANGER_LOCK or persistent ENTITY_LOCK -> passive approach -> COMBAT_LOCK"
+        "PR26.6 FLOW: exact pixel mask -> player exclusion -> artifact rejection -> "
+        "motion/raw entity confirmation -> selected visual lock -> passive approach -> COMBAT_LOCK"
     )
-    print("PR26.5 AUTHORITY: HOSTILE_CONFIRMED -> COMBAT_LOCK")
+    print("PR26.6 AUTHORITY: HOSTILE_CONFIRMED -> COMBAT_LOCK")
     print(
-        "PR26.5 SEMANTICS: UNKNOWN preserves danger_similarity, floor_similarity and "
-        "danger_margin as CONFIRMED/LIKELY/WEAK prior"
+        "PR26.6 ARTIFACTS: horizontal UI strips, top/bottom bars and thin edge columns "
+        "cannot become entities"
     )
     print(
-        "PR26.5 PIXEL TRUTH: EXACT_CELL_BASELINE creates occupancy; "
+        "PR26.6 CONTINUITY: raw IDs never authorize teleport; distributed baseline "
+        "failure triggers GLOBAL_SCENE_CHANGE and resets all authority"
+    )
+    print(
+        "PR26.6 PIXEL TRUTH: EXACT_CELL_BASELINE creates occupancy; "
         "CLASS_REFERENCE remains weak attention only"
     )
     print(
-        "PR26.5 CLUSTER: CELL_SIZE=64x64; cardinal mask contact only; "
+        "PR26.6 CLUSTER: CELL_SIZE=64x64; cardinal mask contact only; "
         "humanoid limit=2x3 cells / 6 total; player pixels removed"
     )
     print(
-        f"PR26.5 MODE={mode}: PERCEPTION_ONLY blocks TURN/MOVE/R/H; "
+        f"PR26.6 MODE={mode}: PERCEPTION_ONLY blocks TURN/MOVE/R/H; "
         "FACE_ONLY allows TURN only; FULL_COMBAT requires COMBAT_LOCK"
     )
     print(
-        "PR26.5 SAFETY: tile-only and negative synthetic candidates have zero "
+        "PR26.6 SAFETY: tile-only and negative synthetic candidates have zero "
         "offensive authority"
     )
     return int(full_round_module.main())

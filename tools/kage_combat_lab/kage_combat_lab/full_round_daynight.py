@@ -43,12 +43,16 @@ def main() -> int:
     from .runtime_control_mode import install_runtime_control_mode
     from .runtime_engagement_recovery import install_runtime_engagement_recovery
     from .runtime_facing_patch import install_runtime_facing_patch
+    from .runtime_mask_cluster_guard import install_runtime_mask_cluster_guard
     from .runtime_startup_inherited import install_inherited_post_ok_startup
     from .runtime_tile_perception import (
         current_control_mode,
         install_runtime_tile_perception,
     )
 
+    # Install before the occupancy tracker is constructed so every runtime map
+    # receives player exclusion and mask-connected cluster rules.
+    install_runtime_mask_cluster_guard()
     tile_perception = install_runtime_tile_perception(
         live_bridge_module,
         full_round_module,
@@ -65,30 +69,34 @@ def main() -> int:
     print("TRAINER: day-64 + night-64 enabled for post-combat return")
     print("POST_OK_GATE: confirmed; child inherits the one outer RIGHT pulse")
     print(
-        f"PR26.3 PRESPAWN BASELINE: stored={baseline_count} "
+        f"PR26.4 PRESPAWN BASELINE: stored={baseline_count} "
         "physical_input=BLOCKED startup_delay_consumed=true"
     )
-    print("ENGAGEMENT: physical authority is controlled by PR26.3 validation mode")
+    print("ENGAGEMENT: physical authority is controlled by PR26.4 validation mode")
     print(
-        "PR26.3 OCCUPANCY: PR24 DANGER creates a mobile identity; "
+        "PR26.4 OCCUPANCY: PR24 DANGER creates a mobile identity; "
         f"terrain_examples={tile_perception.terrain_example_count}"
     )
     print(
-        "PR26.3 FLOW: slow PR24 prior -> real pixel diff -> occupied cells -> "
-        "DANGER_CLUSTER -> mobile propagation -> FACE_ONLY_LOCK -> pixel approach -> "
+        "PR26.4 FLOW: slow PR24 prior -> exact pixel mask -> player exclusion -> "
+        "edge-connected DANGER_CLUSTER -> FACE_ONLY_LOCK -> pixel approach -> "
         "HOSTILE_CONFIRMED -> COMBAT_LOCK"
     )
-    print("PR26.3 AUTHORITY: HOSTILE_CONFIRMED -> COMBAT_LOCK")
+    print("PR26.4 AUTHORITY: HOSTILE_CONFIRMED -> COMBAT_LOCK")
     print(
-        "PR26.3 PIXEL TRUTH: true_changed_ratio requires EXACT_CELL_BASELINE or "
-        "CLASS_REFERENCE; bbox_coverage_ratio is telemetry only"
+        "PR26.4 PIXEL TRUTH: EXACT_CELL_BASELINE creates occupancy; "
+        "CLASS_REFERENCE is weak attention only; bbox_coverage is telemetry"
     )
     print(
-        f"PR26.3 MODE={mode}: PERCEPTION_ONLY blocks TURN/MOVE/R/H; "
+        "PR26.4 CLUSTER: CELL_SIZE=64x64; cardinal mask contact only; "
+        "humanoid limit=2x3 cells / 6 total; player pixels removed"
+    )
+    print(
+        f"PR26.4 MODE={mode}: PERCEPTION_ONLY blocks TURN/MOVE/R/H; "
         "FACE_ONLY allows TURN only; FULL_COMBAT requires COMBAT_LOCK"
     )
     print(
-        "PR26.3 SAFETY: tile-only and negative synthetic candidates have zero "
+        "PR26.4 SAFETY: tile-only and negative synthetic candidates have zero "
         "offensive authority"
     )
     return int(full_round_module.main())

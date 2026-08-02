@@ -3,12 +3,12 @@ from __future__ import annotations
 import inspect
 from pathlib import Path
 
-from kage_combat_lab import full_loop, full_round_daynight
+from kage_combat_lab import full_loop_pr27, full_round_daynight_pr27
 from kage_combat_lab.pr27_native_grid import CellSearchGroup
 
 
 def test_pr27_round_entry_does_not_install_pr26_combat_patch_chain() -> None:
-    source = inspect.getsource(full_round_daynight)
+    source = inspect.getsource(full_round_daynight_pr27)
     forbidden = (
         "runtime_mask_cluster_guard",
         "runtime_semantic_entity",
@@ -25,13 +25,13 @@ def test_pr27_round_entry_does_not_install_pr26_combat_patch_chain() -> None:
 
 
 def test_outer_loop_routes_only_round_subprocess_to_pr27() -> None:
-    replaced = full_loop.replace_source_round_command(
+    replaced = full_loop_pr27.replace_source_round_command(
         ["python.exe", "legacy_round.py", "--seconds", "120"]
     )
     assert replaced[:4] == [
         "python.exe",
         "-m",
-        "kage_combat_lab.full_round_daynight",
+        "kage_combat_lab.full_round_daynight_pr27",
         "--pr27-post-ok",
     ]
     assert replaced[4:] == ["--seconds", "120"]

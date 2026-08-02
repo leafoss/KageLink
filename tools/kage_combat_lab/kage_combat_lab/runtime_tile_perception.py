@@ -5,16 +5,16 @@ import time
 from typing import Any, Callable
 
 from .domain import CELL_SIZE_PX
-from .hostility_gate import PR26HostilityGate
+from .hostility_gate_v2 import PR26ContinuityHostilityGate
 from .tile_perception import PR24CombatTilePerception, TileClass
 
 
 _INSTALLED = False
 _RUNTIME: PR24CombatTilePerception | None = None
-_HOSTILITY_GATE: PR26HostilityGate | None = None
+_HOSTILITY_GATE: PR26ContinuityHostilityGate | None = None
 
 
-def current_hostility_gate() -> PR26HostilityGate | None:
+def current_hostility_gate() -> PR26ContinuityHostilityGate | None:
     return _HOSTILITY_GATE
 
 
@@ -22,11 +22,12 @@ def install_runtime_tile_perception(
     live_bridge_module: Any,
     full_round_module: Any | None = None,
 ) -> PR24CombatTilePerception:
-    """Install PR24 classification as a passive visual/hostility gate.
+    """Install PR24 classification through the continuity-aware hostility gate.
 
     PR24 may identify a DANGER cell and maintain VISUAL_LOCK, but only a
     positive real track that approaches the stationary player may reach PR25
-    Target Capsule and offensive combat authority.
+    Target Capsule and offensive combat authority. PR26.2 bridges normal
+    DANGER/UNKNOWN/WALKABLE oscillation with short memory and 2-of-3 voting.
     """
 
     global _INSTALLED, _RUNTIME, _HOSTILITY_GATE
@@ -34,7 +35,7 @@ def install_runtime_tile_perception(
         return _RUNTIME
 
     perception = PR24CombatTilePerception()
-    gate = PR26HostilityGate()
+    gate = PR26ContinuityHostilityGate()
     calibration_payload = json.loads(
         perception.config.calibration_path.read_text(encoding="utf-8")
     )
@@ -124,7 +125,8 @@ def install_runtime_tile_perception(
                 f"danger={danger_cells} "
                 f"unknown={summary.get('unknown', 0)} "
                 f"active_unknown={summary.get('active_unknown', 0)} "
-                "synthetic=0 synthetic_authority=BLOCKED"
+                "synthetic=0 synthetic_authority=BLOCKED "
+                "continuity=2of3 danger_memory=1.25s"
             )
             print(
                 "PR26_HOSTILITY "
@@ -136,7 +138,8 @@ def install_runtime_tile_perception(
                 f"danger_confidence={snapshot.danger_confidence:.2f} "
                 f"changed_ratio={snapshot.changed_pixel_ratio:.3f} "
                 f"largest_blob={snapshot.largest_blob_area} "
-                f"D_history={history}"
+                f"persistence={snapshot.persistence} "
+                f"D_history={history} reason={snapshot.reason}"
             )
             next_telemetry_at = now + 1.0
         return combat_frame
@@ -152,6 +155,13 @@ def install_runtime_tile_perception(
             if payload.get("phase") == "combat":
                 payload.update(gate.last_snapshot.as_log_fields())
                 payload["synthetic_offensive_authority"] = False
+                payload["pr26_continuity_contract"] = {
+                    "entity_votes": "2_of_3",
+                    "danger_memory_seconds": 1.25,
+                    "entity_cell_source": "foot_point_then_bbox_bottom",
+                    "acquire": "strict",
+                    "maintain": "tolerant",
+                }
                 payload["pr24_calibrated_full_origin"] = [
                     int(calibrated_full_origin[0]),
                     int(calibrated_full_origin[1]),

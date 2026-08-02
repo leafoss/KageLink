@@ -85,9 +85,11 @@ class CellBaselineStore:
     def set(self, cell: GridCell, image: np.ndarray, *, stability_score: float = 0.0) -> None:
         if image.shape[:2] != (cell.height, cell.width):
             raise ValueError(f"PR27_BASELINE_SHAPE_MISMATCH:{cell.cell_id}:{image.shape[:2]}")
+        stored_image = np.ascontiguousarray(image.copy())
         self._baselines[(cell.row, cell.column)] = CellBaseline(
             cell=cell,
-            image=np.ascontiguousarray(image.copy()),
+            image=stored_image,
+            lab_image=np.ascontiguousarray(cv2.cvtColor(stored_image, cv2.COLOR_BGR2LAB)),
             captured_at=time.time(),
             valid=True,
             stability_score=float(stability_score),
@@ -152,10 +154,11 @@ class CellDifferenceDetector:
         baselines: CellBaselineStore,
     ) -> dict[tuple[int, int], CellDifference]:
         result: dict[tuple[int, int], CellDifference] = {}
+        arena_lab = cv2.cvtColor(arena_bgr, cv2.COLOR_BGR2LAB)
         for cell in cells:
-            crop = arena_bgr[cell.y : cell.y + cell.height, cell.x : cell.x + cell.width]
+            current_lab = arena_lab[cell.y : cell.y + cell.height, cell.x : cell.x + cell.width]
             baseline = baselines.get(cell)
-            if baseline is None or not baseline.valid or baseline.image.shape != crop.shape:
+            if baseline is None or not baseline.valid or baseline.lab_image.shape != current_lab.shape:
                 mask = np.zeros((cell.height, cell.width), dtype=np.uint8)
                 result[(cell.row, cell.column)] = CellDifference(
                     cell=cell,
@@ -167,9 +170,7 @@ class CellDifferenceDetector:
                 )
                 continue
 
-            current_lab = cv2.cvtColor(crop, cv2.COLOR_BGR2LAB)
-            baseline_lab = cv2.cvtColor(baseline.image, cv2.COLOR_BGR2LAB)
-            delta = cv2.absdiff(current_lab, baseline_lab)
+            delta = cv2.absdiff(current_lab, baseline.lab_image)
             magnitude = np.max(delta, axis=2)
             mask = np.where(
                 magnitude >= self.config.pixel_delta_threshold,

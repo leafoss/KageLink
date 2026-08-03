@@ -16,9 +16,11 @@ class DebugRecorder:
         "03_difference_composite.png", "04_mask_composite.png", "05_components_overlay.png",
         "06_entities_overlay.png", "07_tracking_overlay.png", "08_hostility_overlay.png",
     )
+    # Semantic/residual observations remain in JSON every frame. Full PNG sets
+    # are forced only by state changes so a persistent NPC does not defeat the
+    # purpose of Balanced mode.
     CRITICAL_EVENTS = {
-        "player_source_changed", "player_lost", "semantic_entity_detected",
-        "residual_entity_detected", "entity_created", "entity_moved",
+        "player_source_changed", "player_lost", "entity_created", "entity_moved",
         "distance_decreased", "hostility_state_changed", "attack_recommended",
         "background_cluster_created", "structural_mismatch", "processing_error",
     }

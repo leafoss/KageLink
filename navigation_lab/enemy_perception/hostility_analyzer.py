@@ -47,12 +47,9 @@ class HostilityAnalyzer:
         if observation.movement_detected and track.last_scored_frame != frame_index:
             delta += 1
             reasons.append("entity_moved")
-            if (
-                previous_distance is not None
-                and distance is not None
-                and distance < previous_distance
-            ):
+            if previous_distance is not None and distance is not None and distance < previous_distance:
                 observation.approaching = True
+                observation.movement_state = "approaching"
                 delta += 2
                 reasons.append("distance_decreased_by_entity_motion")
                 track.approach_streak += 1
@@ -67,10 +64,7 @@ class HostilityAnalyzer:
                         track.current_world_cell[0] - track.previous_world_cell[0],
                         track.current_world_cell[1] - track.previous_world_cell[1],
                     )
-                    if (
-                        track.last_move_vector is not None
-                        and vector != track.last_move_vector
-                    ):
+                    if track.last_move_vector is not None and vector != track.last_move_vector:
                         delta += 4
                         reasons.append("route_corrected_toward_player")
                     track.last_move_vector = vector
@@ -118,7 +112,9 @@ class HostilityAnalyzer:
 
         previous_state = track.hostility_state
         score = track.hostility_score
-        if (hp_loss_detected and attack_detected) or score >= 16:
+        if score >= 20:
+            state = HostilityState.ATTACK_RECOMMENDED
+        elif (hp_loss_detected and attack_detected) or score >= 16:
             state = HostilityState.HOSTILE_CONFIRMED
         elif score >= 12:
             state = HostilityState.HOSTILE_PROBABLE
@@ -143,8 +139,18 @@ class HostilityAnalyzer:
                     "to": state.value,
                 }
             )
-        if state == HostilityState.HOSTILE_CONFIRMED:
+        if state in {HostilityState.HOSTILE_CONFIRMED, HostilityState.ATTACK_RECOMMENDED}:
             events.append({"event": "enemy_confirmed", "track_id": track.track_id})
+        if state == HostilityState.ATTACK_RECOMMENDED:
+            observation.attack_recommended = True
+            events.append(
+                {
+                    "event": "attack_recommended",
+                    "track_id": track.track_id,
+                    "score": score,
+                    "reasons": list(track.hostility_reasons[-8:]),
+                }
+            )
 
         observation.hostility_score = track.hostility_score
         observation.hostility_state = state

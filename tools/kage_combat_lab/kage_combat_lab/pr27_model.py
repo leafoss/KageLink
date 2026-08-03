@@ -17,6 +17,13 @@ class CellState(str, Enum):
     BASELINE_INVALID = "BASELINE_INVALID"
 
 
+class FragmentRole(str, Enum):
+    BODY_CANDIDATE = "BODY_CANDIDATE"
+    GROUND_LIKE = "GROUND_LIKE"
+    EFFECT_LIKE = "EFFECT_LIKE"
+    NOISE = "NOISE"
+
+
 class SpriteClass(str, Enum):
     PLAYER = "PLAYER"
     ENEMY = "ENEMY"
@@ -91,6 +98,10 @@ class GridCell:
     def center(self) -> tuple[float, float]:
         return self.x + self.width / 2.0, self.y + self.height / 2.0
 
+    def contains(self, point: tuple[float, float]) -> bool:
+        px, py = point
+        return self.x <= px < self.x + self.width and self.y <= py < self.y + self.height
+
 
 @dataclass(slots=True)
 class CellBaseline:
@@ -120,7 +131,7 @@ class CellDifference:
 
 @dataclass(frozen=True, slots=True)
 class CellSearchGroup:
-    """A search hint only. It deliberately has no identity or target fields."""
+    """Search addresses only; never identity, lock, direction or combat authority."""
 
     group_id: int
     cells: tuple[GridCell, ...]
@@ -144,6 +155,9 @@ class SpriteFragment:
     contour: np.ndarray
     pixel_count: int
     descriptor: AppearanceDescriptor
+    role: FragmentRole = FragmentRole.BODY_CANDIDATE
+    role_reason: str = "body geometry"
+    body_score: float = 0.0
 
 
 @dataclass(slots=True)
@@ -156,6 +170,11 @@ class SpriteObservation:
     combined_mask: np.ndarray
     crop: np.ndarray
     descriptor: AppearanceDescriptor
+    body_bbox: tuple[int, int, int, int] | None = None
+    body_anchor: tuple[float, float] | None = None
+    anchor_cell: tuple[int, int] | None = None
+    body_confidence: float = 0.0
+    rejection_reason: str | None = None
 
     @property
     def center(self) -> tuple[float, float]:
@@ -163,8 +182,16 @@ class SpriteObservation:
         return left + width / 2.0, top + height / 2.0
 
     @property
+    def authority_position(self) -> tuple[float, float] | None:
+        return self.body_anchor
+
+    @property
     def pixel_count(self) -> int:
         return sum(fragment.pixel_count for fragment in self.fragments)
+
+    @property
+    def has_body_lock(self) -> bool:
+        return self.body_bbox is not None and self.body_anchor is not None and self.anchor_cell is not None
 
 
 @dataclass(slots=True)
@@ -186,6 +213,10 @@ class TrackedSprite:
     appearance_signature: AppearanceDescriptor
     first_seen_frame: int
     last_seen_frame: int
+    body_bbox: tuple[int, int, int, int] | None = None
+    body_anchor: tuple[float, float] | None = None
+    anchor_cell: tuple[int, int] | None = None
+    body_confidence: float = 0.0
     missing_frames: int = 0
     observations: int = 1
     movement_history: deque[tuple[float, float]] = field(default_factory=lambda: deque(maxlen=12))
@@ -194,11 +225,18 @@ class TrackedSprite:
     confidence: float = 0.0
     track_state: TrackState = TrackState.TRACKED
     known_sprite_id: str | None = None
+    rejection_reason: str | None = None
 
     @property
     def center(self) -> tuple[float, float]:
+        if self.body_anchor is not None:
+            return self.body_anchor
         left, top, width, height = self.native_bbox
         return left + width / 2.0, top + height / 2.0
+
+    @property
+    def has_body_lock(self) -> bool:
+        return self.body_bbox is not None and self.body_anchor is not None and self.anchor_cell is not None
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,6 +248,9 @@ class CombatTarget:
     distance_cells: int | None
     confidence: float
     visible: bool
+    body_bbox: tuple[int, int, int, int] | None = None
+    body_anchor: tuple[float, float] | None = None
+    anchor_cell: tuple[int, int] | None = None
 
 
 @dataclass(slots=True)
@@ -230,6 +271,9 @@ class PR27FrameResult:
     state: RoundState
     scene_changed: bool
     reason: str
+    grid_phase: tuple[int, int] = (0, 0)
+    fragment_rejections: Mapping[str, int] = field(default_factory=dict)
+    candidate_rejections: tuple[str, ...] = ()
 
 
 @dataclass(slots=True)
@@ -248,33 +292,42 @@ class PR27Config:
     scene_changed_cell_ratio: float = 0.42
     scene_changed_min_cells: int = 8
     scene_stable_frames: int = 3
-    fragment_join_gap_px: int = 10
+    fragment_join_gap_px: int = 8
     association_min_score: float = 0.48
-    target_association_min_score: float = 0.32
-    target_minimum_appearance: float = 0.42
+    target_association_min_score: float = 0.38
+    target_minimum_appearance: float = 0.50
     maximum_track_cell_step: int = 3
     maximum_missing_frames: int = 3
-    target_missing_grace_frames: int = 10
+    target_missing_grace_frames: int = 4
     target_focus_radius_cells: int = 3
     global_reacquire_interval_frames: int = 8
-    maximum_active_tracks: int = 24
+    maximum_active_tracks: int = 18
     player_anchor_x_ratio: float = 0.50
     player_anchor_y_ratio: float = 0.54
     player_anchor_radius_px: float = 58.0
     player_confirm_frames: int = 2
-    enemy_confirm_frames: int = 3
+    enemy_confirm_frames: int = 5
     known_sprite_threshold: float = 0.82
     attack_distance_cells: int = 1
     enable_context_enemy: bool = True
+    grid_player_local_x: int = 32
+    grid_player_local_y: int = 56
+    body_min_width: int = 6
+    body_min_height: int = 12
+    body_max_width: int = 96
+    body_max_height: int = 112
+    body_min_area: int = 110
+    body_max_area: int = 9000
+    body_ground_max_height: int = 14
+    body_ground_min_aspect: float = 1.65
+    body_lock_min_confidence: float = 0.42
+    trainer_exclusion_cell_margin: int = 1
 
     def normalized(self) -> "PR27Config":
         self.cell_size_px = CELL_SIZE_PX
         self.pixel_delta_threshold = max(1, int(self.pixel_delta_threshold))
         self.changed_ratio_threshold = min(1.0, max(0.001, float(self.changed_ratio_threshold)))
-        self.uncertain_ratio_threshold = min(
-            self.changed_ratio_threshold,
-            max(0.0, float(self.uncertain_ratio_threshold)),
-        )
+        self.uncertain_ratio_threshold = min(self.changed_ratio_threshold, max(0.0, float(self.uncertain_ratio_threshold)))
         self.minimum_component_area = max(1, int(self.minimum_component_area))
         self.minimum_fragment_pixels = max(self.minimum_component_area, int(self.minimum_fragment_pixels))
         self.minimum_fragment_width = max(1, int(self.minimum_fragment_width))
@@ -286,19 +339,25 @@ class PR27Config:
         self.scene_changed_min_cells = max(2, int(self.scene_changed_min_cells))
         self.scene_stable_frames = max(2, int(self.scene_stable_frames))
         self.association_min_score = min(1.0, max(0.05, float(self.association_min_score)))
-        self.target_association_min_score = min(
-            self.association_min_score,
-            max(0.05, float(self.target_association_min_score)),
-        )
+        self.target_association_min_score = min(self.association_min_score, max(0.05, float(self.target_association_min_score)))
         self.target_minimum_appearance = min(1.0, max(0.0, float(self.target_minimum_appearance)))
         self.maximum_track_cell_step = max(1, int(self.maximum_track_cell_step))
         self.maximum_missing_frames = max(1, int(self.maximum_missing_frames))
-        self.target_missing_grace_frames = max(
-            self.maximum_missing_frames,
-            int(self.target_missing_grace_frames),
-        )
+        self.target_missing_grace_frames = max(self.maximum_missing_frames, int(self.target_missing_grace_frames))
         self.target_focus_radius_cells = max(1, int(self.target_focus_radius_cells))
         self.global_reacquire_interval_frames = max(2, int(self.global_reacquire_interval_frames))
         self.maximum_active_tracks = max(4, int(self.maximum_active_tracks))
         self.enemy_confirm_frames = max(2, int(self.enemy_confirm_frames))
+        self.grid_player_local_x = min(CELL_SIZE_PX - 1, max(0, int(self.grid_player_local_x)))
+        self.grid_player_local_y = min(CELL_SIZE_PX - 1, max(0, int(self.grid_player_local_y)))
+        self.body_min_width = max(2, int(self.body_min_width))
+        self.body_min_height = max(4, int(self.body_min_height))
+        self.body_max_width = max(self.body_min_width, int(self.body_max_width))
+        self.body_max_height = max(self.body_min_height, int(self.body_max_height))
+        self.body_min_area = max(1, int(self.body_min_area))
+        self.body_max_area = max(self.body_min_area, int(self.body_max_area))
+        self.body_ground_max_height = max(2, int(self.body_ground_max_height))
+        self.body_ground_min_aspect = max(1.0, float(self.body_ground_min_aspect))
+        self.body_lock_min_confidence = min(1.0, max(0.0, float(self.body_lock_min_confidence)))
+        self.trainer_exclusion_cell_margin = max(1, int(self.trainer_exclusion_cell_margin))
         return self

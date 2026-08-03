@@ -52,6 +52,9 @@ def _trainer_exclusion_local(
     native_frame,
     trainer_bbox: tuple[int, int, int, int] | None,
 ) -> tuple[int, int, int, int] | None:
+    authoritative = getattr(combat, "trainer_exclusion_bbox", None)
+    if authoritative is not None:
+        return authoritative
     if trainer_bbox is None:
         return None
     rect, arena = combat.cropper.crop(native_frame)
@@ -77,7 +80,7 @@ def _mask_trainer_with_baseline(
     if exclusion is None:
         return native_frame
     sanitized = native_frame.copy()
-    rect, arena = combat.cropper.crop(sanitized)
+    _, arena = combat.cropper.crop(sanitized)
     left, top, width, height = exclusion
     right, bottom = left + width, top + height
     cells = combat.grid.build(arena.shape)
@@ -127,9 +130,7 @@ def main() -> int:
     mode = control_mode()
     physical_mode = mode in {"FACE_ONLY", "CONTROL_ENABLED"}
     config = config_from_env()
-    registry = KnownSpriteRegistry.from_directory(
-        Path(os.environ.get("KAGE_PR27_SPRITE_ROOT", "data/pr27_sprites"))
-    )
+    registry = KnownSpriteRegistry.from_directory(Path(os.environ.get("KAGE_PR27_SPRITE_ROOT", "data/pr27_sprites")))
     combat = PR27CombatSystem(config=config, registry=registry)
     app_config = live_runtime.load_config()
     victory_watcher = live_runtime.ChatVictoryWatcher(app_config.game_title, app_config.chat_class)
@@ -161,10 +162,10 @@ def main() -> int:
     move_pulse_seconds = max(0.03, min(0.14, float(args.move_pulse)))
     v_pulse_seconds = max(0.03, min(0.20, float(args.v_pulse)))
 
-    print("KAGE COMBAT LAB - PR27 NATIVE GRID SPRITE COMBAT", flush=True)
-    print("PR27 CONTRACT: native frame -> arena -> native 64px cells -> per-cell baseline", flush=True)
-    print("PR27 CLUSTER: search addresses only; no identity, direction, hostility or target authority", flush=True)
-    print("PR27 IDENTITY: SpriteFragment -> SpriteObservation -> TrackedSprite ID", flush=True)
+    print("KAGE COMBAT LAB - PR27.5 BODY-LOCK GRID COMBAT", flush=True)
+    print("PR27.5 CONTRACT: native frame -> phased 64px cells -> body bbox -> body anchor -> anchor cell", flush=True)
+    print("PR27.5 SEARCH: groups/current_cells are hints only; no combat authority", flush=True)
+    print("PR27.5 LOCK: chase, distance and attack consume only body_anchor/anchor_cell", flush=True)
     print(f"PR27 MODE={mode}; known_sprite_references={len(registry.sprites)}", flush=True)
     print(f"PR27 BASELINE={baseline_path()}", flush=True)
     print(
@@ -173,11 +174,7 @@ def main() -> int:
         flush=True,
     )
     if not registry.sprites:
-        print(
-            "PR27_CONTEXT_ENEMY_SELECTION=COMPETITIVE_PERSISTENCE_SHAPE_SIZE_MOTION; "
-            "first-track-wins disabled",
-            flush=True,
-        )
+        print("PR27_CONTEXT_ENEMY_SELECTION=BODY_PERSISTENCE_SHAPE_SIZE_MOTION; first-track-wins disabled", flush=True)
     if overlay_requested and physical_mode:
         print(
             "PR27_OVERLAY_DISABLED mode=PHYSICAL reason=prevent_foreground_theft_and_cv_wait_block; "
@@ -201,23 +198,15 @@ def main() -> int:
     try:
         _stage("INPUT_ACTIVATE_BEGIN", mode=mode, recover_foreground=physical_mode)
         armed_actions = physical.activate(mode=mode)
-        print(
-            f"PR27_PHYSICAL_ARMED mode={mode} physical={','.join(armed_actions)}",
-            flush=True,
-        )
+        print(f"PR27_PHYSICAL_ARMED mode={mode} physical={','.join(armed_actions)}", flush=True)
         _stage("INPUT_ACTIVATE_DONE")
-
         startup_delay = max(0.0, float(args.startup_delay))
         if startup_delay > 0.0:
             _stage("STARTUP_DELAY", seconds=f"{startup_delay:.2f}")
             interruptible_sleep(startup_delay)
-
         _stage("FIRST_CAPTURE_BEGIN")
         first_native = source.capture_native()
-        _stage(
-            "FIRST_CAPTURE_DONE",
-            native=f"{first_native.source_width}x{first_native.source_height}",
-        )
+        _stage("FIRST_CAPTURE_DONE", native=f"{first_native.source_width}x{first_native.source_height}")
         _stage("BASELINE_LOAD_BEGIN", path=baseline_path())
         loaded = combat.load_baseline(baseline_path(), first_native.bgr)
         metadata = combat.baselines.metadata
@@ -226,23 +215,24 @@ def main() -> int:
         if all(value is not None for value in expected_size):
             if tuple(int(value) for value in expected_size) != actual_size:
                 raise RuntimeError(f"PR27_NATIVE_FRAME_SIZE_CHANGED:baseline={expected_size} current={actual_size}")
-        print(f"PR27_BASELINE_LOADED cells={loaded} native={actual_size[0]}x{actual_size[1]}", flush=True)
-        _stage("BASELINE_LOAD_DONE", cells=loaded)
-
+        print(
+            f"PR27_BASELINE_LOADED cells={loaded} native={actual_size[0]}x{actual_size[1]} grid_phase={combat.grid.phase}",
+            flush=True,
+        )
+        _stage("BASELINE_LOAD_DONE", cells=loaded, grid_phase=combat.grid.phase)
         if trainer_bbox is None:
             metadata_bbox = metadata.get("trainer_bbox")
             if isinstance(metadata_bbox, list) and len(metadata_bbox) == 4:
                 trainer_bbox = tuple(int(value) for value in metadata_bbox)
         trainer_exclusion = _trainer_exclusion_local(combat, first_native.bgr, trainer_bbox)
         if trainer_exclusion is None:
-            print("PR27_TRAINER_EXCLUSION_INACTIVE reason=bbox_unavailable_or_outside_arena", flush=True)
+            print("PR27_TRAINER_EXCLUSION_INACTIVE reason=normalized_center_unavailable_or_outside_arena", flush=True)
         else:
             print(
-                f"PR27_TRAINER_EXCLUSION_ACTIVE frame_bbox={trainer_bbox} "
-                f"arena_bbox={trainer_exclusion} top_and_nameplate_masked=true",
+                f"PR27_TRAINER_EXCLUSION_ACTIVE detector_bbox={trainer_bbox} native_arena_bbox={trainer_exclusion} "
+                "body_anchor_and_anchor_cell_guard=true",
                 flush=True,
             )
-
         victory_watcher.prime()
         started = time.monotonic()
         next_telemetry = started
@@ -259,26 +249,15 @@ def main() -> int:
                 if victory_signal is not None:
                     controller.release_all()
                     print(f"PR27_ROUND_FINISHED victory_chat={victory_signal.text}", flush=True)
-                    write_log(
-                        log_handle,
-                        {"event": "PR27_ROUND_FINISHED", "text": victory_signal.text},
-                        flush=True,
-                    )
+                    write_log(log_handle, {"event": "PR27_ROUND_FINISHED", "text": victory_signal.text}, flush=True)
                     break
-
             if frames == 0:
                 _stage("FRAME0_PROCESS_BEGIN")
             native = first_native if frames == 0 else source.capture_native()
             sanitized_bgr = _mask_trainer_with_baseline(combat, native.bgr, trainer_exclusion)
             result = combat.process(sanitized_bgr, timestamp=now)
             if frames == 0:
-                _stage(
-                    "FRAME0_PROCESS_DONE",
-                    state=result.state.value,
-                    action=result.action.value,
-                    tracks=len(result.tracks),
-                )
-
+                _stage("FRAME0_PROCESS_DONE", state=result.state.value, action=result.action.value, tracks=len(result.tracks))
             state_changed = result.state.value != last_state
             action_changed = result.action.value != last_action
             overlay_due = overlay_enabled and (frames % overlay_every_frames == 0 or state_changed)
@@ -289,41 +268,36 @@ def main() -> int:
                     raise EmergencyStop("PR27_DEBUG_WINDOW_CLOSED")
                 if save_due:
                     overlay.save(rendered, debug_root / f"frame_{frames:06d}_{result.state.value}.png")
-
             actions = physical.execute(result.action, mode=mode)
             physical_changed = actions != last_actions
-
             loop_elapsed = time.monotonic() - loop_started
             rolling_durations.append(max(1e-6, loop_elapsed))
             rolling_fps = len(rolling_durations) / sum(rolling_durations)
             if physical_changed or action_changed:
                 print(
                     f"PR27_PHYSICAL frame={frames:05d} mode={mode} planned={result.action.value} "
-                    f"physical={','.join(actions)} target={result.target.track_id if result.target else '-'}",
+                    f"physical={','.join(actions)} target={result.target.track_id if result.target else '-'} "
+                    f"anchor_cell={result.target.anchor_cell if result.target else '-'}",
                     flush=True,
                 )
             if now >= next_telemetry:
                 target_id = result.target.track_id if result.target else "-"
+                target_cell = result.target.anchor_cell if result.target else "-"
                 changed = sum(item.state.value == "CHANGED" for item in result.differences.values())
+                rejected = sum(result.fragment_rejections.values())
                 print(
                     f"PR27_FRAME frame={frames:05d} state={result.state.value} changed_cells={changed} "
-                    f"groups={len(result.groups)} fragments={len(result.fragments)} tracks={len(result.tracks)} "
-                    f"target={target_id} action={result.action.value} physical={','.join(actions)} "
-                    f"rolling_fps={rolling_fps:.1f} loop_ms={loop_elapsed * 1000.0:.1f} reason={result.reason}",
+                    f"groups={len(result.groups)} body_fragments={len(result.fragments)} tracks={len(result.tracks)} "
+                    f"rejected_fragments={rejected} target={target_id} anchor_cell={target_cell} "
+                    f"action={result.action.value} physical={','.join(actions)} rolling_fps={rolling_fps:.1f} "
+                    f"loop_ms={loop_elapsed * 1000.0:.1f} reason={result.reason}",
                     flush=True,
                 )
                 next_telemetry = now + telemetry_interval
             if frames % log_every_frames == 0 or state_changed or action_changed or physical_changed:
-                payload = frame_payload(
-                    result=result,
-                    native=native,
-                    actions=actions,
-                    frame=frames,
-                    started=started,
-                    now=now,
-                )
-                payload["trainer_exclusion_frame"] = None if trainer_bbox is None else list(trainer_bbox)
-                payload["trainer_exclusion_arena"] = None if trainer_exclusion is None else list(trainer_exclusion)
+                payload = frame_payload(result=result, native=native, actions=actions, frame=frames, started=started, now=now)
+                payload["trainer_exclusion_detector_bbox"] = None if trainer_bbox is None else list(trainer_bbox)
+                payload["trainer_exclusion_native_arena"] = None if trainer_exclusion is None else list(trainer_exclusion)
                 write_log(log_handle, payload)
             last_state = result.state.value
             last_action = result.action.value
@@ -359,11 +333,7 @@ def main() -> int:
     except Exception as exc:
         failure = exc
         print(f"PR27_FAILURE {type(exc).__name__}: {exc}", flush=True)
-        write_log(
-            log_handle,
-            {"event": "PR27_FAILURE", "type": type(exc).__name__, "error": str(exc)},
-            flush=True,
-        )
+        write_log(log_handle, {"event": "PR27_FAILURE", "type": type(exc).__name__, "error": str(exc)}, flush=True)
     finally:
         _stage("SHUTDOWN_BEGIN")
         try:

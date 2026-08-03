@@ -44,31 +44,72 @@ class ArenaCropper:
 
 
 class NativeGrid64:
-    def __init__(self, cell_size_px: int = CELL_SIZE_PX) -> None:
+    """Native 64px grid with a persisted world phase."""
+
+    def __init__(self, cell_size_px: int = CELL_SIZE_PX, *, phase_x: int = 0, phase_y: int = 0) -> None:
         if int(cell_size_px) != CELL_SIZE_PX:
             raise ValueError("PR27_GRID_MUST_BE_NATIVE_64PX")
         self.cell_size_px = CELL_SIZE_PX
+        self.set_phase(phase_x, phase_y)
+
+    @property
+    def phase(self) -> tuple[int, int]:
+        return self.phase_x, self.phase_y
+
+    def set_phase(self, phase_x: int, phase_y: int) -> None:
+        self.phase_x = int(phase_x) % CELL_SIZE_PX
+        self.phase_y = int(phase_y) % CELL_SIZE_PX
+
+    @staticmethod
+    def phase_from_anchor(
+        anchor: tuple[float, float],
+        *,
+        desired_local: tuple[int, int] = (32, 56),
+    ) -> tuple[int, int]:
+        desired_x = int(desired_local[0]) % CELL_SIZE_PX
+        desired_y = int(desired_local[1]) % CELL_SIZE_PX
+        return (
+            int(round(desired_x - float(anchor[0]))) % CELL_SIZE_PX,
+            int(round(desired_y - float(anchor[1]))) % CELL_SIZE_PX,
+        )
 
     def build(self, arena_shape: Sequence[int]) -> tuple[GridCell, ...]:
         height, width = int(arena_shape[0]), int(arena_shape[1])
         cells: list[GridCell] = []
+        world_y = -self.phase_y
         row = 0
-        for y in range(0, height, self.cell_size_px):
-            column = 0
-            for x in range(0, width, self.cell_size_px):
-                cells.append(
-                    GridCell(
-                        row=row,
-                        column=column,
-                        x=x,
-                        y=y,
-                        width=min(self.cell_size_px, width - x),
-                        height=min(self.cell_size_px, height - y),
-                    )
-                )
-                column += 1
+        while world_y < height:
+            y = max(0, world_y)
+            y2 = min(height, world_y + self.cell_size_px)
+            if y2 > y:
+                world_x = -self.phase_x
+                column = 0
+                while world_x < width:
+                    x = max(0, world_x)
+                    x2 = min(width, world_x + self.cell_size_px)
+                    if x2 > x:
+                        cells.append(GridCell(row=row, column=column, x=x, y=y, width=x2 - x, height=y2 - y))
+                    world_x += self.cell_size_px
+                    column += 1
+            world_y += self.cell_size_px
             row += 1
         return tuple(cells)
+
+    def cell_key_for_point(self, point: tuple[float, float], arena_shape: Sequence[int]) -> tuple[int, int] | None:
+        x, y = float(point[0]), float(point[1])
+        height, width = int(arena_shape[0]), int(arena_shape[1])
+        if x < 0 or y < 0 or x >= width or y >= height:
+            return None
+        return (
+            int((y + self.phase_y) // self.cell_size_px),
+            int((x + self.phase_x) // self.cell_size_px),
+        )
+
+    @staticmethod
+    def cell_for_key(cells: Iterable[GridCell], key: tuple[int, int] | None) -> GridCell | None:
+        if key is None:
+            return None
+        return next((cell for cell in cells if (cell.row, cell.column) == key), None)
 
 
 class CellBaselineStore:
@@ -98,6 +139,18 @@ class CellBaselineStore:
     def invalidate_all(self) -> None:
         for baseline in self._baselines.values():
             baseline.valid = False
+
+    @staticmethod
+    def read_metadata(path: Path) -> dict[str, object]:
+        if not path.is_file():
+            raise RuntimeError(f"PR27_NATIVE_BASELINE_MISSING:{path}")
+        with np.load(path, allow_pickle=False) as archive:
+            if "metadata" not in archive.files:
+                return {}
+            try:
+                return dict(json.loads(str(archive["metadata"].item())))
+            except Exception:
+                return {}
 
     def load_npz(self, path: Path, cells: Iterable[GridCell]) -> int:
         if not path.is_file():
@@ -161,35 +214,24 @@ class CellDifferenceDetector:
             if baseline is None or not baseline.valid or baseline.lab_image.shape != current_lab.shape:
                 mask = np.zeros((cell.height, cell.width), dtype=np.uint8)
                 result[(cell.row, cell.column)] = CellDifference(
-                    cell=cell,
-                    difference_mask=mask,
-                    changed_pixel_count=0,
-                    changed_ratio=0.0,
-                    components=(),
-                    state=CellState.BASELINE_INVALID,
+                    cell=cell, difference_mask=mask, changed_pixel_count=0,
+                    changed_ratio=0.0, components=(), state=CellState.BASELINE_INVALID,
                 )
                 continue
-
             delta = cv2.absdiff(current_lab, baseline.lab_image)
             magnitude = np.max(delta, axis=2)
-            mask = np.where(
-                magnitude >= self.config.pixel_delta_threshold,
-                255,
-                0,
-            ).astype(np.uint8)
+            mask = np.where(magnitude >= self.config.pixel_delta_threshold, 255, 0).astype(np.uint8)
             mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, self.kernel)
             mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, self.kernel)
-
             label_count, label_map, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
             cleaned = np.zeros_like(mask)
             components: list[ComponentEvidence] = []
             for label in range(1, label_count):
-                x, y, width, height, area = (int(value) for value in stats[label])
+                x, y, component_width, component_height, area = (int(value) for value in stats[label])
                 if area < self.config.minimum_component_area:
                     continue
                 cleaned[label_map == label] = 255
-                components.append(ComponentEvidence((x, y, width, height), area))
-
+                components.append(ComponentEvidence((x, y, component_width, component_height), area))
             changed = int(np.count_nonzero(cleaned))
             area = max(1, int(cell.width * cell.height))
             ratio = changed / area
@@ -200,25 +242,17 @@ class CellDifferenceDetector:
             else:
                 state = CellState.STABLE
             result[(cell.row, cell.column)] = CellDifference(
-                cell=cell,
-                difference_mask=cleaned,
-                changed_pixel_count=changed,
-                changed_ratio=ratio,
-                components=tuple(components),
-                state=state,
+                cell=cell, difference_mask=cleaned, changed_pixel_count=changed,
+                changed_ratio=ratio, components=tuple(components), state=state,
             )
         return result
 
 
 class ChangedCellGrouper:
-    """Groups cell addresses only; no bbox, foot, identity or hostility authority."""
+    """Groups cell addresses only; no body, identity or target authority."""
 
     def group(self, differences: Mapping[tuple[int, int], CellDifference]) -> tuple[CellSearchGroup, ...]:
-        changed = {
-            key: value.cell
-            for key, value in differences.items()
-            if value.state is CellState.CHANGED
-        }
+        changed = {key: value.cell for key, value in differences.items() if value.state is CellState.CHANGED}
         unvisited = set(changed)
         groups: list[CellSearchGroup] = []
         while unvisited:
@@ -238,10 +272,5 @@ class ChangedCellGrouper:
                         if neighbour in unvisited:
                             unvisited.remove(neighbour)
                             queue.append(neighbour)
-            groups.append(
-                CellSearchGroup(
-                    group_id=len(groups) + 1,
-                    cells=tuple(sorted(cells)),
-                )
-            )
+            groups.append(CellSearchGroup(group_id=len(groups) + 1, cells=tuple(sorted(cells))))
         return tuple(groups)

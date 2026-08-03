@@ -67,7 +67,11 @@ class TrainerIdentityTracker:
         self.missing_hits = 0
         self.last = TrainerEvidence(
             TrainerState.TRAINER_IDENTITY_UNAVAILABLE if identity is None else TrainerState.TRAINER_VISUAL_UNCERTAIN,
-            None, self.predicted_bbox, 0.0, False, "INITIAL",
+            None,
+            self.predicted_bbox,
+            0.0,
+            False,
+            "INITIAL",
         )
 
     @staticmethod
@@ -111,7 +115,10 @@ class TrainerIdentityTracker:
         return TrainerIdentity(
             template_gray=gray,
             edge_map=edge,
-            histogram=cls._histogram(crop, silhouette),
+            histogram=cls._histogram(
+                crop,
+                silhouette if np.count_nonzero(silhouette) > 0 else None,
+            ),
             silhouette=silhouette,
             bbox_size=(clipped.width, clipped.height),
             source_bbox=clipped,
@@ -128,7 +135,14 @@ class TrainerIdentityTracker:
 
     def observe(self, frame_bgr: np.ndarray, *, camera_dx: float = 0.0, camera_dy: float = 0.0) -> TrainerEvidence:
         if self.identity is None:
-            self.last = TrainerEvidence(TrainerState.TRAINER_IDENTITY_UNAVAILABLE, None, None, 0.0, False, "NO_PRE_CLICK_IDENTITY")
+            self.last = TrainerEvidence(
+                TrainerState.TRAINER_IDENTITY_UNAVAILABLE,
+                None,
+                None,
+                0.0,
+                False,
+                "NO_PRE_CLICK_IDENTITY",
+            )
             return self.last
         if self.predicted_bbox is None:
             self.predicted_bbox = self.identity.source_bbox
@@ -139,32 +153,89 @@ class TrainerIdentityTracker:
             self.predicted_bbox.bottom + int(round(camera_dy)),
         )
         search = self._clip(
-            self.predicted_bbox.expand(left=self.search_margin, right=self.search_margin, top=self.search_margin, bottom=self.search_margin),
+            self.predicted_bbox.expand(
+                left=self.search_margin,
+                right=self.search_margin,
+                top=self.search_margin,
+                bottom=self.search_margin,
+            ),
             frame_bgr.shape[:2],
         )
         template = self.identity.template_gray
         if search is None or search.width < template.shape[1] or search.height < template.shape[0]:
-            self.last = TrainerEvidence(TrainerState.TRAINER_OUTSIDE_ROI, None, self.predicted_bbox, 0.0, False, "SEARCH_OUTSIDE_FRAME")
+            self.last = TrainerEvidence(
+                TrainerState.TRAINER_OUTSIDE_ROI,
+                None,
+                self.predicted_bbox,
+                0.0,
+                False,
+                "SEARCH_OUTSIDE_FRAME",
+            )
             return self.last
         gray = cv2.cvtColor(frame_bgr[search.top:search.bottom, search.left:search.right], cv2.COLOR_BGR2GRAY)
         response, _constant_template = self._template_response(gray, template)
         _mn, maximum, _mnl, maximum_location = cv2.minMaxLoc(response)
-        score = float(maximum)
         left = search.left + int(maximum_location[0])
         top = search.top + int(maximum_location[1])
         observed = NativeRect(left, top, left + template.shape[1], top + template.shape[0])
+        observed_crop = frame_bgr[observed.top:observed.bottom, observed.left:observed.right]
+        observed_gray = cv2.cvtColor(observed_crop, cv2.COLOR_BGR2GRAY)
+        observed_edge = cv2.Canny(observed_gray, 35, 100)
+        observed_hist = self._histogram(observed_crop)
+        hist_score = self._cosine(observed_hist, self.identity.histogram)
+        edge_union = int(np.count_nonzero((observed_edge > 0) | (self.identity.edge_map > 0)))
+        edge_iou = (
+            1.0
+            if edge_union == 0 and float(np.std(observed_gray)) < 1.0 and float(np.std(template)) < 1.0
+            else 0.0
+            if edge_union == 0
+            else float(
+                np.count_nonzero((observed_edge > 0) & (self.identity.edge_map > 0))
+                / edge_union
+            )
+        )
+        score = float(
+            max(
+                0.0,
+                min(1.0, 0.55 * float(maximum) + 0.35 * hist_score + 0.10 * edge_iou),
+            )
+        )
+
         if score >= self.confirmed_threshold:
-            self.confirmed_hits += 1; self.missing_hits = 0; self.predicted_bbox = observed
-            state = TrainerState.TRAINER_VISIBLE_CONFIRMED if self.confirmed_hits >= self.confirm_frames else TrainerState.TRAINER_VISUAL_UNCERTAIN
+            self.confirmed_hits += 1
+            self.missing_hits = 0
+            self.predicted_bbox = observed
+            state = (
+                TrainerState.TRAINER_VISIBLE_CONFIRMED
+                if self.confirmed_hits >= self.confirm_frames
+                else TrainerState.TRAINER_VISUAL_UNCERTAIN
+            )
             source = "CURRENT_FRAME_IDENTITY_MATCH"
         elif score >= self.uncertain_threshold:
-            self.confirmed_hits = 0; self.missing_hits = 0
-            state = TrainerState.TRAINER_VISUAL_UNCERTAIN; source = "IDENTITY_BELOW_CONFIRMED_THRESHOLD"
+            self.confirmed_hits = 0
+            self.missing_hits = 0
+            state = TrainerState.TRAINER_VISUAL_UNCERTAIN
+            source = "IDENTITY_BELOW_CONFIRMED_THRESHOLD"
         else:
-            self.confirmed_hits = 0; self.missing_hits += 1
-            state = TrainerState.TRAINER_ABSENT if self.missing_hits >= self.absent_frames else TrainerState.TRAINER_VISUAL_UNCERTAIN
-            source = "IDENTITY_NOT_PRESENT"; observed = None
-        self.last = TrainerEvidence(state, observed, self.predicted_bbox, score, state is TrainerState.TRAINER_VISIBLE_CONFIRMED, source, entity_detection_mask_pixels=0)
+            self.confirmed_hits = 0
+            self.missing_hits += 1
+            state = (
+                TrainerState.TRAINER_ABSENT
+                if self.missing_hits >= self.absent_frames
+                else TrainerState.TRAINER_VISUAL_UNCERTAIN
+            )
+            source = "IDENTITY_NOT_PRESENT"
+            observed = None
+
+        self.last = TrainerEvidence(
+            state=state,
+            observed_bbox=observed,
+            predicted_bbox=self.predicted_bbox,
+            identity_score=score,
+            current_frame_match=state is TrainerState.TRAINER_VISIBLE_CONFIRMED,
+            source=source,
+            entity_detection_mask_pixels=0,
+        )
         return self.last
 
     def candidate_similarity(self, frame_bgr: np.ndarray, candidate: EntityCandidate) -> float:
@@ -184,8 +255,10 @@ class TrainerIdentityTracker:
         edge_iou = 1.0 if edge_union == 0 else float(np.count_nonzero((edge > 0) & (self.identity.edge_map > 0)) / edge_union)
         hist_score = self._cosine(hist, self.identity.histogram)
         size_score = min(
-            rect.width / max(1, self.identity.bbox_size[0]), self.identity.bbox_size[0] / max(1, rect.width),
-            rect.height / max(1, self.identity.bbox_size[1]), self.identity.bbox_size[1] / max(1, rect.height),
+            rect.width / max(1, self.identity.bbox_size[0]),
+            self.identity.bbox_size[0] / max(1, rect.width),
+            rect.height / max(1, self.identity.bbox_size[1]),
+            self.identity.bbox_size[1] / max(1, rect.height),
         )
         return float(max(0.0, min(1.0, 0.45 * template_match + 0.20 * edge_iou + 0.25 * hist_score + 0.10 * size_score)))
 
@@ -209,11 +282,21 @@ class TrainerIdentityTracker:
             else:
                 preserved.append(candidate)
         self.last = TrainerEvidence(
-            state=self.last.state, observed_bbox=self.last.observed_bbox, predicted_bbox=self.last.predicted_bbox,
-            identity_score=self.last.identity_score, current_frame_match=self.last.current_frame_match,
-            source=self.last.source, candidate_vetoes=tuple(vetoed), entity_detection_mask_pixels=0,
+            state=self.last.state,
+            observed_bbox=self.last.observed_bbox,
+            predicted_bbox=self.last.predicted_bbox,
+            identity_score=self.last.identity_score,
+            current_frame_match=self.last.current_frame_match,
+            source=self.last.source,
+            candidate_vetoes=tuple(vetoed),
+            entity_detection_mask_pixels=0,
         )
         return tuple(preserved), tuple(vetoed), scores
 
 
-__all__ = ["TrainerEvidence", "TrainerIdentity", "TrainerIdentityTracker", "TrainerState"]
+__all__ = [
+    "TrainerEvidence",
+    "TrainerIdentity",
+    "TrainerIdentityTracker",
+    "TrainerState",
+]

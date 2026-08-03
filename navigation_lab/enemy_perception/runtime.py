@@ -72,6 +72,15 @@ def build_engine(args: argparse.Namespace):
         enabled=args.debug_frames,
         max_frames=args.max_frames,
     )
+    if args.debug_frames:
+        print(f"[Enemy Perception Lab] debug_session={recorder.session_root}", flush=True)
+        if not recorder.session_root.is_dir():
+            raise RuntimeError(
+                f"Debug session directory was not created: {recorder.session_root}"
+            )
+    else:
+        print("[Enemy Perception Lab] debug_session=OFF", flush=True)
+
     backgrounds = BackgroundReferenceStore(
         repository.root / "enemy_perception" / args.region_id / "backgrounds"
     )

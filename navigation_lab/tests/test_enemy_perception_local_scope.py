@@ -109,8 +109,9 @@ class VisualBackgroundCatalogueTests(unittest.TestCase):
             self.assertEqual(payload["schema_version"], SCHEMA_VERSION)
             self.assertEqual(
                 payload["matching_semantics"],
-                "visual_similarity_within_terrain_class",
+                "semantic_class_plus_visual_cluster",
             )
+            self.assertEqual(len(payload["clusters"]), 1)
 
 
 class CandidateScopeTests(unittest.TestCase):

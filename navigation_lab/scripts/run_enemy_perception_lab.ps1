@@ -7,11 +7,22 @@ param(
   [double]$AutoThreshold = 0.95,
   [double]$ReviewThreshold = 0.90,
   [double]$GroupingThreshold = 0.965,
-  [double]$BackgroundMatchThreshold = 0.985,
+  [ValidateSet("Auto", "Visual", "Fallback")][string]$PlayerAnchorMode = "Auto",
+  [int]$PlayerTemporalTtlFrames = 10,
+  [int]$PlayerAnchorColumn = -1,
+  [int]$PlayerAnchorRow = -1,
+  [double]$SemanticEntityThreshold = 0.90,
+  [double]$BackgroundStrongThreshold = 0.95,
+  [double]$BackgroundUsableThreshold = 0.88,
+  [double]$BackgroundDiagnosticThreshold = 0.70,
   [double]$MaxBackgroundChangedRatio = 0.65,
   [double]$MaxBackgroundMeanDifference = 55.0,
+  [int]$SceneConsensusMinCells = 8,
+  [int]$SceneConsensusFrames = 4,
+  [double]$SceneConsensusSimilarity = 0.94,
   [double]$PlayfieldBottomRatio = 0.75,
   [int]$InterestRadiusCells = 4,
+  [int]$ProcessingRadiusCells = 5,
   [int]$OverlayPixelThreshold = 24,
   [double]$MinChangedPixelRatio = 0.03,
   [int]$MinComponentArea = 12,
@@ -23,6 +34,8 @@ param(
   [int]$TrackTtlFrames = 10,
   [switch]$ResetBackgroundReferences,
   [switch]$ResetUnknownEntityKnowledge,
+  [ValidateSet("Full", "Balanced", "Off")][string]$DebugMode = "Balanced",
+  [int]$DebugStride = 5,
   [switch]$DebugFrames,
   [switch]$NoDebugFrames,
   [switch]$KeepWindowVisible,
@@ -37,23 +50,19 @@ $Python = Join-Path $RepoRoot ".venv-navigation\Scripts\python.exe"
 if (-not (Test-Path $Python)) {
   throw "Navigation virtual environment not found. Run .\navigation_lab\scripts\setup_navigation.ps1 first."
 }
-
-$DebugEnabled = -not $NoDebugFrames
-if ($DebugFrames) { $DebugEnabled = $true }
+if ($DebugFrames) { $DebugMode = "Full" }
+if ($NoDebugFrames) { $DebugMode = "Off" }
 
 $DebugRoot = Join-Path $env:LOCALAPPDATA "KageNavigationLab\profiles\$Profile\enemy_perception_debug"
 $EnemyRoot = Join-Path $env:LOCALAPPDATA "KageNavigationLab\profiles\$Profile\enemy_perception\$RegionId"
 Write-Host "[Enemy Perception Lab] Python: $Python" -ForegroundColor Cyan
-Write-Host "[Enemy Perception Lab] Debug enabled: $DebugEnabled" -ForegroundColor Cyan
-Write-Host "[Enemy Perception Lab] Debug root: $DebugRoot" -ForegroundColor Cyan
-Write-Host "[Enemy Perception Lab] Visual background catalogue: $(Join-Path $EnemyRoot 'backgrounds')" -ForegroundColor Cyan
-Write-Host "[Enemy Perception Lab] ROI: Manhattan D<=$InterestRadiusCells; processing margin D<=$($InterestRadiusCells + 1)" -ForegroundColor Cyan
-if ($ResetBackgroundReferences) {
-  Write-Host "[Enemy Perception Lab] RESET requested: $(Join-Path $EnemyRoot 'backgrounds')" -ForegroundColor Yellow
-}
-if ($ResetUnknownEntityKnowledge) {
-  Write-Host "[Enemy Perception Lab] RESET unknown groups: $(Join-Path $EnemyRoot 'entities\unknown')" -ForegroundColor Yellow
-}
+Write-Host "[Enemy Perception Lab] Player: $PlayerAnchorMode; temporal TTL=$PlayerTemporalTtlFrames" -ForegroundColor Cyan
+Write-Host "[Enemy Perception Lab] Semantic NPC threshold: $SemanticEntityThreshold" -ForegroundColor Cyan
+Write-Host "[Enemy Perception Lab] Background levels: strong=$BackgroundStrongThreshold usable=$BackgroundUsableThreshold diagnostic=$BackgroundDiagnosticThreshold" -ForegroundColor Cyan
+Write-Host "[Enemy Perception Lab] ROI: tracking D<=$InterestRadiusCells; processing D<=$ProcessingRadiusCells" -ForegroundColor Cyan
+Write-Host "[Enemy Perception Lab] Debug: $DebugMode; stride=$DebugStride; root=$DebugRoot" -ForegroundColor Cyan
+if ($ResetBackgroundReferences) { Write-Host "[Enemy Perception Lab] RESET backgrounds: $(Join-Path $EnemyRoot 'backgrounds')" -ForegroundColor Yellow }
+if ($ResetUnknownEntityKnowledge) { Write-Host "[Enemy Perception Lab] RESET unknown entities" -ForegroundColor Yellow }
 
 Set-Location $RepoRoot
 $Arguments = @(
@@ -65,11 +74,20 @@ $Arguments = @(
   "--auto-threshold", $AutoThreshold,
   "--review-threshold", $ReviewThreshold,
   "--grouping-threshold", $GroupingThreshold,
-  "--background-match-threshold", $BackgroundMatchThreshold,
+  "--player-anchor-mode", $PlayerAnchorMode,
+  "--player-temporal-ttl-frames", $PlayerTemporalTtlFrames,
+  "--semantic-entity-threshold", $SemanticEntityThreshold,
+  "--background-strong-threshold", $BackgroundStrongThreshold,
+  "--background-usable-threshold", $BackgroundUsableThreshold,
+  "--background-diagnostic-threshold", $BackgroundDiagnosticThreshold,
   "--max-background-changed-ratio", $MaxBackgroundChangedRatio,
   "--max-background-mean-difference", $MaxBackgroundMeanDifference,
+  "--scene-consensus-min-cells", $SceneConsensusMinCells,
+  "--scene-consensus-frames", $SceneConsensusFrames,
+  "--scene-consensus-similarity", $SceneConsensusSimilarity,
   "--playfield-bottom-ratio", $PlayfieldBottomRatio,
   "--interest-radius-cells", $InterestRadiusCells,
+  "--processing-radius-cells", $ProcessingRadiusCells,
   "--overlay-pixel-threshold", $OverlayPixelThreshold,
   "--min-changed-pixel-ratio", $MinChangedPixelRatio,
   "--min-component-area", $MinComponentArea,
@@ -78,11 +96,14 @@ $Arguments = @(
   "--max-entity-height-cells", $MaxEntityHeightCells,
   "--max-entity-pixel-area", $MaxEntityPixelArea,
   "--max-entity-aspect-ratio", $MaxEntityAspectRatio,
-  "--track-ttl-frames", $TrackTtlFrames
+  "--track-ttl-frames", $TrackTtlFrames,
+  "--debug-mode", $DebugMode,
+  "--debug-stride", $DebugStride
 )
+if ($PlayerAnchorColumn -ge 0) { $Arguments += @("--player-anchor-column", $PlayerAnchorColumn) }
+if ($PlayerAnchorRow -ge 0) { $Arguments += @("--player-anchor-row", $PlayerAnchorRow) }
 if ($ResetBackgroundReferences) { $Arguments += "--reset-background-references" }
 if ($ResetUnknownEntityKnowledge) { $Arguments += "--reset-unknown-entity-knowledge" }
-if ($DebugEnabled) { $Arguments += "--debug-frames" }
 if ($KeepWindowVisible) { $Arguments += "--keep-window-visible" }
 if ($SessionName) { $Arguments += @("--session-name", $SessionName) }
 if ($MaxFrames -gt 0) { $Arguments += @("--max-frames", $MaxFrames) }
@@ -90,11 +111,8 @@ if ($MaxSessionMinutes -gt 0) { $Arguments += @("--max-session-minutes", $MaxSes
 
 & $Python @Arguments
 $ExitCode = $LASTEXITCODE
-
-if ($DebugEnabled) {
+if ($DebugMode -ne "Off") {
   Write-Host "[Enemy Perception Lab] Sessions: $DebugRoot" -ForegroundColor Green
-  if ($SessionName) {
-    Write-Host "[Enemy Perception Lab] This session: $(Join-Path $DebugRoot $SessionName)" -ForegroundColor Green
-  }
+  if ($SessionName) { Write-Host "[Enemy Perception Lab] This session: $(Join-Path $DebugRoot $SessionName)" -ForegroundColor Green }
 }
 exit $ExitCode

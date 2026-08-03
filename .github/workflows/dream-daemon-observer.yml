@@ -24,6 +24,6 @@ jobs:
       - name: Install test dependencies
         run: python -m pip install -r requirements.txt pytest
       - name: Compile
-        run: python -m py_compile observer_core.py dream_daemon_observer.py
+        run: python -m py_compile observer_core.py capture_runtime.py observer_ui.py dream_daemon_observer.py
       - name: Test
         run: python -m pytest -q

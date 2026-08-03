@@ -37,7 +37,8 @@ jobs:
           $scripts = @(
             "./run_kage_combat_lab.ps1",
             "./run_pr26_tile_combat.ps1",
-            "./run_pr27_native_sprite_combat.ps1"
+            "./run_pr27_native_sprite_combat.ps1",
+            "./run_pr27_8_replay.ps1"
           )
           foreach ($script in $scripts) {
             $tokens = $null

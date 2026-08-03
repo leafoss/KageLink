@@ -6,6 +6,7 @@ import time
 from collections import deque
 from pathlib import Path
 
+from .pr27_async_debug import AsyncDebugWriter
 from .pr27_native_grid import KnownSpriteRegistry, PR27CombatSystem
 from .pr27_overlay import PR27DebugOverlay
 from .pr27_post_ko import configure_post_engine, run_post_ko
@@ -130,7 +131,9 @@ def main() -> int:
     mode = control_mode()
     physical_mode = mode in {"FACE_ONLY", "CONTROL_ENABLED"}
     config = config_from_env()
-    registry = KnownSpriteRegistry.from_directory(Path(os.environ.get("KAGE_PR27_SPRITE_ROOT", "data/pr27_sprites")))
+    registry = KnownSpriteRegistry.from_directory(
+        Path(os.environ.get("KAGE_PR27_SPRITE_ROOT", "data/pr27_sprites"))
+    )
     combat = PR27CombatSystem(config=config, registry=registry)
     app_config = live_runtime.load_config()
     victory_watcher = live_runtime.ChatVictoryWatcher(app_config.game_title, app_config.chat_class)
@@ -144,8 +147,9 @@ def main() -> int:
     )
     physical = PR27PhysicalInput(controller, sleep_fn=interruptible_sleep)
     log_handle, report_root, round_stem = create_log(args, __file__)
+    log_path = Path(log_handle.name).resolve()
     overlay = PR27DebugOverlay()
-    debug_root = report_root / "pr27_debug" / round_stem
+    debug_root = (report_root / "pr27_debug" / round_stem).resolve()
     overlay_requested = bool_env("KAGE_PR27_DEBUG_OVERLAY", False)
     overlay_enabled = overlay_requested and not physical_mode
     save_debug = bool_env("KAGE_PR27_SAVE_DEBUG_FRAMES", False)
@@ -153,6 +157,8 @@ def main() -> int:
     save_every_frames = _int_env("KAGE_PR27_SAVE_EVERY_FRAMES", 80)
     log_every_frames = _int_env("KAGE_PR27_LOG_EVERY_FRAMES", 2)
     target_fps = min(20.0, _float_env("KAGE_PR27_TARGET_FPS", 8.0, 1.0))
+    debug_queue_size = _int_env("KAGE_PR27_DEBUG_QUEUE_SIZE", 24, 2)
+    debug_writer = AsyncDebugWriter(max_queue=debug_queue_size) if save_debug else None
 
     interval = 1.0 / target_fps
     telemetry_interval = max(0.10, float(args.telemetry_seconds))
@@ -162,23 +168,27 @@ def main() -> int:
     move_pulse_seconds = max(0.03, min(0.14, float(args.move_pulse)))
     v_pulse_seconds = max(0.03, min(0.20, float(args.v_pulse)))
 
-    print("KAGE COMBAT LAB - PR27.5 BODY-LOCK GRID COMBAT", flush=True)
-    print("PR27.5 CONTRACT: native frame -> phased 64px cells -> body bbox -> body anchor -> anchor cell", flush=True)
-    print("PR27.5 SEARCH: groups/current_cells are hints only; no combat authority", flush=True)
-    print("PR27.5 LOCK: chase, distance and attack consume only body_anchor/anchor_cell", flush=True)
+    print("KAGE COMBAT LAB - PR27.7 SELF AUTHORITY AND CLOSE RECOVERY", flush=True)
+    print("PR27.7 CONTRACT: SELF first -> reserve observation -> non-SELF association -> bounded recovery", flush=True)
+    print("PR27.7 ROLES: SELF and ENEMY are immutable during the round", flush=True)
+    print("PR27.7 FACING: commanded direction is not visual confirmation", flush=True)
     print(f"PR27 MODE={mode}; known_sprite_references={len(registry.sprites)}", flush=True)
     print(f"PR27 BASELINE={baseline_path()}", flush=True)
+    print(f"PR27_LOG_PATH={log_path}", flush=True)
+    print(f"PR27_DEBUG_PATH={debug_root}", flush=True)
+    print(f"PR27_DEBUG_MODE={'ROI_ONLY_WITH_CONFLICT_FULL_FRAME' if save_debug else 'DISABLED'}", flush=True)
+    print(f"PR27_DEBUG_SAVE_EVERY={save_every_frames}", flush=True)
     print(
         f"PR27 PERFORMANCE target_fps={target_fps:.1f} overlay_every={overlay_every_frames} "
-        f"save_every={save_every_frames} log_every={log_every_frames}",
+        f"save_every={save_every_frames} log_every={log_every_frames} async_queue={debug_queue_size}",
         flush=True,
     )
     if not registry.sprites:
-        print("PR27_CONTEXT_ENEMY_SELECTION=BODY_PERSISTENCE_SHAPE_SIZE_MOTION; first-track-wins disabled", flush=True)
+        print("PR27_CONTEXT_ENEMY_SELECTION=IMMUTABLE_ROLE_BODY_PERSISTENCE_SHAPE_SIZE_MOTION", flush=True)
     if overlay_requested and physical_mode:
         print(
             "PR27_OVERLAY_DISABLED mode=PHYSICAL reason=prevent_foreground_theft_and_cv_wait_block; "
-            "console_and_optional_png_debug_remain_active",
+            "asynchronous ROI PNG debug remains active",
             flush=True,
         )
 
@@ -198,6 +208,7 @@ def main() -> int:
     try:
         _stage("INPUT_ACTIVATE_BEGIN", mode=mode, recover_foreground=physical_mode)
         armed_actions = physical.activate(mode=mode)
+        combat.record_physical_actions(armed_actions)
         print(f"PR27_PHYSICAL_ARMED mode={mode} physical={','.join(armed_actions)}", flush=True)
         _stage("INPUT_ACTIVATE_DONE")
         startup_delay = max(0.0, float(args.startup_delay))
@@ -214,9 +225,12 @@ def main() -> int:
         actual_size = (first_native.source_width, first_native.source_height)
         if all(value is not None for value in expected_size):
             if tuple(int(value) for value in expected_size) != actual_size:
-                raise RuntimeError(f"PR27_NATIVE_FRAME_SIZE_CHANGED:baseline={expected_size} current={actual_size}")
+                raise RuntimeError(
+                    f"PR27_NATIVE_FRAME_SIZE_CHANGED:baseline={expected_size} current={actual_size}"
+                )
         print(
-            f"PR27_BASELINE_LOADED cells={loaded} native={actual_size[0]}x{actual_size[1]} grid_phase={combat.grid.phase}",
+            f"PR27_BASELINE_LOADED cells={loaded} native={actual_size[0]}x{actual_size[1]} "
+            f"grid_phase={combat.grid.phase}",
             flush=True,
         )
         _stage("BASELINE_LOAD_DONE", cells=loaded, grid_phase=combat.grid.phase)
@@ -229,8 +243,8 @@ def main() -> int:
             print("PR27_TRAINER_EXCLUSION_INACTIVE reason=normalized_center_unavailable_or_outside_arena", flush=True)
         else:
             print(
-                f"PR27_TRAINER_EXCLUSION_ACTIVE detector_bbox={trainer_bbox} native_arena_bbox={trainer_exclusion} "
-                "body_anchor_and_anchor_cell_guard=true",
+                f"PR27_TRAINER_EXCLUSION_ACTIVE detector_bbox={trainer_bbox} "
+                f"native_arena_bbox={trainer_exclusion} body_anchor_and_anchor_cell_guard=true",
                 flush=True,
             )
         victory_watcher.prime()
@@ -249,7 +263,11 @@ def main() -> int:
                 if victory_signal is not None:
                     controller.release_all()
                     print(f"PR27_ROUND_FINISHED victory_chat={victory_signal.text}", flush=True)
-                    write_log(log_handle, {"event": "PR27_ROUND_FINISHED", "text": victory_signal.text}, flush=True)
+                    write_log(
+                        log_handle,
+                        {"event": "PR27_ROUND_FINISHED", "text": victory_signal.text},
+                        flush=True,
+                    )
                     break
             if frames == 0:
                 _stage("FRAME0_PROCESS_BEGIN")
@@ -257,18 +275,37 @@ def main() -> int:
             sanitized_bgr = _mask_trainer_with_baseline(combat, native.bgr, trainer_exclusion)
             result = combat.process(sanitized_bgr, timestamp=now)
             if frames == 0:
-                _stage("FRAME0_PROCESS_DONE", state=result.state.value, action=result.action.value, tracks=len(result.tracks))
+                _stage(
+                    "FRAME0_PROCESS_DONE",
+                    state=result.state.value,
+                    action=result.action.value,
+                    tracks=len(result.tracks),
+                )
             state_changed = result.state.value != last_state
             action_changed = result.action.value != last_action
             overlay_due = overlay_enabled and (frames % overlay_every_frames == 0 or state_changed)
-            save_due = save_debug and (frames % save_every_frames == 0 or state_changed)
+            conflict_frame = result.role_conflict or result.merged_body_detected
+            save_due = save_debug and (
+                frames % save_every_frames == 0
+                or state_changed
+                or conflict_frame
+            )
             if overlay_due or save_due:
+                render_started = time.perf_counter()
                 rendered = overlay.render(result)
+                result.timings_ms["overlay_render_ms"] = (time.perf_counter() - render_started) * 1000.0
                 if overlay_due and not overlay.show(rendered):
                     raise EmergencyStop("PR27_DEBUG_WINDOW_CLOSED")
-                if save_due:
-                    overlay.save(rendered, debug_root / f"frame_{frames:06d}_{result.state.value}.png")
+                if save_due and debug_writer is not None:
+                    enqueue_started = time.perf_counter()
+                    full_frame = state_changed or conflict_frame
+                    debug_image = rendered if full_frame else overlay.roi_crop(rendered, result)
+                    mode_label = "FULL" if full_frame else "ROI"
+                    debug_path = debug_root / f"frame_{frames:06d}_{result.state.value}_{mode_label}.png"
+                    debug_writer.enqueue(debug_image, debug_path)
+                    result.timings_ms["debug_enqueue_ms"] = (time.perf_counter() - enqueue_started) * 1000.0
             actions = physical.execute(result.action, mode=mode)
+            combat.record_physical_actions(actions)
             physical_changed = actions != last_actions
             loop_elapsed = time.monotonic() - loop_started
             rolling_durations.append(max(1e-6, loop_elapsed))
@@ -277,7 +314,8 @@ def main() -> int:
                 print(
                     f"PR27_PHYSICAL frame={frames:05d} mode={mode} planned={result.action.value} "
                     f"physical={','.join(actions)} target={result.target.track_id if result.target else '-'} "
-                    f"anchor_cell={result.target.anchor_cell if result.target else '-'}",
+                    f"anchor_cell={result.target.anchor_cell if result.target else '-'} "
+                    f"self={result.player_track_id} recovery={result.close_reacquire_state.value}",
                     flush=True,
                 )
             if now >= next_telemetry:
@@ -288,14 +326,24 @@ def main() -> int:
                 print(
                     f"PR27_FRAME frame={frames:05d} state={result.state.value} changed_cells={changed} "
                     f"groups={len(result.groups)} body_fragments={len(result.fragments)} tracks={len(result.tracks)} "
-                    f"rejected_fragments={rejected} target={target_id} anchor_cell={target_cell} "
-                    f"action={result.action.value} physical={','.join(actions)} rolling_fps={rolling_fps:.1f} "
-                    f"loop_ms={loop_elapsed * 1000.0:.1f} reason={result.reason}",
+                    f"rejected_fragments={rejected} self={result.player_track_id} self_state={result.self_track_state.value} "
+                    f"target={target_id} anchor_cell={target_cell} action={result.action.value} "
+                    f"role_conflict={result.role_conflict} merged={result.merged_body_detected} "
+                    f"facing_cmd={result.facing_commanded or '-'} facing_obs={result.facing_observed or '-'} "
+                    f"recovery={result.close_reacquire_state.value} physical={','.join(actions)} "
+                    f"rolling_fps={rolling_fps:.1f} loop_ms={loop_elapsed * 1000.0:.1f} reason={result.reason}",
                     flush=True,
                 )
                 next_telemetry = now + telemetry_interval
             if frames % log_every_frames == 0 or state_changed or action_changed or physical_changed:
-                payload = frame_payload(result=result, native=native, actions=actions, frame=frames, started=started, now=now)
+                payload = frame_payload(
+                    result=result,
+                    native=native,
+                    actions=actions,
+                    frame=frames,
+                    started=started,
+                    now=now,
+                )
                 payload["trainer_exclusion_detector_bbox"] = None if trainer_bbox is None else list(trainer_bbox)
                 payload["trainer_exclusion_native_arena"] = None if trainer_exclusion is None else list(trainer_exclusion)
                 write_log(log_handle, payload)
@@ -333,7 +381,11 @@ def main() -> int:
     except Exception as exc:
         failure = exc
         print(f"PR27_FAILURE {type(exc).__name__}: {exc}", flush=True)
-        write_log(log_handle, {"event": "PR27_FAILURE", "type": type(exc).__name__, "error": str(exc)}, flush=True)
+        write_log(
+            log_handle,
+            {"event": "PR27_FAILURE", "type": type(exc).__name__, "error": str(exc)},
+            flush=True,
+        )
     finally:
         _stage("SHUTDOWN_BEGIN")
         try:
@@ -351,6 +403,8 @@ def main() -> int:
             except Exception:
                 pass
         overlay.close()
+        if debug_writer is not None:
+            debug_writer.close()
         log_handle.flush()
         log_handle.close()
         _stage("SHUTDOWN_DONE")
@@ -358,13 +412,27 @@ def main() -> int:
     duration = max(1e-6, time.monotonic() - started) if started else 0.0
     fps = frames / duration if duration else 0.0
     result_name = (
-        "error" if failure is not None else
-        "ready" if post_ready else
-        "victory" if victory_signal else
-        "stopped" if emergency_stop else
-        "timeout"
+        "error"
+        if failure is not None
+        else "ready"
+        if post_ready
+        else "victory"
+        if victory_signal
+        else "stopped"
+        if emergency_stop
+        else "timeout"
     )
     performance_ready = fps >= 8.0
+    print(f"PR27_LOG_SAVED={str(log_path.exists()).lower()}", flush=True)
+    print(
+        f"PR27_DEBUG_SAVED_FRAMES={0 if debug_writer is None else debug_writer.saved_frames}",
+        flush=True,
+    )
+    print(
+        f"PR27_DEBUG_DROPPED_FRAMES={0 if debug_writer is None else debug_writer.dropped_frames}",
+        flush=True,
+    )
+    print(f"PR27_DEBUG_PATH={debug_root}", flush=True)
     print(
         f"PR27_FINISHED result={result_name} frames={frames} fps={fps:.1f} "
         f"performance_ready={str(performance_ready).lower()} required_fps=8.0",

@@ -60,6 +60,7 @@ class EntityTracker:
                             "event": "track_skipped_outside_radius",
                             "distance": distance,
                             "anchor_world_cell": observation.region.anchor_world_cell,
+                            "candidate_sources": observation.candidate_sources,
                         }
                     )
                     continue
@@ -77,13 +78,19 @@ class EntityTracker:
                 if distance > self.max_cell_distance:
                     continue
                 visual = EntityFeatureExtractor.similarity(track.feature, observation.feature)
-                if visual < self.min_similarity:
+                # Semantic candidates may change substantially with animation;
+                # category continuity and cell proximity provide extra evidence.
+                same_category = (
+                    track.classification.category == observation.classification.category
+                )
+                required = self.min_similarity - (0.12 if same_category else 0.0)
+                if visual < required:
                     continue
                 proximity = max(
                     0.0,
                     1.0 - distance / max(1, self.max_cell_distance + 1),
                 )
-                score = 0.8 * visual + 0.2 * proximity
+                score = 0.70 * visual + 0.20 * proximity + 0.10 * float(same_category)
                 if score > best_score:
                     best_score = score
                     best_id = track_id
@@ -103,9 +110,16 @@ class EntityTracker:
                     current_world_cell=observation.region.anchor_world_cell,
                     covered_cells=list(observation.region.covered_cells),
                     position_history=[observation.region.anchor_world_cell],
+                    candidate_sources=list(observation.candidate_sources),
                 )
                 self.tracks[track_id] = track
-                events.append({"event": "entity_created", "track_id": track_id})
+                events.append(
+                    {
+                        "event": "entity_created",
+                        "track_id": track_id,
+                        "candidate_sources": observation.candidate_sources,
+                    }
+                )
             else:
                 available.remove(best_id)
                 track = self.tracks[best_id]
@@ -117,6 +131,9 @@ class EntityTracker:
                 track.last_seen_frame = frame_index
                 track.last_seen_at = timestamp
                 track.out_of_scope = False
+                track.candidate_sources = sorted(
+                    set(track.candidate_sources + observation.candidate_sources)
+                )
                 if len(track.feature) == len(observation.feature):
                     track.feature = [
                         0.7 * old + 0.3 * new
@@ -134,6 +151,7 @@ class EntityTracker:
                 if moved:
                     track.movement_count += 1
                     track.stationary_frame_count = 0
+                    observation.movement_state = "moving"
                     events.append(
                         {
                             "event": "entity_moved",
@@ -144,6 +162,7 @@ class EntityTracker:
                     )
                 else:
                     track.stationary_frame_count += 1
+                    observation.movement_state = "stationary"
                 track.position_history.append(track.current_world_cell)
                 track.position_history = track.position_history[-64:]
 
@@ -153,6 +172,10 @@ class EntityTracker:
                 track.previous_world_cell is not None
                 and track.current_world_cell != track.previous_world_cell
             )
+            if observation.movement_state == "unknown":
+                observation.movement_state = (
+                    "moving" if observation.movement_detected else "stationary"
+                )
 
         expired: list[EntityTrack] = []
         for track_id, track in list(self.tracks.items()):

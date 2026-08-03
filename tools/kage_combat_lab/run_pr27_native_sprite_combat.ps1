@@ -52,12 +52,8 @@ $PythonPaths = @($Root, $PcAgentRoot)
 $env:PYTHONPATH = ($PythonPaths -join [IO.Path]::PathSeparator)
 
 $Python = Get-Command python -ErrorAction SilentlyContinue
-if (-not $Python) {
-    $Python = Get-Command py -ErrorAction SilentlyContinue
-}
-if (-not $Python) {
-    throw "Python 3 was not found. Install Python or add it to PATH."
-}
+if (-not $Python) { $Python = Get-Command py -ErrorAction SilentlyContinue }
+if (-not $Python) { throw "Python 3 was not found. Install Python or add it to PATH." }
 
 $SelectedModeCount = @(
     @($PerceptionOnly.IsPresent, $FaceOnly.IsPresent, $ControlEnabled.IsPresent) |
@@ -79,27 +75,15 @@ $ControlMode = if ($ControlEnabled) {
 
 if ($PixelDelta -lt 1) { throw "PixelDelta must be >= 1." }
 if ($ChangedRatio -le 0 -or $ChangedRatio -gt 1) { throw "ChangedRatio must be in (0, 1]." }
-if ($UncertainRatio -lt 0 -or $UncertainRatio -gt $ChangedRatio) {
-    throw "UncertainRatio must be >= 0 and <= ChangedRatio."
-}
+if ($UncertainRatio -lt 0 -or $UncertainRatio -gt $ChangedRatio) { throw "UncertainRatio must be >= 0 and <= ChangedRatio." }
 if ($MinimumComponentArea -lt 1) { throw "MinimumComponentArea must be >= 1." }
-if ($MinimumFragmentPixels -lt $MinimumComponentArea) {
-    throw "MinimumFragmentPixels must be >= MinimumComponentArea."
-}
-if ($MinimumObservationPixels -lt $MinimumFragmentPixels) {
-    throw "MinimumObservationPixels must be >= MinimumFragmentPixels."
-}
-if ($AssociationScore -lt 0 -or $AssociationScore -gt 1) {
-    throw "AssociationScore must be between 0 and 1."
-}
-if ($TargetAssociationScore -lt 0 -or $TargetAssociationScore -gt $AssociationScore) {
-    throw "TargetAssociationScore must be between 0 and AssociationScore."
-}
+if ($MinimumFragmentPixels -lt $MinimumComponentArea) { throw "MinimumFragmentPixels must be >= MinimumComponentArea." }
+if ($MinimumObservationPixels -lt $MinimumFragmentPixels) { throw "MinimumObservationPixels must be >= MinimumFragmentPixels." }
+if ($AssociationScore -lt 0 -or $AssociationScore -gt 1) { throw "AssociationScore must be between 0 and 1." }
+if ($TargetAssociationScore -lt 0 -or $TargetAssociationScore -gt $AssociationScore) { throw "TargetAssociationScore must be between 0 and AssociationScore." }
 if ($EnemyConfirmFrames -lt 3) { throw "EnemyConfirmFrames must be >= 3." }
 if ($MaximumMissingFrames -lt 1) { throw "MaximumMissingFrames must be >= 1." }
-if ($TargetMissingGraceFrames -lt $MaximumMissingFrames) {
-    throw "TargetMissingGraceFrames must be >= MaximumMissingFrames."
-}
+if ($TargetMissingGraceFrames -lt $MaximumMissingFrames) { throw "TargetMissingGraceFrames must be >= MaximumMissingFrames." }
 if ($AttackDistanceCells -lt 0) { throw "AttackDistanceCells must be >= 0." }
 if ($HCooldown -lt 0.5) { throw "HCooldown must be >= 0.5 seconds." }
 if ($AttackConfirmFrames -lt 2) { throw "AttackConfirmFrames must be >= 2." }
@@ -109,11 +93,7 @@ if ($TargetFps -lt 1 -or $TargetFps -gt 20) { throw "TargetFps must be between 1
 function Set-InvariantDoubleEnv([string]$Name, [double]$Value) {
     [Environment]::SetEnvironmentVariable(
         $Name,
-        [string]::Format(
-            [Globalization.CultureInfo]::InvariantCulture,
-            "{0:0.0000}",
-            $Value
-        ),
+        [string]::Format([Globalization.CultureInfo]::InvariantCulture, "{0:0.0000}", $Value),
         "Process"
     )
 }
@@ -154,24 +134,26 @@ Set-InvariantDoubleEnv "KAGE_PR27_H_COOLDOWN" $HCooldown
 Set-InvariantDoubleEnv "KAGE_PR27_SCENE_CHANGED_RATIO" $SceneChangedRatio
 Set-InvariantDoubleEnv "KAGE_PR27_TARGET_FPS" $TargetFps
 
-Write-Host "PR27.4 GUARDED NATIVE GRID SPRITE COMBAT" -ForegroundColor Green
+Write-Host "PR27.5 BODY-ANCHORED PHASED GRID COMBAT" -ForegroundColor Green
 Write-Host "  Mode: $ControlMode" -ForegroundColor Cyan
 if ($ControlEnabled) {
     Write-Host "  PHYSICAL CONTROL: ENABLED BY EXPLICIT ACKNOWLEDGEMENT" -ForegroundColor Red
-    Write-Host "  R: released until a confirmed non-Trainer enemy action exists" -ForegroundColor Yellow
+    Write-Host "  R: released until a confirmed non-Trainer body lock exists" -ForegroundColor Yellow
     Write-Host "  H: requires $AttackConfirmFrames ATTACK frames; cooldown $HCooldown seconds" -ForegroundColor Yellow
     Write-Host "  F12: emergency stop; keep it ready" -ForegroundColor Yellow
 }
 if ($PhysicalMode -and $DebugOverlay) {
     Write-Host "  Live overlay: automatically disabled in physical modes to preserve game focus" -ForegroundColor Yellow
 }
-Write-Host "  Trainer region: masked from combat perception using pre-click baseline"
+Write-Host "  Combat authority: body_bbox -> body_anchor -> unique anchor_cell"
+Write-Host "  Global observation bbox: search/debug only"
+Write-Host "  Trainer coordinates: fit_full letterbox inverted to native pixels"
+Write-Host "  Ground/effect fragments: rejected before track creation"
 Write-Host "  Visual effect bursts: tracking and physical actions suspended"
-Write-Host "  Enemy selection: competitive candidates; first-track-wins disabled"
 Write-Host "  Perception frame: original DreamSeeker client pixels"
 Write-Host "  JPEG in perception: OFF" -ForegroundColor Yellow
 Write-Host "  Resize in perception: OFF" -ForegroundColor Yellow
-Write-Host "  Grid: native 64x64 cells"
+Write-Host "  Grid: native phase-aligned 64x64 cells"
 Write-Host "  Enemy confirmation: $EnemyConfirmFrames observations + 2 candidate wins"
 Write-Host "  Target missing grace: $TargetMissingGraceFrames frames"
 Write-Host "  Maximum active tracks: $MaximumActiveTracks"

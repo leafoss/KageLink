@@ -258,12 +258,14 @@ class FixedPerceptionSystem:
             rect = candidate.bbox
             color = (0, 165, 255) if candidate.candidate_class is CandidateClass.HUMANOID_CANDIDATE else (0, 255, 255)
             cv2.rectangle(output, (rect.left, rect.top), (rect.right - 1, rect.bottom - 1), color, 1)
-        for track in object_tracks:
+        object_tracks_tuple = tuple(object_tracks)
+        hostility_tracks_tuple = tuple(hostility_tracks)
+        for track in object_tracks_tuple:
             rect = track.bbox
             color = (255, 200, 0) if track.confirmed else (180, 180, 0)
             cv2.rectangle(output, (rect.left, rect.top), (rect.right - 1, rect.bottom - 1), color, 2)
             cv2.putText(output, f"OBJ {track.track_id} {track.state.value}", (rect.left, max(12, rect.top - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.34, color, 1, cv2.LINE_AA)
-        for track in hostility_tracks:
+        for track in hostility_tracks_tuple:
             if track.hostility_state is HostilityState.HOSTILE_CONFIRMED:
                 rect = track.candidate.bbox
                 cv2.rectangle(output, (rect.left, rect.top), (rect.right - 1, rect.bottom - 1), (0, 0, 255), 2)
@@ -273,8 +275,6 @@ class FixedPerceptionSystem:
             cv2.rectangle(output, (rect.left, rect.top), (rect.right - 1, rect.bottom - 1), color, 1)
             cv2.putText(output, "TRAINER IDENTITY", (rect.left, max(12, rect.top - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.40, color, 1, cv2.LINE_AA)
 
-        object_tracks_tuple = tuple(object_tracks)
-        hostility_tracks_tuple = tuple(hostility_tracks)
         body_tracks = sum(track.confirmed for track in object_tracks_tuple)
         opponent_tracks = sum(track.hostility_state in {HostilityState.OPPONENT_CANDIDATE, HostilityState.HOSTILITY_PENDING, HostilityState.HOSTILE_CONFIRMED} for track in hostility_tracks_tuple)
         pending = sum(track.hostility_state is HostilityState.HOSTILITY_PENDING for track in hostility_tracks_tuple)
@@ -332,7 +332,11 @@ class FixedPerceptionSystem:
             camera_dx=motion.dx_px if motion.shift_accepted else 0.0,
             camera_dy=motion.dy_px if motion.shift_accepted else 0.0,
         )
-        self.trainer_bbox = trainer_evidence.observed_bbox or trainer_evidence.predicted_bbox
+        self.trainer_bbox = (
+            trainer_evidence.observed_bbox
+            or trainer_evidence.predicted_bbox
+            or self.trainer_bbox
+        )
 
         raw_mask = np.zeros(original.shape[:2], dtype=np.uint8)
         residual_mask = np.zeros(original.shape[:2], dtype=np.uint8)

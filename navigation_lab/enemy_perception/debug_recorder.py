@@ -33,7 +33,8 @@ class DebugRecorder:
     ) -> None:
         self.enabled = enabled
         self.session_id = session_id
-        self.session_root = Path(root) / session_id
+        self.debug_root = Path(root)
+        self.session_root = self.debug_root / session_id
         self.frames_root = self.session_root / "frames"
         self.max_frames = max_frames
         self.started_at = datetime.now(timezone.utc)
@@ -55,14 +56,38 @@ class DebugRecorder:
         }
         if enabled:
             self.frames_root.mkdir(parents=True, exist_ok=True)
+            (self.session_root / "errors.log").touch(exist_ok=True)
+            (self.debug_root / "LATEST_SESSION.txt").write_text(
+                str(self.session_root),
+                encoding="utf-8",
+            )
+            (self.session_root / "OPEN_THIS_FOLDER.txt").write_text(
+                str(self.session_root),
+                encoding="utf-8",
+            )
             self._atomic_json(
                 self.session_root / "session.json",
                 {
                     "session_id": session_id,
                     "status": "running",
+                    "debug_enabled": True,
+                    "session_path": str(self.session_root),
                     "started_at": self.started_at.isoformat(),
                 },
             )
+            with (self.session_root / "events.jsonl").open("a", encoding="utf-8") as handle:
+                handle.write(
+                    json.dumps(
+                        {
+                            "event": "session_started",
+                            "session_id": session_id,
+                            "session_path": str(self.session_root),
+                            "started_at": self.started_at.isoformat(),
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                )
 
     def record_frame(
         self,
@@ -160,7 +185,7 @@ class DebugRecorder:
         if not self.enabled:
             return
         finished_at = datetime.now(timezone.utc)
-        times = self.stats.pop("processing_times")
+        times = self.stats.pop("processing_times", [])
         summary = {
             **self.stats,
             "average_processing_time_ms": sum(times) / len(times) if times else 0.0,
@@ -187,6 +212,8 @@ class DebugRecorder:
             {
                 "session_id": self.session_id,
                 "status": status,
+                "debug_enabled": True,
+                "session_path": str(self.session_root),
                 "started_at": self.started_at.isoformat(),
                 "finished_at": finished_at.isoformat(),
                 "summary": summary,

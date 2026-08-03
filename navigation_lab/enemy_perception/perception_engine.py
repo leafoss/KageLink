@@ -23,10 +23,10 @@ from .models import (
     EntityRegion,
     FramePerception,
     OverlayMetrics,
+    TileKnowledgeState,
 )
 from .overlay_detector import OverlayDetector
 from .player_locator import PlayerLocator
-from .scene_consensus import SceneConsensusLearner
 
 
 TERRAIN_CLASSES = {
@@ -37,13 +37,28 @@ TERRAIN_CLASSES = {
     "danger",
 }
 
+SEMANTIC_ENTITY_CLASSES = {
+    "npc",
+    "blocking_object",
+    "ignore_dynamic",
+}
+
+EXPLICIT_REPERTOIRE_SOURCES = {
+    "taught_tile",
+    "manual_confirmation",
+}
+
 
 class EnemyPerceptionEngine:
-    """Passive local perception built on PR 24's semantic mapper.
+    """Passive local perception over an explicitly taught tile repertoire.
+
+    The physical file name ``02_background_composite.png`` is retained for
+    compatibility, but its content is no longer a reconstructed background.
+    It is always the real captured frame plus repertoire-state annotations.
 
     Two independent paths feed the tracker:
-    1. semantic NPC candidates, which never require a background;
-    2. residual foreground candidates over a usable empty-tile appearance.
+    1. semantic NPC candidates, which never require a terrain reference;
+    2. localized foreign bodies over a valid explicitly taught terrain match.
     """
 
     def __init__(
@@ -70,7 +85,7 @@ class EnemyPerceptionEngine:
         candidate_validator: EntityCandidateValidator | None = None,
         player_locator: PlayerLocator | None = None,
         fusion: EntityCandidateFusion | None = None,
-        scene_consensus: SceneConsensusLearner | None = None,
+        scene_consensus: Any | None = None,
     ) -> None:
         self.mapper = mapper
         self.backgrounds = backgrounds
@@ -99,7 +114,9 @@ class EnemyPerceptionEngine:
             <= self.background_strong_threshold
             <= 1.0
         ):
-            raise ValueError("background thresholds must satisfy diagnostic <= usable <= strong")
+            raise ValueError(
+                "background thresholds must satisfy diagnostic <= usable <= strong"
+            )
         self.max_background_changed_ratio = float(max_background_changed_ratio)
         self.max_background_mean_difference = float(max_background_mean_difference)
         self.candidate_validator = candidate_validator or EntityCandidateValidator(
@@ -110,7 +127,9 @@ class EnemyPerceptionEngine:
             tile_size_px=extractor.tile_size_px,
         )
         self.fusion = fusion or EntityCandidateFusion()
-        self.scene_consensus = scene_consensus or SceneConsensusLearner(backgrounds)
+        # Kept only for constructor compatibility. It is intentionally not used
+        # to create or authorize operational repertoire matches.
+        self.scene_consensus = scene_consensus
         self.previous_player_world: tuple[int, int] | None = None
         self.previous_player_source: str | None = None
         self._schema_warning_emitted = False
@@ -147,6 +166,35 @@ class EnemyPerceptionEngine:
             player_world[1] + int(row) - player_screen[1],
         )
 
+    @staticmethod
+    def _repertoire_color(state: TileKnowledgeState) -> tuple[int, int, int]:
+        return {
+            TileKnowledgeState.KNOWN_CLEAN: (0, 170, 0),
+            TileKnowledgeState.KNOWN_WITH_FOREIGN_BODY: (0, 140, 255),
+            TileKnowledgeState.SEMANTIC_ENTITY: (255, 0, 255),
+            TileKnowledgeState.UNKNOWN_TILE: (70, 70, 220),
+            TileKnowledgeState.PLAYER_CELL: (255, 180, 0),
+            TileKnowledgeState.OUTSIDE_ROI: (80, 80, 80),
+            TileKnowledgeState.OUTSIDE_PLAYFIELD: (55, 55, 55),
+        }[state]
+
+    @staticmethod
+    def _repertoire_label(
+        state: TileKnowledgeState,
+        semantic_class: str,
+        semantic_confidence: float,
+        foreign_body_ratio: float,
+    ) -> str | None:
+        if state == TileKnowledgeState.KNOWN_WITH_FOREIGN_BODY:
+            return f"FOREIGN BODY {foreign_body_ratio:.0%}"
+        if state == TileKnowledgeState.SEMANTIC_ENTITY:
+            return f"{semantic_class.upper()} {semantic_confidence:.0%}"
+        if state == TileKnowledgeState.UNKNOWN_TILE:
+            return "UNKNOWN"
+        if state == TileKnowledgeState.PLAYER_CELL:
+            return "PLAYER"
+        return None
+
     def _semantic_observations(
         self,
         frame: Any,
@@ -160,7 +208,9 @@ class EnemyPerceptionEngine:
 
         observations: list[EntityObservation] = []
         rejections: list[dict[str, Any]] = []
-        remaining = {(item.crop.column, item.crop.row): item for item in semantic_cells}
+        remaining = {
+            (item.crop.column, item.crop.row): item for item in semantic_cells
+        }
         while remaining:
             key, first = remaining.popitem()
             group = [first]
@@ -182,7 +232,14 @@ class EnemyPerceptionEngine:
             y0 = min(cell.y0 for cell in cells)
             x1 = max(cell.x1 for cell in cells)
             y1 = max(cell.y1 for cell in cells)
-            anchor_cell = max(cells, key=lambda cell: (cell.row, -abs(cell.column - sum(c.column for c in cells) / len(cells))))
+            average_column = sum(cell.column for cell in cells) / len(cells)
+            anchor_cell = max(
+                cells,
+                key=lambda cell: (
+                    cell.row,
+                    -abs(cell.column - average_column),
+                ),
+            )
             anchor_screen = (anchor_cell.column, anchor_cell.row)
             anchor_world = self._world_cell(
                 anchor_cell.column,
@@ -209,16 +266,24 @@ class EnemyPerceptionEngine:
             if not validation.valid:
                 rejections.append(validation.to_dict(region))
                 continue
-            confidence = max(float(item.classification.confidence) for item in group)
-            matched = max(group, key=lambda item: item.classification.confidence).classification.matched_example_id
+            confidence = max(
+                float(item.classification.confidence) for item in group
+            )
+            matched = max(
+                group,
+                key=lambda item: item.classification.confidence,
+            ).classification.matched_example_id
             classification = EntityClassification(
                 EntityClass.NEUTRAL_NPC,
                 confidence,
                 True,
                 matched,
             )
-            feature = self.classifier.knowledge.extractor.extract(region.crop, region.mask)
-            bg = background_by_cell.get(anchor_screen, {})
+            feature = self.classifier.knowledge.extractor.extract(
+                region.crop,
+                region.mask,
+            )
+            repertoire = background_by_cell.get(anchor_screen, {})
             observations.append(
                 EntityObservation(
                     region=region,
@@ -229,9 +294,11 @@ class EnemyPerceptionEngine:
                     candidate_sources=[CandidateSource.SEMANTIC_NPC.value],
                     semantic_class="npc",
                     semantic_confidence=confidence,
-                    background_cluster_id=bg.get("cluster_id"),
-                    background_confidence=float(bg.get("score", 0.0)),
-                    background_match_level=str(bg.get("level", BackgroundMatchLevel.NONE.value)),
+                    background_cluster_id=repertoire.get("cluster_id"),
+                    background_confidence=float(repertoire.get("score", 0.0)),
+                    background_match_level=str(
+                        repertoire.get("level", BackgroundMatchLevel.NONE.value)
+                    ),
                     overall_candidate_confidence=confidence,
                 )
             )
@@ -279,8 +346,13 @@ class EnemyPerceptionEngine:
                 }
             )
         if not player_location.recognized:
-            events.append({"event": "player_lost", "frame": mapping.frame_index})
-        if self.backgrounds.outdated_schema_detected and not self._schema_warning_emitted:
+            events.append(
+                {"event": "player_lost", "frame": mapping.frame_index}
+            )
+        if (
+            self.backgrounds.outdated_schema_detected
+            and not self._schema_warning_emitted
+        ):
             events.append(
                 {
                     "event": "background_schema_outdated",
@@ -294,10 +366,12 @@ class EnemyPerceptionEngine:
         record_by_screen: dict[tuple[int, int], CellDebugRecord] = {}
         residual_cell_results: list[tuple[Any, Any, tuple[int, int] | None]] = []
         semantic_cells: list[Any] = []
-        consensus_candidates: list[tuple[str, Any]] = []
         background_by_cell: dict[tuple[int, int], dict[str, Any]] = {}
 
-        background_composite = cv2.convertScaleAbs(frame, alpha=0.25, beta=0)
+        # The physical file name is intentionally preserved. Its content is now
+        # the real frame plus repertoire annotations. No reference image is ever
+        # copied into a cell of this image.
+        background_composite = frame.copy()
         difference_composite = np.zeros_like(frame)
         mask_composite = np.zeros_like(frame)
         candidate_rejections: list[dict[str, Any]] = []
@@ -311,6 +385,10 @@ class EnemyPerceptionEngine:
             "background_matches_rejected": 0,
             "diagnostic_differences": 0,
             "operational_differences": 0,
+            "known_clean_tiles": 0,
+            "foreign_body_tiles": 0,
+            "semantic_entity_tiles": 0,
+            "unknown_tiles": 0,
             "semantic_candidates": 0,
             "residual_candidates": 0,
             "fused_candidates": 0,
@@ -331,7 +409,10 @@ class EnemyPerceptionEngine:
                 player_world,
             )
             semantic_class = classification.category.value
-            inside_playfield = self.playfield_scope.is_eligible(item, frame_height)
+            inside_playfield = self.playfield_scope.is_eligible(
+                item,
+                frame_height,
+            )
             screen_distance = self._manhattan(screen_cell, player_screen)
             inside_processing_roi = bool(
                 inside_playfield
@@ -339,135 +420,233 @@ class EnemyPerceptionEngine:
                 and screen_distance <= self.processing_radius_cells
             )
             counters["cells_inside_playfield"] += int(inside_playfield)
-            counters["cells_inside_processing_roi"] += int(inside_processing_roi)
+            counters["cells_inside_processing_roi"] += int(
+                inside_processing_roi
+            )
 
-            is_player_cell = bool(player_screen is not None and screen_cell == player_screen)
-            is_semantic_npc = bool(
+            is_player_cell = bool(
+                player_screen is not None and screen_cell == player_screen
+            )
+            is_semantic_entity = bool(
                 classification.known
+                and semantic_class in SEMANTIC_ENTITY_CLASSES
+                and inside_playfield
+                and inside_processing_roi
+                and not is_player_cell
+            )
+            is_semantic_npc = bool(
+                is_semantic_entity
                 and semantic_class == "npc"
                 and classification.confidence >= self.semantic_entity_threshold
-                and inside_playfield
                 and screen_distance is not None
                 and screen_distance <= self.interest_radius_cells
-                and not is_player_cell
             )
             if is_semantic_npc:
                 semantic_cells.append(item)
 
-            if (
-                mapping.settled
-                and inside_playfield
-                and semantic_class in TERRAIN_CLASSES
-                and classification.known
-                and not is_player_cell
-            ):
-                consensus_candidates.append((semantic_class, cell.image))
-
             match = None
             level = BackgroundMatchLevel.NONE
             metrics = OverlayMetrics()
-            diagnostic_generated = False
             operational_allowed = False
             rejected_reason: str | None = None
-            decision = "no_reference"
-            decision_reason = "background_reference_missing"
+            decision = "unknown_tile"
+            decision_reason = "no_valid_taught_repertoire_match"
+            tile_state = TileKnowledgeState.UNKNOWN_TILE
+            valid_repertoire_match = False
+            full_match_score = 0.0
+            preserved_terrain_score = 0.0
+            foreign_body_ratio = 0.0
 
             if not inside_playfield:
+                tile_state = TileKnowledgeState.OUTSIDE_PLAYFIELD
                 decision = "outside_playfield"
                 decision_reason = "hud_excluded"
             elif not player_location.recognized:
+                tile_state = TileKnowledgeState.UNKNOWN_TILE
                 decision = "no_player_anchor"
                 decision_reason = "player_not_located"
             elif not inside_processing_roi:
+                tile_state = TileKnowledgeState.OUTSIDE_ROI
                 decision = "outside_interest_radius"
-                decision_reason = f"distance_greater_than_{self.processing_radius_cells}"
+                decision_reason = (
+                    f"distance_greater_than_{self.processing_radius_cells}"
+                )
             elif is_player_cell:
+                tile_state = TileKnowledgeState.PLAYER_CELL
                 decision = "player_cell"
                 decision_reason = f"player_{player_location.source.value}"
             elif not mapping.settled:
+                tile_state = TileKnowledgeState.UNKNOWN_TILE
                 decision = "moving_frame"
                 decision_reason = "frame_not_settled"
+            elif is_semantic_entity:
+                tile_state = TileKnowledgeState.SEMANTIC_ENTITY
+                decision = "semantic_entity"
+                decision_reason = f"known_semantic_{semantic_class}"
+                counters["semantic_entity_tiles"] += 1
             else:
-                match_class = semantic_class if semantic_class in TERRAIN_CLASSES else None
-                match = self.backgrounds.choose(cell.image, terrain_class=match_class)
-                if match.available:
+                match_class = (
+                    semantic_class if semantic_class in TERRAIN_CLASSES else None
+                )
+                match = self.backgrounds.choose(
+                    cell.image,
+                    terrain_class=match_class,
+                    allowed_sources=EXPLICIT_REPERTOIRE_SOURCES,
+                )
+                if match.available and match.image is not None:
                     level = self._match_level(match.confidence)
                     match.match_level = level
-                    background_by_cell[screen_cell] = {
-                        "cluster_id": match.cluster_id,
-                        "score": match.confidence,
-                        "level": level.value,
-                    }
-                    tile_size = (cell.x1 - cell.x0, cell.y1 - cell.y0)
-                    background_composite[cell.y0:cell.y1, cell.x0:cell.x1] = cv2.resize(
-                        match.image,
-                        tile_size,
-                        interpolation=cv2.INTER_NEAREST,
+                    full_match_score = float(match.raw_similarity)
+                    preserved_terrain_score = float(
+                        self.backgrounds.robust_similarity(
+                            cell.image,
+                            match.image,
+                        )
                     )
-                    if level != BackgroundMatchLevel.NONE:
-                        overlay = self.detector.detect(cell.image, match.image)
-                        metrics = overlay.metrics
-                        diagnostic_generated = True
+                    overlay = self.detector.detect(cell.image, match.image)
+                    metrics = overlay.metrics
+                    structural = bool(
+                        metrics.changed_pixel_ratio
+                        >= self.max_background_changed_ratio
+                        or metrics.difference_mean
+                        >= self.max_background_mean_difference
+                    )
+                    clean_match = bool(
+                        full_match_score >= self.background_strong_threshold
+                        and not metrics.overlay_detected
+                    )
+                    localized_foreign_body = bool(
+                        match.confidence >= self.background_usable_threshold
+                        and full_match_score
+                        >= self.background_diagnostic_threshold
+                        and preserved_terrain_score
+                        >= self.background_strong_threshold
+                        and metrics.overlay_detected
+                        and metrics.component_count > 0
+                        and not structural
+                    )
+
+                    if clean_match:
+                        tile_state = TileKnowledgeState.KNOWN_CLEAN
+                        valid_repertoire_match = True
+                        decision = "known_clean"
+                        decision_reason = "known_clean_taught_tile"
+                        counters["known_clean_tiles"] += 1
+                        background_by_cell[screen_cell] = {
+                            "cluster_id": match.cluster_id,
+                            "score": match.confidence,
+                            "level": level.value,
+                        }
+                        events.append(
+                            {
+                                "event": "tile_known_clean",
+                                "frame": mapping.frame_index,
+                                "screen_cell": list(screen_cell),
+                                "reference_id": match.reference_id,
+                            }
+                        )
+                    elif localized_foreign_body:
+                        tile_state = (
+                            TileKnowledgeState.KNOWN_WITH_FOREIGN_BODY
+                        )
+                        valid_repertoire_match = True
+                        operational_allowed = True
+                        foreign_body_ratio = float(
+                            metrics.changed_pixel_ratio
+                        )
+                        decision = "known_with_foreign_body"
+                        decision_reason = (
+                            "known_taught_tile_with_localized_foreign_body"
+                        )
+                        counters["foreign_body_tiles"] += 1
                         counters["diagnostic_differences"] += 1
+                        counters["operational_differences"] += 1
+                        background_by_cell[screen_cell] = {
+                            "cluster_id": match.cluster_id,
+                            "score": match.confidence,
+                            "level": level.value,
+                        }
+                        tile_size = (
+                            cell.x1 - cell.x0,
+                            cell.y1 - cell.y0,
+                        )
                         difference = cv2.resize(
                             overlay.difference,
                             tile_size,
                             interpolation=cv2.INTER_NEAREST,
                         )
-                        if level == BackgroundMatchLevel.WEAK:
-                            yellow = np.zeros_like(difference)
-                            yellow[:, :, 1] = difference.max(axis=2)
-                            yellow[:, :, 2] = difference.max(axis=2)
-                            difference = yellow
-                        difference_composite[cell.y0:cell.y1, cell.x0:cell.x1] = difference
                         mask = cv2.resize(
                             overlay.mask,
                             tile_size,
                             interpolation=cv2.INTER_NEAREST,
                         )
-                        structural = bool(
-                            metrics.changed_pixel_ratio >= self.max_background_changed_ratio
-                            or metrics.difference_mean >= self.max_background_mean_difference
+                        difference_composite[
+                            cell.y0 : cell.y1,
+                            cell.x0 : cell.x1,
+                        ] = difference
+                        mask_composite[
+                            cell.y0 : cell.y1,
+                            cell.x0 : cell.x1,
+                        ] = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+                        residual_cell_results.append(
+                            (cell, overlay, world_cell)
                         )
-                        operational_allowed = bool(
-                            level in {BackgroundMatchLevel.STRONG, BackgroundMatchLevel.USABLE}
-                            and not structural
-                        )
-                        if operational_allowed:
-                            counters["operational_differences"] += 1
-                            mask_composite[cell.y0:cell.y1, cell.x0:cell.x1] = cv2.cvtColor(
-                                mask,
-                                cv2.COLOR_GRAY2BGR,
-                            )
-                            decision = "overlay" if metrics.overlay_detected else "empty_tile"
-                            decision_reason = (
-                                "operational_residual_detected"
-                                if metrics.overlay_detected
-                                else "matches_known_empty_appearance"
-                            )
-                            if metrics.overlay_detected:
-                                residual_cell_results.append((cell, overlay, world_cell))
-                        elif structural:
-                            rejected_reason = "structural_background_mismatch"
-                            decision = "diagnostic_only"
-                            decision_reason = rejected_reason
-                            events.append(
+                        events.extend(
+                            [
                                 {
-                                    "event": "structural_mismatch",
+                                    "event": "tile_known_with_foreign_body",
                                     "frame": mapping.frame_index,
                                     "screen_cell": list(screen_cell),
-                                    "score": match.confidence,
-                                }
-                            )
-                        else:
-                            decision = "diagnostic_only"
-                            decision_reason = f"background_{level.value}_debug_only"
+                                    "reference_id": match.reference_id,
+                                    "foreign_body_ratio": foreign_body_ratio,
+                                },
+                                {
+                                    "event": "foreign_body_candidate_created",
+                                    "frame": mapping.frame_index,
+                                    "screen_cell": list(screen_cell),
+                                    "reference_id": match.reference_id,
+                                },
+                            ]
+                        )
                     else:
-                        rejected_reason = "background_below_diagnostic_threshold"
-                        decision = "no_reference"
+                        tile_state = TileKnowledgeState.UNKNOWN_TILE
+                        rejected_reason = (
+                            "structural_repertoire_mismatch"
+                            if structural
+                            else "no_valid_taught_repertoire_match"
+                        )
+                        decision = "unknown_tile"
                         decision_reason = rejected_reason
+                        counters["unknown_tiles"] += 1
+                        events.extend(
+                            [
+                                {
+                                    "event": "repertoire_match_rejected",
+                                    "frame": mapping.frame_index,
+                                    "screen_cell": list(screen_cell),
+                                    "best_candidate_id": match.reference_id,
+                                    "best_candidate_score": match.confidence,
+                                    "reason": rejected_reason,
+                                },
+                                {
+                                    "event": "unknown_tile_detected",
+                                    "frame": mapping.frame_index,
+                                    "screen_cell": list(screen_cell),
+                                },
+                            ]
+                        )
                 else:
-                    decision_reason = "no_visual_background_candidate"
+                    tile_state = TileKnowledgeState.UNKNOWN_TILE
+                    decision = "unknown_tile"
+                    decision_reason = "no_taught_repertoire_candidate"
+                    counters["unknown_tiles"] += 1
+                    events.append(
+                        {
+                            "event": "unknown_tile_detected",
+                            "frame": mapping.frame_index,
+                            "screen_cell": list(screen_cell),
+                        }
+                    )
 
             if level == BackgroundMatchLevel.STRONG:
                 counters["background_matches_strong"] += 1
@@ -478,39 +657,81 @@ class EnemyPerceptionEngine:
             elif match is not None and match.available:
                 counters["background_matches_rejected"] += 1
 
-            if match is not None and match.available:
-                label = f"{level.value.upper()} {match.confidence:.0%}"
+            color = self._repertoire_color(tile_state)
+            thickness = (
+                2
+                if tile_state
+                in {
+                    TileKnowledgeState.KNOWN_WITH_FOREIGN_BODY,
+                    TileKnowledgeState.SEMANTIC_ENTITY,
+                    TileKnowledgeState.UNKNOWN_TILE,
+                    TileKnowledgeState.PLAYER_CELL,
+                }
+                else 1
+            )
+            cv2.rectangle(
+                background_composite,
+                (cell.x0, cell.y0),
+                (cell.x1 - 1, cell.y1 - 1),
+                color,
+                thickness,
+            )
+            label = self._repertoire_label(
+                tile_state,
+                semantic_class,
+                classification.confidence,
+                foreign_body_ratio,
+            )
+            if label:
                 cv2.putText(
                     background_composite,
                     label,
-                    (cell.x0 + 2, min(cell.y1 - 3, cell.y0 + 12)),
+                    (cell.x0 + 2, min(cell.y1 - 3, cell.y0 + 13)),
                     cv2.FONT_HERSHEY_SIMPLEX,
-                    0.27,
-                    (255, 255, 255),
+                    0.32,
+                    color,
                     1,
                     cv2.LINE_AA,
                 )
-            elif inside_playfield and inside_processing_roi:
+            if tile_state == TileKnowledgeState.UNKNOWN_TILE:
                 cv2.putText(
-                    background_composite,
-                    "NO REF",
-                    (cell.x0 + 2, min(cell.y1 - 3, cell.y0 + 12)),
+                    difference_composite,
+                    "UNKNOWN",
+                    (cell.x0 + 2, min(cell.y1 - 3, cell.y0 + 13)),
                     cv2.FONT_HERSHEY_SIMPLEX,
-                    0.27,
-                    (180, 180, 180),
+                    0.30,
+                    (120, 120, 120),
                     1,
                     cv2.LINE_AA,
                 )
 
+            matched_id = (
+                match.reference_id
+                if match is not None
+                and match.available
+                and valid_repertoire_match
+                else None
+            )
+            matched_class = (
+                match.terrain_class
+                if match is not None
+                and match.available
+                and valid_repertoire_match
+                else None
+            )
             record = CellDebugRecord(
                 screen_cell=screen_cell,
                 world_cell=world_cell,
                 pixel_bounds=(cell.x0, cell.y0, cell.x1, cell.y1),
                 terrain_class=semantic_class,
                 terrain_confidence=classification.confidence,
-                background_reference_available=operational_allowed,
-                background_reference_id=(match.reference_id if match else None),
-                background_reference_confidence=(match.confidence if match else 0.0),
+                background_reference_available=valid_repertoire_match,
+                background_reference_id=matched_id,
+                background_reference_confidence=(
+                    match.confidence
+                    if match is not None and valid_repertoire_match
+                    else 0.0
+                ),
                 metrics=metrics,
                 decision=decision,
                 decision_reason=decision_reason,
@@ -518,52 +739,76 @@ class EnemyPerceptionEngine:
                 inside_processing_roi=inside_processing_roi,
                 background_reference_rejected=bool(rejected_reason),
                 background_reference_rejection_reason=rejected_reason,
-                background_reference_terrain_class=(match.terrain_class if match else None),
-                background_reference_source_world_cell=(match.source_world_cell if match else None),
+                background_reference_terrain_class=matched_class,
+                background_reference_source_world_cell=(
+                    match.source_world_cell
+                    if match is not None and valid_repertoire_match
+                    else None
+                ),
                 player_location_source=player_location.source.value,
-                best_background_cluster_id=(match.cluster_id if match else None),
-                best_background_score=(match.confidence if match else 0.0),
+                best_background_cluster_id=(
+                    match.cluster_id
+                    if match is not None and match.available
+                    else None
+                ),
+                best_background_score=(
+                    match.confidence
+                    if match is not None and match.available
+                    else 0.0
+                ),
                 background_match_level=level.value,
-                diagnostic_difference_generated=diagnostic_generated,
+                diagnostic_difference_generated=operational_allowed,
                 operational_difference_allowed=operational_allowed,
                 semantic_candidate_created=is_semantic_npc,
-                residual_candidate_created=bool(operational_allowed and metrics.overlay_detected),
+                residual_candidate_created=operational_allowed,
+                tile_knowledge_state=tile_state.value,
+                valid_repertoire_match=valid_repertoire_match,
+                matched_repertoire_example_id=matched_id,
+                matched_repertoire_class=matched_class,
+                best_diagnostic_candidate_id=(
+                    match.reference_id
+                    if match is not None and match.available
+                    else None
+                ),
+                best_diagnostic_score=(
+                    match.confidence
+                    if match is not None and match.available
+                    else 0.0
+                ),
+                full_match_score=full_match_score,
+                preserved_terrain_score=preserved_terrain_score,
+                foreign_body_ratio=foreign_body_ratio,
+                difference_operational=operational_allowed,
+                candidate_created=bool(
+                    is_semantic_npc or operational_allowed
+                ),
             )
             cell_records.append(record)
             record_by_screen[screen_cell] = record
 
-        learned = self.scene_consensus.observe(
-            consensus_candidates,
-            mapping.frame_index,
-        )
-        for reference_id in learned:
-            events.append(
-                {
-                    "event": "background_cluster_created",
-                    "frame": mapping.frame_index,
-                    "reference_id": reference_id,
-                    "source": "scene_consensus",
-                }
-            )
+        # Scene consensus is deliberately disconnected. Repeated observations
+        # can no longer create operational repertoire entries automatically.
 
-        semantic_observations, semantic_rejections = self._semantic_observations(
-            frame,
-            semantic_cells,
-            player_screen,
-            player_world,
-            mapping.frame_index,
-            background_by_cell,
+        semantic_observations, semantic_rejections = (
+            self._semantic_observations(
+                frame,
+                semantic_cells,
+                player_screen,
+                player_world,
+                mapping.frame_index,
+                background_by_cell,
+            )
         )
         counters["semantic_candidates"] = len(semantic_observations)
-        for item in semantic_observations:
+        for observation in semantic_observations:
             events.append(
                 {
                     "event": "semantic_entity_detected",
                     "frame": mapping.frame_index,
-                    "semantic_class": item.semantic_class,
-                    "confidence": item.semantic_confidence,
-                    "anchor_world_cell": item.region.anchor_world_cell,
-                    "distance": item.distance_to_player,
+                    "semantic_class": observation.semantic_class,
+                    "confidence": observation.semantic_confidence,
+                    "anchor_world_cell": observation.region.anchor_world_cell,
+                    "distance": observation.distance_to_player,
                 }
             )
         candidate_rejections.extend(semantic_rejections)
@@ -582,7 +827,13 @@ class EnemyPerceptionEngine:
                 rejected_regions.append((region, validation))
                 rejection = validation.to_dict(region)
                 candidate_rejections.append(rejection)
-                events.append({"event": "component_rejected", "frame": mapping.frame_index, **rejection})
+                events.append(
+                    {
+                        "event": "component_rejected",
+                        "frame": mapping.frame_index,
+                        **rejection,
+                    }
+                )
                 continue
             feature, classification, group_id = self.classifier.classify(
                 region,
@@ -598,9 +849,17 @@ class EnemyPerceptionEngine:
                 candidate_sources=[CandidateSource.BACKGROUND_RESIDUAL.value],
                 semantic_class=None,
                 semantic_confidence=0.0,
-                background_cluster_id=(record.best_background_cluster_id if record else None),
-                background_confidence=(record.best_background_score if record else 0.0),
-                background_match_level=(record.background_match_level if record else BackgroundMatchLevel.NONE.value),
+                background_cluster_id=(
+                    record.best_background_cluster_id if record else None
+                ),
+                background_confidence=(
+                    record.best_background_score if record else 0.0
+                ),
+                background_match_level=(
+                    record.background_match_level
+                    if record
+                    else BackgroundMatchLevel.NONE.value
+                ),
                 overall_candidate_confidence=max(
                     classification.confidence,
                     record.best_background_score if record else 0.0,
@@ -613,6 +872,9 @@ class EnemyPerceptionEngine:
                     "frame": mapping.frame_index,
                     "anchor_world_cell": region.anchor_world_cell,
                     "distance": validation.distance_to_player,
+                    "authorized_by": (
+                        TileKnowledgeState.KNOWN_WITH_FOREIGN_BODY.value
+                    ),
                 }
             )
             if group_id:
@@ -639,9 +901,12 @@ class EnemyPerceptionEngine:
         )
         events.extend(tracking_events)
         counters["tracks_created"] = sum(
-            int(event.get("event") == "entity_created") for event in tracking_events
+            int(event.get("event") == "entity_created")
+            for event in tracking_events
         )
-        tracked_observations = [item for item in observations if item.track_id]
+        tracked_observations = [
+            item for item in observations if item.track_id
+        ]
         counters["valid_entities"] = len(tracked_observations)
         for observation in tracked_observations:
             track = self.tracker.tracks.get(observation.track_id)
@@ -674,7 +939,9 @@ class EnemyPerceptionEngine:
         player_payload = player_location.to_dict()
         player_payload["stationary"] = player_stationary
         result = FramePerception(
-            session_id=self.recorder.session_id if self.recorder else "runtime",
+            session_id=(
+                self.recorder.session_id if self.recorder else "runtime"
+            ),
             frame_index=mapping.frame_index,
             captured_at=captured_at,
             window=window or {},
@@ -695,11 +962,15 @@ class EnemyPerceptionEngine:
             player_location=player_payload,
             background={
                 "clusters_available": self.backgrounds.cluster_count,
-                "scene_consensus_clusters": sum(
-                    int(cluster.source == "scene_consensus")
-                    for bucket in self.backgrounds.clusters_by_class.values()
-                    for cluster in bucket
+                "explicit_repertoire_references": (
+                    self.backgrounds.reference_count(
+                        EXPLICIT_REPERTOIRE_SOURCES
+                    )
                 ),
+                "operational_sources": sorted(
+                    EXPLICIT_REPERTOIRE_SOURCES
+                ),
+                "scene_consensus_operational": False,
             },
             cells=cell_records,
             entities=tracked_observations,
@@ -756,34 +1027,58 @@ class EnemyPerceptionEngine:
         hostility = frame.copy()
         height, width = frame.shape[:2]
 
-        for image in (grid, components, entity_image, tracking, hostility):
+        for image in (
+            grid,
+            components,
+            entity_image,
+            tracking,
+            hostility,
+        ):
             shade = image.copy()
-            cv2.rectangle(shade, (0, playfield_cutoff), (width - 1, height - 1), (25, 25, 25), -1)
+            cv2.rectangle(
+                shade,
+                (0, playfield_cutoff),
+                (width - 1, height - 1),
+                (25, 25, 25),
+                -1,
+            )
             cv2.addWeighted(shade, 0.65, image, 0.35, 0.0, image)
-            cv2.line(image, (0, playfield_cutoff), (width - 1, playfield_cutoff), (0, 0, 255), 2)
+            cv2.line(
+                image,
+                (0, playfield_cutoff),
+                (width - 1, playfield_cutoff),
+                (0, 0, 255),
+                2,
+            )
 
         for cell in cells:
             x0, y0, x1, y1 = cell.pixel_bounds
-            if not cell.inside_playfield:
-                color = (60, 60, 60)
-            elif not cell.inside_processing_roi:
-                color = (80, 80, 80)
-            elif cell.semantic_candidate_created:
-                color = (255, 0, 255)
-            elif cell.background_match_level == BackgroundMatchLevel.STRONG.value:
-                color = (0, 200, 0)
-            elif cell.background_match_level == BackgroundMatchLevel.USABLE.value:
-                color = (0, 215, 255)
-            elif cell.background_match_level == BackgroundMatchLevel.WEAK.value:
-                color = (0, 255, 255)
-            else:
-                color = (128, 128, 128)
-            cv2.rectangle(grid, (x0, y0), (x1 - 1, y1 - 1), color, 1)
+            state = TileKnowledgeState(cell.tile_knowledge_state)
+            color = self._repertoire_color(state)
+            thickness = (
+                2
+                if state
+                in {
+                    TileKnowledgeState.KNOWN_WITH_FOREIGN_BODY,
+                    TileKnowledgeState.SEMANTIC_ENTITY,
+                    TileKnowledgeState.UNKNOWN_TILE,
+                }
+                else 1
+            )
+            cv2.rectangle(
+                grid,
+                (x0, y0),
+                (x1 - 1, y1 - 1),
+                color,
+                thickness,
+            )
             labels: list[str] = []
             if cell.semantic_candidate_created:
                 labels.append(f"NPC {cell.terrain_confidence:.0%}")
-            if cell.diagnostic_difference_generated:
-                labels.append(f"BG {cell.background_match_level.upper()} {cell.best_background_score:.0%}")
+            if state == TileKnowledgeState.KNOWN_WITH_FOREIGN_BODY:
+                labels.append(f"FOREIGN {cell.foreign_body_ratio:.0%}")
+            elif state == TileKnowledgeState.UNKNOWN_TILE:
+                labels.append("UNKNOWN")
             if labels:
                 cv2.putText(
                     grid,
@@ -797,7 +1092,13 @@ class EnemyPerceptionEngine:
 
         for observation in semantic_entities:
             x0, y0, x1, y1 = observation.region.bounding_box_px
-            cv2.rectangle(components, (x0, y0), (x1, y1), (255, 0, 255), 2)
+            cv2.rectangle(
+                components,
+                (x0, y0),
+                (x1, y1),
+                (255, 0, 255),
+                2,
+            )
             cv2.putText(
                 components,
                 f"SEMANTIC NPC {observation.semantic_confidence:.0%}",
@@ -809,33 +1110,98 @@ class EnemyPerceptionEngine:
             )
         for region in raw_regions:
             x0, y0, x1, y1 = region.bounding_box_px
-            cv2.rectangle(components, (x0, y0), (x1, y1), (0, 215, 255), 1)
-            cv2.putText(components, "RESIDUAL", (x0, max(12, y0 - 3)), cv2.FONT_HERSHEY_SIMPLEX, 0.34, (0, 215, 255), 1)
+            cv2.rectangle(
+                components,
+                (x0, y0),
+                (x1, y1),
+                (0, 215, 255),
+                1,
+            )
+            cv2.putText(
+                components,
+                "FOREIGN BODY",
+                (x0, max(12, y0 - 3)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.34,
+                (0, 215, 255),
+                1,
+            )
         for region, validation in rejected_regions:
             x0, y0, x1, y1 = region.bounding_box_px
-            cv2.rectangle(components, (x0, y0), (x1, y1), (150, 150, 150), 2)
-            cv2.putText(components, validation.reason[:24], (x0, max(12, y0 - 3)), cv2.FONT_HERSHEY_SIMPLEX, 0.34, (210, 210, 210), 1)
+            cv2.rectangle(
+                components,
+                (x0, y0),
+                (x1, y1),
+                (150, 150, 150),
+                2,
+            )
+            cv2.putText(
+                components,
+                validation.reason[:24],
+                (x0, max(12, y0 - 3)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.34,
+                (210, 210, 210),
+                1,
+            )
 
         for observation in entities:
             x0, y0, x1, y1 = observation.region.bounding_box_px
             source = "+".join(observation.candidate_sources) or "unknown"
-            cv2.rectangle(entity_image, (x0, y0), (x1, y1), (0, 215, 255), 2)
-            cv2.putText(entity_image, source, (x0, max(12, y0 - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (0, 215, 255), 1)
-            cv2.rectangle(tracking, (x0, y0), (x1, y1), (0, 165, 255), 2)
+            cv2.rectangle(
+                entity_image,
+                (x0, y0),
+                (x1, y1),
+                (0, 215, 255),
+                2,
+            )
+            cv2.putText(
+                entity_image,
+                source,
+                (x0, max(12, y0 - 4)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.38,
+                (0, 215, 255),
+                1,
+            )
+            cv2.rectangle(
+                tracking,
+                (x0, y0),
+                (x1, y1),
+                (0, 165, 255),
+                2,
+            )
             cv2.putText(
                 tracking,
-                f"{observation.track_id} D={observation.distance_to_player} {observation.movement_state}",
+                (
+                    f"{observation.track_id} "
+                    f"D={observation.distance_to_player} "
+                    f"{observation.movement_state}"
+                ),
                 (x0, max(12, y0 - 4)),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.38,
                 (0, 165, 255),
                 1,
             )
-            color = (0, 0, 255) if observation.hostility_score >= 12 else (0, 165, 255)
-            cv2.rectangle(hostility, (x0, y0), (x1, y1), color, 2)
+            color = (
+                (0, 0, 255)
+                if observation.hostility_score >= 12
+                else (0, 165, 255)
+            )
+            cv2.rectangle(
+                hostility,
+                (x0, y0),
+                (x1, y1),
+                color,
+                2,
+            )
             cv2.putText(
                 hostility,
-                f"{observation.hostility_state.value} {observation.hostility_score}",
+                (
+                    f"{observation.hostility_state.value} "
+                    f"{observation.hostility_score}"
+                ),
                 (x0, max(12, y0 - 4)),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.36,
@@ -848,7 +1214,8 @@ class EnemyPerceptionEngine:
                 (
                     item.crop
                     for item in mapping.scan.cells
-                    if (item.crop.column, item.crop.row) == player_location.screen_cell
+                    if (item.crop.column, item.crop.row)
+                    == player_location.screen_cell
                 ),
                 None,
             )
@@ -865,8 +1232,24 @@ class EnemyPerceptionEngine:
                     ],
                     np.int32,
                 )
-                label = f"PLAYER {player_location.source.value.upper()}"
+                label = (
+                    f"PLAYER {player_location.source.value.upper()}"
+                )
                 for image in (grid, tracking, hostility):
-                    cv2.polylines(image, [points], True, (255, 180, 0), 2)
-                    cv2.putText(image, label, (max(0, center_x - 90), max(16, center_y - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.40, (255, 180, 0), 1)
+                    cv2.polylines(
+                        image,
+                        [points],
+                        True,
+                        (255, 180, 0),
+                        2,
+                    )
+                    cv2.putText(
+                        image,
+                        label,
+                        (max(0, center_x - 90), max(16, center_y - 10)),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.40,
+                        (255, 180, 0),
+                        1,
+                    )
         return grid, components, entity_image, tracking, hostility

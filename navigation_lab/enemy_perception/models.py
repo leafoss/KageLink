@@ -32,6 +32,10 @@ class BackgroundMatch:
     reference_id: str | None = None
     confidence: float = 0.0
     image: Any | None = field(default=None, repr=False, compare=False)
+    terrain_class: str | None = None
+    source_world_cell: tuple[int, int] | None = None
+    raw_similarity: float = 0.0
+    schema_version: int | None = None
 
 
 @dataclass(slots=True)
@@ -61,6 +65,35 @@ class EntityRegion:
     crop: Any = field(repr=False, compare=False, default=None)
     mask: Any = field(repr=False, compare=False, default=None)
     difference: Any = field(repr=False, compare=False, default=None)
+
+
+@dataclass(slots=True)
+class CandidateValidation:
+    valid: bool
+    reason: str
+    distance_to_player: int | None
+    covered_cell_count: int
+    width_cells: int
+    height_cells: int
+    pixel_area: int
+    aspect_ratio: float
+
+    def to_dict(self, region: EntityRegion | None = None) -> dict[str, Any]:
+        payload = asdict(self)
+        if region is not None:
+            payload.update(
+                {
+                    "bounding_box": list(region.bounding_box_px),
+                    "anchor_screen_cell": list(region.anchor_screen_cell),
+                    "anchor_world_cell": (
+                        list(region.anchor_world_cell)
+                        if region.anchor_world_cell is not None
+                        else None
+                    ),
+                    "covered_cells": [list(item) for item in region.covered_cells],
+                }
+            )
+        return payload
 
 
 @dataclass(slots=True)
@@ -132,6 +165,7 @@ class EntityTrack:
     approach_streak: int = 0
     last_scored_frame: int = 0
     last_move_vector: tuple[int, int] | None = None
+    out_of_scope: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -158,6 +192,12 @@ class CellDebugRecord:
     metrics: OverlayMetrics
     decision: str
     decision_reason: str
+    inside_playfield: bool = True
+    inside_processing_roi: bool = True
+    background_reference_rejected: bool = False
+    background_reference_rejection_reason: str | None = None
+    background_reference_terrain_class: str | None = None
+    background_reference_source_world_cell: tuple[int, int] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -166,9 +206,19 @@ class CellDebugRecord:
             "pixel_bounds": list(self.pixel_bounds),
             "terrain_class": self.terrain_class,
             "terrain_confidence": self.terrain_confidence,
+            "inside_playfield": self.inside_playfield,
+            "inside_processing_roi": self.inside_processing_roi,
             "background_reference_available": self.background_reference_available,
             "background_reference_id": self.background_reference_id,
             "background_reference_confidence": self.background_reference_confidence,
+            "background_reference_rejected": self.background_reference_rejected,
+            "background_reference_rejection_reason": self.background_reference_rejection_reason,
+            "background_reference_terrain_class": self.background_reference_terrain_class,
+            "background_reference_source_world_cell": (
+                list(self.background_reference_source_world_cell)
+                if self.background_reference_source_world_cell is not None
+                else None
+            ),
             **asdict(self.metrics),
             "decision": self.decision,
             "decision_reason": self.decision_reason,
@@ -189,6 +239,10 @@ class FramePerception:
     events: list[dict[str, Any]] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     processing_time_ms: float = 0.0
+    playfield: dict[str, Any] = field(default_factory=dict)
+    roi: dict[str, Any] = field(default_factory=dict)
+    counters: dict[str, int] = field(default_factory=dict)
+    candidate_rejections: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -199,8 +253,12 @@ class FramePerception:
             "calibration": self.calibration,
             "frame_state": self.frame_state,
             "player": self.player,
+            "playfield": self.playfield,
+            "roi": self.roi,
+            "counters": self.counters,
             "cells": [item.to_dict() for item in self.cells],
             "entities": [item.to_dict() for item in self.entities],
+            "candidate_rejections": self.candidate_rejections,
             "events": self.events,
             "errors": self.errors,
             "processing_time_ms": self.processing_time_ms,

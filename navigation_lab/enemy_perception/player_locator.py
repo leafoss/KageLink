@@ -10,8 +10,8 @@ class PlayerLocator:
     """Locate Player without making one learned pose a hard pipeline gate.
 
     Priority is visual confirmation, a short temporal prediction, then the
-    calibrated playfield anchor. The fallback uses the centre of the playable
-    field, not the centre of the full HWND that includes the lower HUD.
+    calibrated playfield anchor. The fallback uses configurable proportions of
+    the playable field, never the centre of the full HWND that includes HUD.
     """
 
     def __init__(
@@ -21,12 +21,20 @@ class PlayerLocator:
         mode: str = "auto",
         anchor_column: int | None = None,
         anchor_row: int | None = None,
+        anchor_x_ratio: float = 0.50,
+        anchor_y_ratio: float = 0.57,
     ) -> None:
         self.tile_size_px = max(1, int(tile_size_px))
         self.temporal_ttl_frames = max(0, int(temporal_ttl_frames))
         self.mode = str(mode).strip().lower()
         self.anchor_column = anchor_column
         self.anchor_row = anchor_row
+        self.anchor_x_ratio = float(anchor_x_ratio)
+        self.anchor_y_ratio = float(anchor_y_ratio)
+        if not 0.05 <= self.anchor_x_ratio <= 0.95:
+            raise ValueError("anchor_x_ratio must be between 0.05 and 0.95")
+        if not 0.05 <= self.anchor_y_ratio <= 0.95:
+            raise ValueError("anchor_y_ratio must be between 0.05 and 0.95")
         self.last_location: PlayerLocation | None = None
         self.last_visual_frame = 0
         self.residual_world_px = [0.0, 0.0]
@@ -59,8 +67,10 @@ class PlayerLocator:
             ):
                 return requested
 
-        anchor_x = int(frame_width) // 2
-        anchor_y = max(0, int(playfield_cutoff_y) // 2)
+        anchor_x = int(round(int(frame_width) * self.anchor_x_ratio))
+        anchor_y = int(round(int(playfield_cutoff_y) * self.anchor_y_ratio))
+        anchor_x = min(max(anchor_x, 0), max(0, int(frame_width) - 1))
+        anchor_y = min(max(anchor_y, 0), max(0, int(playfield_cutoff_y) - 1))
         containing = next(
             (
                 item
@@ -87,10 +97,7 @@ class PlayerLocator:
             return 0, 0
         self.residual_world_px[0] += -float(motion.screen_dx_px)
         self.residual_world_px[1] += -float(motion.screen_dy_px)
-        return (
-            self._consume_axis(0),
-            self._consume_axis(1),
-        )
+        return self._consume_axis(0), self._consume_axis(1)
 
     def _consume_axis(self, axis: int) -> int:
         value = self.residual_world_px[axis]
@@ -132,7 +139,11 @@ class PlayerLocator:
             self.residual_world_px = [0.0, 0.0]
             return location
 
-        if self.last_location is not None and self.temporal_ttl_frames > 0:
+        if (
+            self.last_visual_frame > 0
+            and self.last_location is not None
+            and self.temporal_ttl_frames > 0
+        ):
             age = frame_index - self.last_visual_frame
             if age <= self.temporal_ttl_frames:
                 world = self.last_location.world_cell or (0, 0)
@@ -150,11 +161,7 @@ class PlayerLocator:
                 return location
 
         if fallback_allowed:
-            screen = self._anchor_screen_cell(
-                mapping,
-                frame_width,
-                playfield_cutoff_y,
-            )
+            screen = self._anchor_screen_cell(mapping, frame_width, playfield_cutoff_y)
             if screen is not None:
                 world = self.last_location.world_cell if self.last_location else None
                 if world is None:

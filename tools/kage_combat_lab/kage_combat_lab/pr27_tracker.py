@@ -57,7 +57,8 @@ class SpriteTracker:
         if not self._inside_roi(observation.anchor_cell): return "OUTSIDE_LOCAL_ROI"
         if observation.anchor_cell in self.trainer_forbidden_cells: return "TRAINER_FORBIDDEN_ANCHOR_CELL"
         if self.trainer_exclusion_bbox is not None:
-            if observation.body_bbox is not None and self._bbox_intersects(observation.body_bbox,self.trainer_exclusion_bbox): return "TRAINER_BODY_BBOX_INTERSECTION"
+            if observation.body_bbox is not None and self._bbox_intersects(observation.body_bbox,self.trainer_exclusion_bbox):
+                return "TRAINER_BODY_BBOX_INTERSECTION"
             if observation.body_anchor is not None:
                 x,y,w,h=self.trainer_exclusion_bbox; ax,ay=observation.body_anchor
                 if x<=ax<x+w and y<=ay<y+h: return "TRAINER_BODY_ANCHOR_INSIDE_ZONE"
@@ -68,7 +69,8 @@ class SpriteTracker:
         if not self._inside_roi(track.anchor_cell): return "OUTSIDE_LOCAL_ROI"
         if track.anchor_cell in self.trainer_forbidden_cells: return "TRAINER_FORBIDDEN_ANCHOR_CELL"
         if self.trainer_exclusion_bbox is not None:
-            if track.body_bbox is not None and self._bbox_intersects(track.body_bbox,self.trainer_exclusion_bbox): return "TRAINER_BODY_BBOX_INTERSECTION"
+            if track.body_bbox is not None and self._bbox_intersects(track.body_bbox,self.trainer_exclusion_bbox):
+                return "TRAINER_BODY_BBOX_INTERSECTION"
             if track.body_anchor is not None:
                 x,y,w,h=self.trainer_exclusion_bbox; ax,ay=track.body_anchor
                 if x<=ax<x+w and y<=ay<y+h: return "TRAINER_BODY_ANCHOR_INSIDE_ZONE"
@@ -95,31 +97,41 @@ class SpriteTracker:
         overlap=self._bbox_iou(old_bbox,new_bbox)
         temporal=max(0.0,1.0-cell_distance/max(1.0,allowed_step+1.0))
         body=min(track.body_confidence,observation.body_confidence)
-        if target_track and (appearance<self.config.target_minimum_appearance or size<0.52 or body<self.config.body_lock_min_confidence): return 0.0
+        if target_track and (appearance<self.config.target_minimum_appearance or size<0.52 or body<self.config.body_lock_min_confidence):
+            return 0.0
         score=0.40*appearance+0.28*proximity+0.14*overlap+0.08*size+0.06*temporal+0.04*body
         return min(1.0,score+0.05) if target_track else score
 
     def _update_track(self,track:TrackedSprite,observation:SpriteObservation,frame_index:int,score:float)->None:
-        track.previous_cells=track.current_cells; track.current_cells=observation.cells
-        track.fragments=observation.fragments; track.native_bbox=observation.native_bbox
-        track.combined_mask=observation.combined_mask; track.appearance_signature=observation.descriptor
-        track.body_bbox=observation.body_bbox; track.body_anchor=observation.body_anchor
-        track.anchor_cell=observation.anchor_cell; track.body_confidence=observation.body_confidence
-        track.last_seen_frame=frame_index; track.missing_frames=0; track.observations+=1
-        track.confidence=max(track.confidence*0.60,score); track.track_state=TrackState.TRACKED
+        track.previous_cells=track.current_cells
+        track.current_cells=observation.cells
+        track.fragments=observation.fragments
+        track.native_bbox=observation.native_bbox
+        track.combined_mask=observation.combined_mask
+        track.appearance_signature=observation.descriptor
+        track.body_bbox=observation.body_bbox
+        track.body_anchor=observation.body_anchor
+        track.anchor_cell=observation.anchor_cell
+        track.body_confidence=observation.body_confidence
+        track.last_seen_frame=frame_index
+        track.missing_frames=0
+        track.observations+=1
+        track.confidence=max(track.confidence*0.60,score)
+        track.track_state=TrackState.TRACKED
         track.rejection_reason=self._trainer_rejection_track(track)
         if track.body_anchor is not None: track.movement_history.append(track.body_anchor)
 
     def _create_track(self,observation:SpriteObservation,frame_index:int)->TrackedSprite|None:
         rejection=self._trainer_rejection_observation(observation)
         if rejection is not None:
-            self.last_candidate_rejections.append(f"observation={observation.observation_id}:{rejection}"); return None
+            self.last_candidate_rejections.append(f"observation={observation.observation_id}:{rejection}")
+            return None
         track=TrackedSprite(
-            track_id=self.next_track_id,current_cells=observation.cells,previous_cells=frozenset(),fragments=observation.fragments,
-            native_bbox=observation.native_bbox,combined_mask=observation.combined_mask,appearance_signature=observation.descriptor,
-            first_seen_frame=frame_index,last_seen_frame=frame_index,body_bbox=observation.body_bbox,
-            body_anchor=observation.body_anchor,anchor_cell=observation.anchor_cell,body_confidence=observation.body_confidence,
-            confidence=max(0.50,observation.body_confidence),
+            track_id=self.next_track_id,current_cells=observation.cells,previous_cells=frozenset(),
+            fragments=observation.fragments,native_bbox=observation.native_bbox,combined_mask=observation.combined_mask,
+            appearance_signature=observation.descriptor,first_seen_frame=frame_index,last_seen_frame=frame_index,
+            body_bbox=observation.body_bbox,body_anchor=observation.body_anchor,anchor_cell=observation.anchor_cell,
+            body_confidence=observation.body_confidence,confidence=max(0.50,observation.body_confidence),
         )
         if track.body_anchor is not None: track.movement_history.append(track.body_anchor)
         self.tracks[track.track_id]=track; self.next_track_id+=1
@@ -129,8 +141,8 @@ class SpriteTracker:
         if self.player_track_id is not None:
             player=self.tracks.get(self.player_track_id)
             if player is not None and player.body_anchor is not None: return player.body_anchor
-        h,w=int(arena_shape[0]),int(arena_shape[1])
-        return w*self.config.player_anchor_x_ratio,h*self.config.player_anchor_y_ratio
+        arena_h,arena_w=int(arena_shape[0]),int(arena_shape[1])
+        return arena_w*self.config.player_anchor_x_ratio,arena_h*self.config.player_anchor_y_ratio
 
     def _classify_known_or_player(self,track:TrackedSprite,arena_shape:Sequence[int])->None:
         trainer_reason=self._trainer_rejection_track(track)
@@ -143,12 +155,16 @@ class SpriteTracker:
             track.classification=known.category; track.known_sprite_id=known.sprite_id
             track.known_enemy=known.category is SpriteClass.ENEMY; track.confidence=max(track.confidence,score)
             if known.category is SpriteClass.ENEMY:
-                self.enemy_track_id=track.track_id; self.pending_enemy_track_id=None; self.pending_enemy_hits=0; return
+                self.enemy_track_id=track.track_id; self.pending_enemy_track_id=None; self.pending_enemy_hits=0
+                return
         if not track.has_body_lock: return
-        expected=self._player_anchor(arena_shape) if self.player_track_id is not None else (int(arena_shape[1])*self.config.player_anchor_x_ratio,int(arena_shape[0])*self.config.player_anchor_y_ratio)
+        expected_anchor=self._player_anchor(arena_shape) if self.player_track_id is not None else (
+            int(arena_shape[1])*self.config.player_anchor_x_ratio,
+            int(arena_shape[0])*self.config.player_anchor_y_ratio,
+        )
         assert track.body_anchor is not None
-        distance=math.hypot(track.body_anchor[0]-expected[0],track.body_anchor[1]-expected[1])
-        if track.observations>=self.config.player_confirm_frames and distance<=self.config.player_anchor_radius_px and (self.player_track_id is None or self.player_track_id==track.track_id):
+        anchor_distance=math.hypot(track.body_anchor[0]-expected_anchor[0],track.body_anchor[1]-expected_anchor[1])
+        if track.observations>=self.config.player_confirm_frames and anchor_distance<=self.config.player_anchor_radius_px and (self.player_track_id is None or self.player_track_id==track.track_id):
             track.classification=SpriteClass.PLAYER; track.known_enemy=False; self.player_track_id=track.track_id
 
     def _enemy_candidate_score(self,track:TrackedSprite,arena_shape:Sequence[int])->float:
@@ -159,8 +175,9 @@ class SpriteTracker:
             track.rejection_reason=trainer_reason; self.last_candidate_rejections.append(f"track={track.track_id}:{trainer_reason}"); return 0.0
         if track.body_confidence<self.config.body_lock_min_confidence:
             self.last_candidate_rejections.append(f"track={track.track_id}:BODY_CONFIDENCE_LOW"); return 0.0
-        player=self._player_anchor(arena_shape); assert track.body_anchor is not None and track.body_bbox is not None
-        separation=math.hypot(track.body_anchor[0]-player[0],track.body_anchor[1]-player[1])
+        expected_player=self._player_anchor(arena_shape)
+        assert track.body_anchor is not None and track.body_bbox is not None
+        separation=math.hypot(track.body_anchor[0]-expected_player[0],track.body_anchor[1]-expected_player[1])
         if separation<=max(18.0,self.config.player_anchor_radius_px*0.38):
             self.last_candidate_rejections.append(f"track={track.track_id}:PLAYER_ANCHOR_OVERLAP"); return 0.0
         _,_,width,height=track.body_bbox; area=width*height; aspect=width/max(1.0,float(height))
@@ -171,8 +188,8 @@ class SpriteTracker:
         if len(track.movement_history)>=2:
             first,last=track.movement_history[0],track.movement_history[-1]
             movement=min(1.0,math.hypot(last[0]-first[0],last[1]-first[1])/24.0)
-        proximity=max(0.0,1.0-max(abs(track.anchor_cell[0]),abs(track.anchor_cell[1]))/(self.config.roi_radius_cells+1.0))
-        return 0.31*persistence+0.22*shape+0.14*size+0.11*movement+0.09*track.body_confidence+0.05*min(1.0,track.confidence)+0.08*proximity
+        relative_proximity=max(0.0,1.0-max(abs(track.anchor_cell[0]),abs(track.anchor_cell[1]))/(self.config.roi_radius_cells+1.0))
+        return 0.31*persistence+0.22*shape+0.14*size+0.11*movement+0.09*track.body_confidence+0.05*min(1.0,track.confidence)+0.08*relative_proximity
 
     def _select_context_enemy(self,arena_shape:Sequence[int])->None:
         if not self.config.enable_context_enemy: return
@@ -180,8 +197,8 @@ class SpriteTracker:
             current=self.tracks.get(self.enemy_track_id)
             if current is not None and current.track_state is not TrackState.LOST and self._trainer_rejection_track(current) is None: return
             self.enemy_track_id=None
-        scored=[(self._enemy_candidate_score(t,arena_shape),t) for t in self.tracks.values()]
-        scored=[item for item in scored if item[0]>=0.56]
+        scored=[(self._enemy_candidate_score(track,arena_shape),track) for track in self.tracks.values()]
+        scored=[(score,track) for score,track in scored if score>=0.56]
         if not scored:
             self.pending_enemy_track_id=None; self.pending_enemy_hits=0; return
         scored.sort(key=lambda item:(item[0],item[1].observations,item[1].body_confidence,-item[1].track_id),reverse=True)
@@ -189,37 +206,47 @@ class SpriteTracker:
         if self.pending_enemy_track_id==candidate.track_id: self.pending_enemy_hits+=1
         else: self.pending_enemy_track_id=candidate.track_id; self.pending_enemy_hits=1
         if self.pending_enemy_hits<2: return
-        candidate.classification=SpriteClass.ENEMY; candidate.known_enemy=True; candidate.confidence=max(candidate.confidence,score,0.72)
+        candidate.classification=SpriteClass.ENEMY; candidate.known_enemy=True
+        candidate.confidence=max(candidate.confidence,score,0.72)
         self.enemy_track_id=candidate.track_id; self.pending_enemy_track_id=None; self.pending_enemy_hits=0
 
     def update(self,observations:Sequence[SpriteObservation],*,frame_index:int,arena_shape:Sequence[int])->tuple[TrackedSprite,...]:
-        self.last_candidate_rejections.clear(); candidates=[]; active=list(self.tracks.values())
-        observations=tuple(o for o in observations if self._inside_roi(o.anchor_cell))
-        for track in active:
-            target=track.track_id==self.enemy_track_id
-            threshold=self.config.target_association_min_score if target else self.config.association_min_score
-            for index,observation in enumerate(observations):
-                score=self._association_score(track,observation,target_track=target,arena_shape=arena_shape)
-                if score>=threshold: candidates.append((1 if target else 0,score,track.track_id,index))
-        candidates.sort(reverse=True); used_tracks=set(); used_observations=set()
-        for _,score,track_id,index in candidates:
-            if track_id in used_tracks or index in used_observations: continue
-            self._update_track(self.tracks[track_id],observations[index],frame_index,score)
-            used_tracks.add(track_id); used_observations.add(index)
-        unmatched=[o for i,o in enumerate(observations) if i not in used_observations]
+        self.last_candidate_rejections.clear()
+        candidates:list[tuple[int,float,int,int]]=[]
+        active_tracks=list(self.tracks.values())
+        for track in active_tracks:
+            target_track=track.track_id==self.enemy_track_id
+            threshold=self.config.target_association_min_score if target_track else self.config.association_min_score
+            for observation_index,observation in enumerate(observations):
+                score=self._association_score(track,observation,target_track=target_track,arena_shape=arena_shape)
+                if score>=threshold: candidates.append((1 if target_track else 0,score,track.track_id,observation_index))
+        candidates.sort(reverse=True)
+        used_tracks:set[int]=set(); used_observations:set[int]=set()
+        for _,score,track_id,observation_index in candidates:
+            if track_id in used_tracks or observation_index in used_observations: continue
+            self._update_track(self.tracks[track_id],observations[observation_index],frame_index,score)
+            used_tracks.add(track_id); used_observations.add(observation_index)
+        unmatched=[observation for index,observation in enumerate(observations) if index not in used_observations]
+        target_track=self.tracks.get(self.enemy_track_id) if self.enemy_track_id is not None else None
+        if target_track is not None and target_track.anchor_cell is not None:
+            unmatched=[
+                observation for observation in unmatched
+                if observation.anchor_cell is not None
+                and self._anchor_cell_distance(target_track.anchor_cell,observation.anchor_cell) <= self.config.target_focus_radius_cells
+            ]
         unmatched.sort(key=lambda item:(item.body_confidence,item.pixel_count),reverse=True)
         for observation in unmatched:
             if len(self.tracks)>=self.config.maximum_active_tracks: break
             track=self._create_track(observation,frame_index)
             if track is not None: used_tracks.add(track.track_id)
-        purge=[]
-        for track in active:
+        purge_ids=[]
+        for track in active_tracks:
             if track.track_id in used_tracks: continue
             track.missing_frames+=1
-            limit=self.config.target_missing_grace_frames if track.track_id==self.enemy_track_id else self.config.maximum_missing_frames
-            if track.missing_frames<=limit: track.track_state=TrackState.TEMPORARILY_MISSING
-            else: track.track_state=TrackState.LOST; purge.append(track.track_id)
-        for track_id in purge:
+            missing_limit=self.config.target_missing_grace_frames if track.track_id==self.enemy_track_id else self.config.maximum_missing_frames
+            if track.missing_frames<=missing_limit: track.track_state=TrackState.TEMPORARILY_MISSING
+            else: track.track_state=TrackState.LOST; purge_ids.append(track.track_id)
+        for track_id in purge_ids:
             if self.player_track_id==track_id: self.player_track_id=None
             if self.enemy_track_id==track_id: self.enemy_track_id=None
             if self.pending_enemy_track_id==track_id: self.pending_enemy_track_id=None; self.pending_enemy_hits=0

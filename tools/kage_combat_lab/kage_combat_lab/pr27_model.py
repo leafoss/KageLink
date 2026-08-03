@@ -17,6 +17,21 @@ class CellState(str, Enum):
     BASELINE_INVALID = "BASELINE_INVALID"
 
 
+class LocalBackgroundState(str, Enum):
+    KNOWN_BACKGROUND = "KNOWN_BACKGROUND"
+    LEARNING_BACKGROUND = "LEARNING_BACKGROUND"
+    OCCUPIED_BY_PLAYER = "OCCUPIED_BY_PLAYER"
+    OCCUPIED_BY_ENEMY = "OCCUPIED_BY_ENEMY"
+    OCCLUDED_BY_EFFECT = "OCCLUDED_BY_EFFECT"
+    UNKNOWN = "UNKNOWN"
+
+
+class LocalPerceptionState(str, Enum):
+    NORMAL = "NORMAL"
+    LOCAL_VISUAL_OCCLUSION = "LOCAL_VISUAL_OCCLUSION"
+    LOCAL_UNKNOWN_BACKGROUND = "LOCAL_UNKNOWN_BACKGROUND"
+
+
 class FragmentRole(str, Enum):
     BODY_CANDIDATE = "BODY_CANDIDATE"
     GROUND_LIKE = "GROUND_LIKE"
@@ -45,6 +60,9 @@ class RoundState(str, Enum):
     ATTACKING = "ATTACKING"
     TARGET_TEMPORARILY_MISSING = "TARGET_TEMPORARILY_MISSING"
     TARGET_LOST = "TARGET_LOST"
+    LOCAL_VISUAL_OCCLUSION = "LOCAL_VISUAL_OCCLUSION"
+    LOCAL_UNKNOWN_BACKGROUND = "LOCAL_UNKNOWN_BACKGROUND"
+    # Compatibility-only legacy member. PR27.6 never returns this state.
     SCENE_CHANGED = "SCENE_CHANGED"
 
 
@@ -274,6 +292,23 @@ class PR27FrameResult:
     grid_phase: tuple[int, int] = (0, 0)
     fragment_rejections: Mapping[str, int] = field(default_factory=dict)
     candidate_rejections: tuple[str, ...] = ()
+    roi_center: tuple[float, float] | None = None
+    roi_radius_cells: int = 4
+    roi_processed_cell_count: int = 0
+    ignored_outside_roi_count: int = 0
+    player_cell: tuple[int, int] = (0, 0)
+    player_body_bbox: tuple[int, int, int, int] | None = None
+    player_body_anchor: tuple[float, float] | None = None
+    player_body_containment_ratio: float = 0.0
+    enemy_relative_cell: tuple[int, int] | None = None
+    local_state: LocalPerceptionState = LocalPerceptionState.NORMAL
+    local_background_states: Mapping[tuple[int, int], LocalBackgroundState] = field(default_factory=dict)
+    local_occlusion_detected: bool = False
+    facing_expected: str | None = None
+    facing_detected: str | None = None
+    facing_confirmed: bool = False
+    facing_correction_action: str | None = None
+    timings_ms: Mapping[str, float] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -289,6 +324,7 @@ class PR27Config:
     minimum_observation_pixels: int = 72
     maximum_fragments_per_group: int = 32
     morphology_kernel: int = 3
+    # Legacy knobs retained for launch compatibility; unused by PR27.6 combat.
     scene_changed_cell_ratio: float = 0.42
     scene_changed_min_cells: int = 8
     scene_stable_frames: int = 3
@@ -322,6 +358,20 @@ class PR27Config:
     body_ground_min_aspect: float = 1.65
     body_lock_min_confidence: float = 0.42
     trainer_exclusion_cell_margin: int = 1
+    roi_radius_cells: int = 4
+    player_cell_anchor_offset_x: int = 32
+    player_cell_anchor_offset_y: int = 56
+    player_cell_min_containment: float = 0.90
+    player_cell_hysteresis_px: int = 3
+    local_occlusion_min_changed_cells: int = 10
+    local_occlusion_row_span_cells: int = 6
+    local_occlusion_clear_frames: int = 2
+    local_occlusion_max_frames: int = 6
+    local_background_learning_frames: int = 5
+    local_background_alpha: float = 0.08
+    facing_confirm_frames: int = 2
+    facing_correction_cooldown_frames: int = 1
+    hit_displacement_px: float = 10.0
 
     def normalized(self) -> "PR27Config":
         self.cell_size_px = CELL_SIZE_PX
@@ -335,9 +385,6 @@ class PR27Config:
         self.minimum_observation_pixels = max(self.minimum_fragment_pixels, int(self.minimum_observation_pixels))
         self.maximum_fragments_per_group = max(4, int(self.maximum_fragments_per_group))
         self.morphology_kernel = max(1, int(self.morphology_kernel) | 1)
-        self.scene_changed_cell_ratio = min(1.0, max(0.05, float(self.scene_changed_cell_ratio)))
-        self.scene_changed_min_cells = max(2, int(self.scene_changed_min_cells))
-        self.scene_stable_frames = max(2, int(self.scene_stable_frames))
         self.association_min_score = min(1.0, max(0.05, float(self.association_min_score)))
         self.target_association_min_score = min(self.association_min_score, max(0.05, float(self.target_association_min_score)))
         self.target_minimum_appearance = min(1.0, max(0.0, float(self.target_minimum_appearance)))
@@ -360,4 +407,18 @@ class PR27Config:
         self.body_ground_min_aspect = max(1.0, float(self.body_ground_min_aspect))
         self.body_lock_min_confidence = min(1.0, max(0.0, float(self.body_lock_min_confidence)))
         self.trainer_exclusion_cell_margin = max(1, int(self.trainer_exclusion_cell_margin))
+        self.roi_radius_cells = max(1, int(self.roi_radius_cells))
+        self.player_cell_anchor_offset_x = min(CELL_SIZE_PX - 1, max(1, int(self.player_cell_anchor_offset_x)))
+        self.player_cell_anchor_offset_y = min(CELL_SIZE_PX, max(1, int(self.player_cell_anchor_offset_y)))
+        self.player_cell_min_containment = min(1.0, max(0.5, float(self.player_cell_min_containment)))
+        self.player_cell_hysteresis_px = max(0, int(self.player_cell_hysteresis_px))
+        self.local_occlusion_min_changed_cells = max(2, int(self.local_occlusion_min_changed_cells))
+        self.local_occlusion_row_span_cells = max(2, int(self.local_occlusion_row_span_cells))
+        self.local_occlusion_clear_frames = max(1, int(self.local_occlusion_clear_frames))
+        self.local_occlusion_max_frames = max(self.local_occlusion_clear_frames + 1, int(self.local_occlusion_max_frames))
+        self.local_background_learning_frames = max(2, int(self.local_background_learning_frames))
+        self.local_background_alpha = min(0.5, max(0.001, float(self.local_background_alpha)))
+        self.facing_confirm_frames = max(1, int(self.facing_confirm_frames))
+        self.facing_correction_cooldown_frames = max(0, int(self.facing_correction_cooldown_frames))
+        self.hit_displacement_px = max(2.0, float(self.hit_displacement_px))
         return self

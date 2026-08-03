@@ -1,0 +1,5 @@
+.venv-dream-observer/
+__pycache__/
+.pytest_cache/
+*.pyc
+dream_daemon_observer_data/

@@ -1,0 +1,29 @@
+name: Dream Daemon Observer
+
+on:
+  pull_request:
+    paths:
+      - "tools/dream_daemon_observer/**"
+      - ".github/workflows/dream-daemon-observer.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: tools/dream_daemon_observer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test dependencies
+        run: python -m pip install -r requirements.txt pytest
+      - name: Compile
+        run: python -m py_compile observer_core.py capture_runtime.py observer_ui.py dream_daemon_observer.py
+      - name: Test
+        run: python -m pytest -q

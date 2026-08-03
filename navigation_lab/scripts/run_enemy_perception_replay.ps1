@@ -6,6 +6,8 @@ param(
   [string]$RegionId = "mapping_input_calibration",
   [string]$OutputSession = "enemy_detection_replay_fix_01",
   [ValidateSet("Auto", "Visual", "Fallback")][string]$PlayerAnchorMode = "Auto",
+  [double]$PlayerAnchorXRatio = 0.50,
+  [double]$PlayerAnchorYRatio = 0.57,
   [double]$SemanticEntityThreshold = 0.90,
   [double]$BackgroundStrongThreshold = 0.95,
   [double]$BackgroundUsableThreshold = 0.88,
@@ -28,6 +30,8 @@ $Arguments = @(
   "--region-id", $RegionId,
   "--output-session", $OutputSession,
   "--player-anchor-mode", $PlayerAnchorMode,
+  "--player-anchor-x-ratio", $PlayerAnchorXRatio,
+  "--player-anchor-y-ratio", $PlayerAnchorYRatio,
   "--semantic-entity-threshold", $SemanticEntityThreshold,
   "--background-strong-threshold", $BackgroundStrongThreshold,
   "--background-usable-threshold", $BackgroundUsableThreshold,
@@ -42,6 +46,7 @@ if ($PSCmdlet.ParameterSetName -eq "Zip") {
   $Arguments += @("--input-session", (Resolve-Path $InputSession).Path)
 }
 Write-Host "[Enemy Perception Replay] Python: $Python" -ForegroundColor Cyan
+Write-Host "[Enemy Perception Replay] Player anchor ratios: $PlayerAnchorXRatio,$PlayerAnchorYRatio" -ForegroundColor Cyan
 Write-Host "[Enemy Perception Replay] Output session: $OutputSession" -ForegroundColor Cyan
 & $Python @Arguments
 exit $LASTEXITCODE

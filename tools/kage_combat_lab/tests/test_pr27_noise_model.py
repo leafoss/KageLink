@@ -7,14 +7,22 @@ from kage_combat_lab.pr27_fixed_grid import DEFAULT_FIXED_GRID
 from kage_combat_lab.pr27_noise_model import NoiseAwareDifferenceGate
 
 
+def _fill_ratio(mask: np.ndarray, rect, ratio: float) -> None:
+    patch = mask[rect.top:rect.bottom, rect.left:rect.right]
+    count = int(patch.size * ratio)
+    rows, remainder = divmod(count, patch.shape[1])
+    if rows:
+        patch[:rows, :] = 255
+    if remainder and rows < patch.shape[0]:
+        patch[rows, :remainder] = 255
+
+
 def test_new_candidate_requires_twelve_percent_cell_activity() -> None:
     gate = NoiseAwareDifferenceGate(DEFAULT_FIXED_GRID)
     mask = np.zeros((1037, 1920), dtype=np.uint8)
     cell = DEFAULT_FIXED_GRID.roi_cells()[0]
     rect = cell.native_rect
-    pixels = int(rect.width * rect.height * 0.094)
-    patch = mask[rect.top:rect.bottom, rect.left:rect.right].reshape(-1)
-    patch[:pixels] = 255
+    _fill_ratio(mask, rect, 0.094)
     result = gate.observe(mask)
     evidence = result.evidence[cell.relative_key]
     assert evidence.raw_changed_ratio < 0.12
@@ -30,8 +38,7 @@ def test_frame_128_body_cells_survive_noise_gate() -> None:
     for key, ratio in zip(keys, ratios):
         cell = next(item for item in DEFAULT_FIXED_GRID.roi_cells() if item.relative_key == key)
         rect = cell.native_rect
-        patch = mask[rect.top:rect.bottom, rect.left:rect.right].reshape(-1)
-        patch[: int(patch.size * ratio)] = 255
+        _fill_ratio(mask, rect, ratio)
     result = gate.observe(mask)
     for key in keys:
         assert result.evidence[key].passed_new_candidate_gate
@@ -71,8 +78,7 @@ def test_noise_model_reduces_water_but_keeps_body_override() -> None:
     body = np.zeros_like(mask)
     water = next(item for item in DEFAULT_FIXED_GRID.roi_cells() if item.relative_key == (-2, -2))
     body_cell = next(item for item in DEFAULT_FIXED_GRID.roi_cells() if item.relative_key == (0, 2))
-    wp = mask[water.native_rect.top:water.native_rect.bottom, water.native_rect.left:water.native_rect.right].reshape(-1)
-    wp[: int(wp.size * 0.095)] = 255
+    _fill_ratio(mask, water.native_rect, 0.095)
     cv2.rectangle(mask, (body_cell.native_rect.left + 22, body_cell.native_rect.top + 10), (body_cell.native_rect.left + 34, body_cell.native_rect.top + 42), 255, -1)
     cv2.rectangle(body, (body_cell.native_rect.left + 18, body_cell.native_rect.top + 6), (body_cell.native_rect.left + 38, body_cell.native_rect.top + 48), 255, -1)
     result = gate.observe(mask, body_override_mask=body)

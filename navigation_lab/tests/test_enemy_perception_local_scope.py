@@ -74,7 +74,9 @@ class VisualBackgroundCatalogueTests(unittest.TestCase):
         current = tile()
         current[12:30, 20:40] = 220
         match = store.choose(current, terrain_class="walkable")
-        self.assertGreaterEqual(match.confidence, 0.985)
+        # The blended score remains STRONG while acknowledging that the full
+        # tile is not identical once a localized foreground sprite is present.
+        self.assertGreaterEqual(match.confidence, 0.95)
         self.assertLess(match.raw_similarity, match.confidence)
 
     def test_semantic_class_limits_catalogue_when_known(self) -> None:

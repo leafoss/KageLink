@@ -232,7 +232,9 @@ class SpriteTracker:
             unmatched=[
                 observation for observation in unmatched
                 if observation.anchor_cell is not None
-                and self._anchor_cell_distance(target_track.anchor_cell,observation.anchor_cell) <= self.config.target_focus_radius_cells
+                and (observation.anchor_cell[0]-target_track.anchor_cell[0])**2
+                + (observation.anchor_cell[1]-target_track.anchor_cell[1])**2
+                <= self.config.target_focus_radius_cells**2
             ]
         unmatched.sort(key=lambda item:(item.body_confidence,item.pixel_count),reverse=True)
         for observation in unmatched:

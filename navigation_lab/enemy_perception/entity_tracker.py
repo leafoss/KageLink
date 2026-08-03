@@ -7,17 +7,21 @@ from .models import EntityObservation, EntityTrack
 
 
 class EntityTracker:
-    """Greedy explainable tracker using world-cell proximity and masked visual similarity."""
+    """Greedy local tracker using world-cell proximity and visual similarity."""
 
     def __init__(
         self,
         ttl_frames: int = 10,
         min_similarity: float = 0.72,
         max_cell_distance: int = 2,
+        interest_radius_cells: int | None = None,
     ) -> None:
         self.ttl_frames = max(1, int(ttl_frames))
         self.min_similarity = float(min_similarity)
         self.max_cell_distance = int(max_cell_distance)
+        self.interest_radius_cells = (
+            None if interest_radius_cells is None else max(1, int(interest_radius_cells))
+        )
         self.tracks: dict[str, EntityTrack] = {}
         self._next = 1
 
@@ -35,12 +39,33 @@ class EntityTracker:
         observations: list[EntityObservation],
         frame_index: int,
         timestamp: str | None = None,
+        player_world: tuple[int, int] | None = None,
     ) -> tuple[list[dict], list[EntityTrack]]:
         timestamp = timestamp or datetime.now(timezone.utc).isoformat()
         available = set(self.tracks)
         events: list[dict] = []
+        scoped: list[EntityObservation] = []
 
         for observation in observations:
+            if self.interest_radius_cells is not None:
+                distance = observation.distance_to_player
+                if distance is None and player_world is not None:
+                    anchor = observation.region.anchor_world_cell
+                    if anchor is not None:
+                        distance = self._distance(anchor, player_world)
+                        observation.distance_to_player = distance
+                if distance is None or distance > self.interest_radius_cells:
+                    events.append(
+                        {
+                            "event": "track_skipped_outside_radius",
+                            "distance": distance,
+                            "anchor_world_cell": observation.region.anchor_world_cell,
+                        }
+                    )
+                    continue
+            scoped.append(observation)
+
+        for observation in scoped:
             best_id: str | None = None
             best_score = -1.0
             for track_id in list(available):
@@ -51,10 +76,7 @@ class EntityTracker:
                 )
                 if distance > self.max_cell_distance:
                     continue
-                visual = EntityFeatureExtractor.similarity(
-                    track.feature,
-                    observation.feature,
-                )
+                visual = EntityFeatureExtractor.similarity(track.feature, observation.feature)
                 if visual < self.min_similarity:
                     continue
                 proximity = max(
@@ -94,6 +116,7 @@ class EntityTracker:
                 track.covered_cells = list(observation.region.covered_cells)
                 track.last_seen_frame = frame_index
                 track.last_seen_at = timestamp
+                track.out_of_scope = False
                 if len(track.feature) == len(observation.feature):
                     track.feature = [
                         0.7 * old + 0.3 * new
@@ -133,7 +156,15 @@ class EntityTracker:
 
         expired: list[EntityTrack] = []
         for track_id, track in list(self.tracks.items()):
-            if frame_index - track.last_seen_frame > self.ttl_frames:
+            outside = False
+            if self.interest_radius_cells is not None and player_world is not None:
+                outside = self._distance(track.current_world_cell, player_world) > self.interest_radius_cells
+            if outside:
+                track.out_of_scope = True
+                expired.append(track)
+                del self.tracks[track_id]
+                events.append({"event": "entity_out_of_scope", "track_id": track_id})
+            elif frame_index - track.last_seen_frame > self.ttl_frames:
                 expired.append(track)
                 del self.tracks[track_id]
                 events.append({"event": "entity_expired", "track_id": track_id})

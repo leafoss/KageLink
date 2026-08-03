@@ -10,11 +10,14 @@ import numpy as np
 from .pr27_fragments import DescriptorFactory
 from .pr27_model import PR27Config, TrackState, TrackedSprite
 
-
 _DIRECTIONS = ("LEFT", "RIGHT", "UP", "DOWN")
 
 
-def direction_from_delta(dx: float, dy: float, threshold: float) -> str | None:
+def direction_from_delta(
+    dx: float,
+    dy: float,
+    threshold: float,
+) -> str | None:
     if max(abs(dx), abs(dy)) < threshold:
         return None
     if abs(dx) >= abs(dy):
@@ -31,7 +34,10 @@ def opposite(direction: str | None) -> str | None:
     }.get(direction)
 
 
-def _normalized_body_image(arena: np.ndarray, track: TrackedSprite | None) -> np.ndarray | None:
+def _normalized_body_image(
+    arena: np.ndarray,
+    track: TrackedSprite | None,
+) -> np.ndarray | None:
     if track is None or track.body_bbox is None:
         return None
     x, y, width, height = track.body_bbox
@@ -55,8 +61,24 @@ def _normalized_body_image(arena: np.ndarray, track: TrackedSprite | None) -> np
     return result
 
 
+def _image_similarity(
+    left: np.ndarray | None,
+    right: np.ndarray | None,
+) -> float:
+    if left is None or right is None or left.shape != right.shape:
+        return 0.0
+    return max(
+        0.0,
+        min(
+            1.0,
+            (float(np.dot(left.flatten(), right.flatten())) + 1.0)
+            / 2.0,
+        ),
+    )
+
+
 class FacingObserver:
-    """Separates commanded direction from visually observed facing."""
+    """Command is a prior; facing is confirmed only by visual evidence."""
 
     def __init__(self, config: PR27Config) -> None:
         self.config = config.normalized()
@@ -65,35 +87,68 @@ class FacingObserver:
         self.confirmed = False
         self.confirm_frames = 0
         self.last_anchor: tuple[float, float] | None = None
-        self.motion_history: deque[str | None] = deque(maxlen=max(3, self.config.facing_confirm_frames))
+        self.motion_history: deque[str | None] = deque(
+            maxlen=max(3, self.config.facing_confirm_frames)
+        )
         self.templates: dict[str, np.ndarray] = {}
         self.template_counts: dict[str, int] = {}
         self.template_scores: dict[str, float] = {}
         self.last_invalidation_reason: str | None = "startup"
+        self.latest_image: np.ndarray | None = None
+        self.pending_turn_direction: str | None = None
+        self.pending_turn_reference: np.ndarray | None = None
+        self.pending_turn_candidate: np.ndarray | None = None
+        self.pending_turn_stable_frames = 0
+        self.pending_turn_changed = False
+        self.last_visual_source: str | None = None
 
     def invalidate(self, reason: str) -> None:
         self.observed = None
         self.confirmed = False
         self.confirm_frames = 0
         self.motion_history.clear()
+        self.pending_turn_direction = None
+        self.pending_turn_reference = None
+        self.pending_turn_candidate = None
+        self.pending_turn_stable_frames = 0
+        self.pending_turn_changed = False
+        self.last_visual_source = None
         self.last_invalidation_reason = str(reason)
 
     def note_physical_actions(self, actions: Sequence[str]) -> None:
         for action in actions:
             upper = str(action).upper()
             for direction in _DIRECTIONS:
-                if f"_{direction}" in upper and (
-                    upper.startswith("TURN_")
-                    or upper.startswith("CHASE_")
-                    or upper.startswith("SEPARATE_")
+                is_turn = (
+                    upper.startswith(f"TURN_{direction}")
                     or f"TURN_{direction}" in upper
+                )
+                is_directional = is_turn or (
+                    upper.startswith(f"CHASE_{direction}")
+                    or upper.startswith(f"SEPARATE_{direction}")
                     or f"CHASE_{direction}" in upper
                     or f"SEPARATE_{direction}" in upper
-                ):
-                    self.commanded = direction
-                    return
+                )
+                if not is_directional:
+                    continue
+                self.commanded = direction
+                if is_turn:
+                    self.pending_turn_direction = direction
+                    self.pending_turn_reference = (
+                        None
+                        if self.latest_image is None
+                        else self.latest_image.copy()
+                    )
+                    self.pending_turn_candidate = None
+                    self.pending_turn_stable_frames = 0
+                    self.pending_turn_changed = False
+                return
 
-    def _update_template(self, direction: str, image: np.ndarray) -> None:
+    def _update_template(
+        self,
+        direction: str,
+        image: np.ndarray,
+    ) -> None:
         previous = self.templates.get(direction)
         count = self.template_counts.get(direction, 0)
         if previous is None:
@@ -108,6 +163,46 @@ class FacingObserver:
         self.templates[direction] = blended.astype(np.float32)
         self.template_counts[direction] = count + 1
 
+    def _observe_controlled_turn(
+        self,
+        image: np.ndarray | None,
+    ) -> str | None:
+        direction = self.pending_turn_direction
+        if direction is None or image is None:
+            return None
+        if self.pending_turn_reference is None:
+            # A command without a pre-command image cannot prove a transition.
+            return None
+        reference_similarity = _image_similarity(
+            self.pending_turn_reference,
+            image,
+        )
+        if reference_similarity <= 0.985:
+            self.pending_turn_changed = True
+        if not self.pending_turn_changed:
+            return None
+        if (
+            self.pending_turn_candidate is not None
+            and _image_similarity(self.pending_turn_candidate, image) >= 0.965
+        ):
+            self.pending_turn_stable_frames += 1
+        else:
+            self.pending_turn_candidate = image.copy()
+            self.pending_turn_stable_frames = 1
+        if (
+            self.pending_turn_stable_frames
+            < self.config.facing_confirm_frames
+        ):
+            return None
+        self._update_template(direction, image)
+        self.pending_turn_direction = None
+        self.pending_turn_reference = None
+        self.pending_turn_candidate = None
+        self.pending_turn_stable_frames = 0
+        self.pending_turn_changed = False
+        self.last_visual_source = "CONTROLLED_TURN_VISUAL_TRANSITION"
+        return direction
+
     def observe(
         self,
         arena: np.ndarray,
@@ -117,10 +212,15 @@ class FacingObserver:
     ) -> tuple[str | None, bool, Mapping[str, float]]:
         if hit_event:
             self.invalidate("hit_event")
-        if track is None or track.body_anchor is None or track.track_state is TrackState.LOST:
+        if (
+            track is None
+            or track.body_anchor is None
+            or track.track_state is TrackState.LOST
+        ):
             self.motion_history.append(None)
             self.confirmed = False
             return self.observed, False, dict(self.template_scores)
+
         image = _normalized_body_image(arena, track)
         motion_direction = None
         if self.last_anchor is not None:
@@ -132,27 +232,55 @@ class FacingObserver:
         self.last_anchor = track.body_anchor
         self.motion_history.append(motion_direction)
         stable_motion = None
-        non_null = [value for value in self.motion_history if value is not None]
-        if len(non_null) >= self.config.facing_confirm_frames and len(set(non_null[-self.config.facing_confirm_frames:])) == 1:
+        non_null = [
+            value for value in self.motion_history if value is not None
+        ]
+        if (
+            len(non_null) >= self.config.facing_confirm_frames
+            and len(
+                set(
+                    non_null[-self.config.facing_confirm_frames :]
+                )
+            )
+            == 1
+        ):
             stable_motion = non_null[-1]
         if image is not None and stable_motion is not None:
-            # The label is grounded by observed sprite motion; the command is only a prior.
             if self.commanded is None or self.commanded == stable_motion:
                 self._update_template(stable_motion, image)
+
         scores: dict[str, float] = {}
         if image is not None:
             for direction, template in self.templates.items():
-                scores[direction] = max(0.0, min(1.0, (float(np.dot(image.flatten(), template.flatten())) + 1.0) / 2.0))
+                scores[direction] = _image_similarity(
+                    image,
+                    template,
+                )
         self.template_scores = scores
-        visual = None
-        if scores:
-            ordered = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+
+        visual = self._observe_controlled_turn(image)
+        if visual is None and scores:
+            ordered = sorted(
+                scores.items(),
+                key=lambda item: item[1],
+                reverse=True,
+            )
             best_direction, best_score = ordered[0]
-            second_score = ordered[1][1] if len(ordered) > 1 else 0.0
-            if best_score >= self.config.facing_template_min_score and best_score - second_score >= self.config.facing_template_margin:
+            second_score = (
+                ordered[1][1] if len(ordered) > 1 else 0.0
+            )
+            if (
+                best_score >= self.config.facing_template_min_score
+                and best_score - second_score
+                >= self.config.facing_template_margin
+            ):
                 visual = best_direction
-        if visual is None:
+                self.last_visual_source = "FACING_TEMPLATE_MATCH"
+        if visual is None and stable_motion is not None:
             visual = stable_motion
+            self.last_visual_source = "OBSERVED_BODY_MOTION"
+
+        self.latest_image = None if image is None else image.copy()
         if visual is None:
             self.confirm_frames = 0
             self.confirmed = False
@@ -162,7 +290,9 @@ class FacingObserver:
         else:
             self.observed = visual
             self.confirm_frames = 1
-        self.confirmed = self.confirm_frames >= self.config.facing_confirm_frames
+        self.confirmed = (
+            self.confirm_frames >= self.config.facing_confirm_frames
+        )
         if self.confirmed:
             self.last_invalidation_reason = None
         return self.observed, self.confirmed, dict(scores)
@@ -179,7 +309,12 @@ class HitDetector:
         self.last_similarity = 1.0
         self.last_reason = "-"
 
-    def observe(self, track: TrackedSprite | None, *, commanded_direction: str | None) -> bool:
+    def observe(
+        self,
+        track: TrackedSprite | None,
+        *,
+        commanded_direction: str | None,
+    ) -> bool:
         if track is None or track.body_anchor is None:
             return False
         displacement = 0.0
@@ -191,20 +326,32 @@ class HitDetector:
             motion_direction = direction_from_delta(dx, dy, 1.0)
         similarity = 1.0
         if self.previous_descriptor is not None:
-            similarity = DescriptorFactory.similarity(self.previous_descriptor, track.appearance_signature)
+            similarity = DescriptorFactory.similarity(
+                self.previous_descriptor,
+                track.appearance_signature,
+            )
         unexpected_motion = (
             displacement >= self.config.hit_displacement_px
             and commanded_direction is not None
             and motion_direction is not None
             and motion_direction != commanded_direction
         )
-        appearance_shock = similarity < self.config.hit_appearance_similarity
-        very_large = displacement >= self.config.hit_displacement_px * 2.0
-        hit = (unexpected_motion and appearance_shock) or (very_large and appearance_shock)
+        appearance_shock = (
+            similarity < self.config.hit_appearance_similarity
+        )
+        very_large = (
+            displacement >= self.config.hit_displacement_px * 2.0
+        )
+        hit = (
+            unexpected_motion and appearance_shock
+        ) or (
+            very_large and appearance_shock
+        )
         self.last_displacement = displacement
         self.last_similarity = similarity
         self.last_reason = (
-            f"displacement={displacement:.1f}px motion={motion_direction} commanded={commanded_direction} "
+            f"displacement={displacement:.1f}px "
+            f"motion={motion_direction} commanded={commanded_direction} "
             f"appearance={similarity:.3f}"
         )
         self.previous_anchor = track.body_anchor

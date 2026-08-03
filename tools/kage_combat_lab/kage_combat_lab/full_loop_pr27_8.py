@@ -33,6 +33,35 @@ def _wait_for_spawn(seconds: float, f12_pressed) -> None:
         time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
 
 
+def _perception_runtime_argv(args, log_path: Path) -> list[str]:
+    """Build only arguments accepted by the PR27.8 perception runtime.
+
+    ``--pr27-post-ok`` belongs to the historical PR27 compatibility entrypoint.
+    PR27.8 already runs after the dialog and pre-spawn capture, so forwarding that
+    marker to the legacy live parser causes argparse to abort before frame zero.
+    """
+
+    return [
+        "full_round_pr27_8",
+        "--seconds",
+        str(max(1.0, float(args.combat_seconds))),
+        "--post-combat-timeout",
+        str(max(5.0, float(args.post_combat_timeout))),
+        "--startup-delay",
+        str(max(0.0, float(args.round_startup_delay))),
+        "--chat-poll-seconds",
+        str(max(0.10, min(2.0, float(args.chat_poll_seconds)))),
+        "--recovery-hp",
+        str(max(0.90, float(args.recovery_hp_percent) / 100.0)),
+        "--recovery-chakra",
+        str(max(0.50, float(args.recovery_chakra_percent) / 100.0)),
+        "--leader-threshold",
+        str(float(args.leader_threshold)),
+        "--log",
+        str(log_path),
+    ]
+
+
 def main() -> int:
     import kage_pilot_loop_v03g as legacy_loop
     from pc_agent.config import load_config
@@ -90,26 +119,7 @@ def main() -> int:
     from . import full_round_pr27_8
 
     previous_argv = list(sys.argv)
-    sys.argv = [
-        "full_round_pr27_8",
-        "--pr27-post-ok",
-        "--seconds",
-        str(max(1.0, float(args.combat_seconds))),
-        "--post-combat-timeout",
-        str(max(5.0, float(args.post_combat_timeout))),
-        "--startup-delay",
-        str(max(0.0, float(args.round_startup_delay))),
-        "--chat-poll-seconds",
-        str(max(0.10, min(2.0, float(args.chat_poll_seconds)))),
-        "--recovery-hp",
-        str(max(0.90, float(args.recovery_hp_percent) / 100.0)),
-        "--recovery-chakra",
-        str(max(0.50, float(args.recovery_chakra_percent) / 100.0)),
-        "--leader-threshold",
-        str(float(args.leader_threshold)),
-        "--log",
-        str(log_path),
-    ]
+    sys.argv = _perception_runtime_argv(args, log_path)
     try:
         return int(full_round_pr27_8.main())
     finally:

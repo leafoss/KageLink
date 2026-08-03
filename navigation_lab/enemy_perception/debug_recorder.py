@@ -75,19 +75,6 @@ class DebugRecorder:
                     "started_at": self.started_at.isoformat(),
                 },
             )
-            with (self.session_root / "events.jsonl").open("a", encoding="utf-8") as handle:
-                handle.write(
-                    json.dumps(
-                        {
-                            "event": "session_started",
-                            "session_id": session_id,
-                            "session_path": str(self.session_root),
-                            "started_at": self.started_at.isoformat(),
-                        },
-                        ensure_ascii=False,
-                    )
-                    + "\n"
-                )
 
     def record_frame(
         self,

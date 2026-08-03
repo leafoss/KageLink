@@ -68,6 +68,26 @@ def config_from_env() -> PR27Config:
         facing_confirm_frames=int(os.environ.get("KAGE_PR27_FACING_CONFIRM_FRAMES", "2")),
         facing_correction_cooldown_frames=int(os.environ.get("KAGE_PR27_FACING_COOLDOWN_FRAMES", "1")),
         hit_displacement_px=float(os.environ.get("KAGE_PR27_HIT_DISPLACEMENT_PX", "10")),
+        self_association_min_score=float(os.environ.get("KAGE_PR27_SELF_ASSOCIATION_SCORE", "0.56")),
+        self_identity_min_score=float(os.environ.get("KAGE_PR27_SELF_IDENTITY_SCORE", "0.34")),
+        self_size_ratio_min=float(os.environ.get("KAGE_PR27_SELF_SIZE_RATIO", "0.48")),
+        self_ambiguity_margin=float(os.environ.get("KAGE_PR27_SELF_AMBIGUITY_MARGIN", "0.08")),
+        self_prediction_frames=int(os.environ.get("KAGE_PR27_SELF_PREDICTION_FRAMES", "10")),
+        merged_body_iou_threshold=float(os.environ.get("KAGE_PR27_MERGED_IOU", "0.08")),
+        merged_body_area_ratio=float(os.environ.get("KAGE_PR27_MERGED_AREA_RATIO", "1.28")),
+        merged_anchor_distance_px=float(os.environ.get("KAGE_PR27_MERGED_ANCHOR_PX", "12")),
+        subcell_direction_threshold_px=float(os.environ.get("KAGE_PR27_SUBCELL_DIRECTION_PX", "4")),
+        close_enemy_distance_px=float(os.environ.get("KAGE_PR27_CLOSE_ENEMY_PX", "96")),
+        close_reacquire_confirm_frames=int(os.environ.get("KAGE_PR27_CLOSE_REACQUIRE_FRAMES", "2")),
+        close_idle_soft_frames=int(os.environ.get("KAGE_PR27_CLOSE_IDLE_SOFT_FRAMES", "3")),
+        close_idle_turn_frames=int(os.environ.get("KAGE_PR27_CLOSE_IDLE_TURN_FRAMES", "5")),
+        close_idle_drop_frames=int(os.environ.get("KAGE_PR27_CLOSE_IDLE_DROP_FRAMES", "8")),
+        separation_pulse_ms=int(os.environ.get("KAGE_PR27_SEPARATION_PULSE_MS", "60")),
+        separation_cooldown_frames=int(os.environ.get("KAGE_PR27_SEPARATION_COOLDOWN_FRAMES", "6")),
+        facing_template_min_score=float(os.environ.get("KAGE_PR27_FACING_TEMPLATE_SCORE", "0.72")),
+        facing_template_margin=float(os.environ.get("KAGE_PR27_FACING_TEMPLATE_MARGIN", "0.04")),
+        facing_motion_min_px=float(os.environ.get("KAGE_PR27_FACING_MOTION_PX", "3")),
+        hit_appearance_similarity=float(os.environ.get("KAGE_PR27_HIT_APPEARANCE_SIMILARITY", "0.60")),
     ).normalized()
 
 
@@ -83,6 +103,10 @@ class PR27PhysicalInput:
         self.last_h_at = -1e9
         self.h_cooldown_seconds = max(0.5, float(os.environ.get("KAGE_PR27_H_COOLDOWN", "1.75")))
         self.attack_confirm_frames = max(2, int(os.environ.get("KAGE_PR27_ATTACK_CONFIRM_FRAMES", "2")))
+        self.separation_pulse_seconds = min(
+            0.100,
+            max(0.030, float(os.environ.get("KAGE_PR27_SEPARATION_PULSE_MS", "60")) / 1000.0),
+        )
         self.combat_r_latched = False
 
     def _hold_r(self) -> None:
@@ -104,6 +128,13 @@ class PR27PhysicalInput:
             return ("R_DOWN_COMBAT_LATCH",)
         return ("INPUT_ARMED_SAFE",)
 
+    @staticmethod
+    def _direction(action: CombatAction) -> str | None:
+        for suffix, key in (("LEFT", "left"), ("RIGHT", "right"), ("UP", "up"), ("DOWN", "down")):
+            if action.value.endswith(suffix):
+                return key
+        return None
+
     def execute(self, action: CombatAction, *, mode: str) -> tuple[str, ...]:
         if not self.active:
             raise RuntimeError("PR27_INPUT_NOT_ACTIVE")
@@ -116,12 +147,7 @@ class PR27PhysicalInput:
             self.controller.release_all()
             return ("PR27_INPUT_BLOCKED",)
 
-        direction = None
-        for suffix, key in (("LEFT","left"),("RIGHT","right"),("UP","up"),("DOWN","down")):
-            if action.value.endswith(suffix):
-                direction = key
-                break
-
+        direction = self._direction(action)
         if normalized_mode == "FACE_ONLY":
             self.attack_streak = 0
             if direction is None:
@@ -139,10 +165,10 @@ class PR27PhysicalInput:
             if self.attack_streak < self.attack_confirm_frames:
                 return ("R_HELD_COMBAT", f"H_WAIT_CONFIRM_{self.attack_streak}/{self.attack_confirm_frames}")
             now = time.monotonic()
-            remaining = self.h_cooldown_seconds - (now-self.last_h_at)
+            remaining = self.h_cooldown_seconds - (now - self.last_h_at)
             if remaining > 0.0:
                 return ("R_HELD_COMBAT", f"H_COOLDOWN_{remaining:.2f}S")
-            self.controller.apply_keys(("h","r"))
+            self.controller.apply_keys(("h", "r"))
             self.sleep_fn(0.080)
             self._hold_r()
             self.last_h_at = time.monotonic()
@@ -150,16 +176,23 @@ class PR27PhysicalInput:
 
         self.attack_streak = 0
         if direction is not None and action.value.startswith("CHASE_"):
-            self.controller.apply_keys(tuple(sorted(("r",direction))))
+            self.controller.apply_keys(tuple(sorted(("r", direction))))
             self.sleep_fn(0.075)
             self._hold_r()
             return ("R_HELD_COMBAT", f"CHASE_{direction.upper()}_75MS")
 
         if direction is not None and action.value.startswith("TURN_"):
-            self.controller.apply_keys(tuple(sorted(("r",direction))))
+            self.controller.apply_keys(tuple(sorted(("r", direction))))
             self.sleep_fn(0.060)
             self._hold_r()
             return ("R_HELD_COMBAT", f"TURN_{direction.upper()}_60MS")
+
+        if direction is not None and action.value.startswith("SEPARATE_"):
+            self.controller.apply_keys(tuple(sorted(("r", direction))))
+            self.sleep_fn(self.separation_pulse_seconds)
+            self._hold_r()
+            milliseconds = int(round(self.separation_pulse_seconds * 1000.0))
+            return ("R_HELD_COMBAT", f"SEPARATE_{direction.upper()}_{milliseconds}MS", "H_BLOCKED_SEPARATION")
 
         self._hold_r()
         return ("R_HELD_COMBAT",)
@@ -197,4 +230,4 @@ def create_log(args, module_file: str):
     report_root = Path(module_file).resolve().parents[1] / "reports"
     report_root.mkdir(parents=True, exist_ok=True)
     stem = f"pr27_round_{time.strftime('%Y%m%d_%H%M%S')}"
-    return (report_root/f"{stem}.jsonl").open("w", encoding="utf-8", buffering=65536), report_root, stem
+    return (report_root / f"{stem}.jsonl").open("w", encoding="utf-8", buffering=65536), report_root, stem

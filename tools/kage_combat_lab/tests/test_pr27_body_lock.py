@@ -98,7 +98,7 @@ def test_trainer_zone_rejects_body_anchor_and_bbox():
     assert any("TRAINER" in item for item in result.candidate_rejections)
 
 
-def test_attack_requires_enemy_body_lock_and_anchor_cell():
+def test_attack_requires_enemy_body_lock_anchor_cell_and_visual_facing():
     system, base = build_system()
     result = None
     actions = []
@@ -117,4 +117,8 @@ def test_attack_requires_enemy_body_lock_and_anchor_cell():
     assert result.target.body_bbox == enemy.body_bbox
     assert result.target.anchor_cell == enemy.anchor_cell
     assert CombatAction.TURN_RIGHT in actions
-    assert result.action is CombatAction.ATTACK
+    # Synthetic rectangles have no directional visual evidence. PR27.7 must not
+    # convert a TURN command into observed facing or release H on that basis.
+    assert result.action is not CombatAction.ATTACK
+    assert not result.facing_confirmed
+    assert result.h_block_reason in {"VISUAL_FACING_NOT_CONFIRMED", "FACING_CONFIRMATION_COOLDOWN"}

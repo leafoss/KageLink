@@ -38,8 +38,29 @@ param(
     [int]$FacingConfirmFrames = 2,
     [int]$FacingCooldownFrames = 1,
     [double]$HitDisplacementPixels = 10,
+    [double]$SelfAssociationScore = 0.56,
+    [double]$SelfIdentityScore = 0.34,
+    [double]$SelfSizeRatio = 0.48,
+    [double]$SelfAmbiguityMargin = 0.08,
+    [int]$SelfPredictionFrames = 10,
+    [double]$MergedBodyIou = 0.08,
+    [double]$MergedBodyAreaRatio = 1.28,
+    [double]$MergedAnchorPixels = 12,
+    [double]$SubcellDirectionPixels = 4,
+    [double]$CloseEnemyPixels = 96,
+    [int]$CloseReacquireFrames = 2,
+    [int]$CloseIdleSoftFrames = 3,
+    [int]$CloseIdleTurnFrames = 5,
+    [int]$CloseIdleDropFrames = 8,
+    [int]$SeparationPulseMs = 60,
+    [int]$SeparationCooldownFrames = 6,
+    [double]$FacingTemplateScore = 0.72,
+    [double]$FacingTemplateMargin = 0.04,
+    [double]$FacingMotionPixels = 3,
+    [double]$HitAppearanceSimilarity = 0.60,
     [int]$OverlayEveryFrames = 3,
-    [int]$DebugSaveEveryFrames = 80,
+    [int]$DebugSaveEveryFrames = 6,
+    [int]$DebugQueueSize = 24,
     [int]$LogEveryFrames = 1,
     [double]$TargetFps = 8
 )
@@ -72,9 +93,15 @@ if ($EnemyConfirmFrames -lt 3) { throw "EnemyConfirmFrames must be >= 3." }
 if ($TargetMissingGraceFrames -lt $MaximumMissingFrames) { throw "TargetMissingGraceFrames must be >= MaximumMissingFrames." }
 if ($HCooldown -lt 0.5) { throw "HCooldown must be >= 0.5 seconds." }
 if ($AttackConfirmFrames -lt 2) { throw "AttackConfirmFrames must be >= 2." }
-if ($RoiRadiusCells -ne 4) { throw "PR27.6 combat ROI is fixed at exactly 4 native cells." }
+if ($RoiRadiusCells -ne 4) { throw "PR27.7 combat ROI is fixed at exactly 4 native cells." }
 if ($FacingConfirmFrames -lt 2) { throw "FacingConfirmFrames must be >= 2." }
+if ($SelfPredictionFrames -lt 2) { throw "SelfPredictionFrames must be >= 2." }
+if ($CloseReacquireFrames -lt 1) { throw "CloseReacquireFrames must be >= 1." }
+if ($CloseIdleTurnFrames -lt $CloseIdleSoftFrames) { throw "CloseIdleTurnFrames must be >= CloseIdleSoftFrames." }
+if ($CloseIdleDropFrames -le $CloseIdleTurnFrames) { throw "CloseIdleDropFrames must be greater than CloseIdleTurnFrames." }
+if ($SeparationPulseMs -lt 30 -or $SeparationPulseMs -gt 100) { throw "SeparationPulseMs must be between 30 and 100." }
 if ($DebugSaveEveryFrames -lt 1) { throw "DebugSaveEveryFrames must be >= 1." }
+if ($DebugQueueSize -lt 2) { throw "DebugQueueSize must be >= 2." }
 if ($LogEveryFrames -lt 1) { throw "LogEveryFrames must be >= 1." }
 if ($TargetFps -lt 1 -or $TargetFps -gt 20) { throw "TargetFps must be between 1 and 20." }
 
@@ -116,8 +143,16 @@ $env:KAGE_PR27_LOCAL_OCCLUSION_MAX_FRAMES = [string]$LocalOcclusionMaximumFrames
 $env:KAGE_PR27_LOCAL_BACKGROUND_LEARN_FRAMES = [string]$LocalBackgroundLearnFrames
 $env:KAGE_PR27_FACING_CONFIRM_FRAMES = [string]$FacingConfirmFrames
 $env:KAGE_PR27_FACING_COOLDOWN_FRAMES = [string]$FacingCooldownFrames
+$env:KAGE_PR27_SELF_PREDICTION_FRAMES = [string]$SelfPredictionFrames
+$env:KAGE_PR27_CLOSE_REACQUIRE_FRAMES = [string]$CloseReacquireFrames
+$env:KAGE_PR27_CLOSE_IDLE_SOFT_FRAMES = [string]$CloseIdleSoftFrames
+$env:KAGE_PR27_CLOSE_IDLE_TURN_FRAMES = [string]$CloseIdleTurnFrames
+$env:KAGE_PR27_CLOSE_IDLE_DROP_FRAMES = [string]$CloseIdleDropFrames
+$env:KAGE_PR27_SEPARATION_PULSE_MS = [string]$SeparationPulseMs
+$env:KAGE_PR27_SEPARATION_COOLDOWN_FRAMES = [string]$SeparationCooldownFrames
 $env:KAGE_PR27_OVERLAY_EVERY_FRAMES = [string]$OverlayEveryFrames
 $env:KAGE_PR27_SAVE_EVERY_FRAMES = [string]$DebugSaveEveryFrames
+$env:KAGE_PR27_DEBUG_QUEUE_SIZE = [string]$DebugQueueSize
 $env:KAGE_PR27_LOG_EVERY_FRAMES = [string]$LogEveryFrames
 Set-InvariantDoubleEnv "KAGE_PR27_CHANGED_RATIO" $ChangedRatio
 Set-InvariantDoubleEnv "KAGE_PR27_UNCERTAIN_RATIO" $UncertainRatio
@@ -125,27 +160,40 @@ Set-InvariantDoubleEnv "KAGE_PR27_ASSOCIATION_SCORE" $AssociationScore
 Set-InvariantDoubleEnv "KAGE_PR27_TARGET_ASSOCIATION_SCORE" $TargetAssociationScore
 Set-InvariantDoubleEnv "KAGE_PR27_H_COOLDOWN" $HCooldown
 Set-InvariantDoubleEnv "KAGE_PR27_HIT_DISPLACEMENT_PX" $HitDisplacementPixels
+Set-InvariantDoubleEnv "KAGE_PR27_SELF_ASSOCIATION_SCORE" $SelfAssociationScore
+Set-InvariantDoubleEnv "KAGE_PR27_SELF_IDENTITY_SCORE" $SelfIdentityScore
+Set-InvariantDoubleEnv "KAGE_PR27_SELF_SIZE_RATIO" $SelfSizeRatio
+Set-InvariantDoubleEnv "KAGE_PR27_SELF_AMBIGUITY_MARGIN" $SelfAmbiguityMargin
+Set-InvariantDoubleEnv "KAGE_PR27_MERGED_IOU" $MergedBodyIou
+Set-InvariantDoubleEnv "KAGE_PR27_MERGED_AREA_RATIO" $MergedBodyAreaRatio
+Set-InvariantDoubleEnv "KAGE_PR27_MERGED_ANCHOR_PX" $MergedAnchorPixels
+Set-InvariantDoubleEnv "KAGE_PR27_SUBCELL_DIRECTION_PX" $SubcellDirectionPixels
+Set-InvariantDoubleEnv "KAGE_PR27_CLOSE_ENEMY_PX" $CloseEnemyPixels
+Set-InvariantDoubleEnv "KAGE_PR27_FACING_TEMPLATE_SCORE" $FacingTemplateScore
+Set-InvariantDoubleEnv "KAGE_PR27_FACING_TEMPLATE_MARGIN" $FacingTemplateMargin
+Set-InvariantDoubleEnv "KAGE_PR27_FACING_MOTION_PX" $FacingMotionPixels
+Set-InvariantDoubleEnv "KAGE_PR27_HIT_APPEARANCE_SIMILARITY" $HitAppearanceSimilarity
 Set-InvariantDoubleEnv "KAGE_PR27_TARGET_FPS" $TargetFps
 
-Write-Host "PR27.6 PLAYER-CENTRIC LOCAL ROI COMBAT" -ForegroundColor Green
+Write-Host "PR27.7 SELF AUTHORITY + CLOSE RECOVERY COMBAT" -ForegroundColor Green
 Write-Host "  Mode: $ControlMode" -ForegroundColor Cyan
 if ($ControlEnabled) {
     Write-Host "  PHYSICAL CONTROL: ENABLED BY EXPLICIT ACKNOWLEDGEMENT" -ForegroundColor Red
-    Write-Host "  R: DOWN at combat start; held through every intermediate state; UP only at combat end" -ForegroundColor Yellow
-    Write-Host "  H: requires body lock, confirmed facing and cooldown $HCooldown seconds" -ForegroundColor Yellow
+    Write-Host "  R: DOWN at combat start; held through every recovery; UP only at combat end" -ForegroundColor Yellow
+    Write-Host "  H: blocked during role conflict, merged body, hit recovery and unknown visual facing" -ForegroundColor Yellow
     Write-Host "  F12: emergency stop; keep it ready" -ForegroundColor Yellow
 }
 if ($PhysicalMode -and $DebugOverlay) {
     Write-Host "  Live overlay: automatically disabled in physical modes to preserve game focus" -ForegroundColor Yellow
 }
-Write-Host "  Combat ROI: circular radius 4 cells (64px each), player-centered"
-Write-Host "  Player authority cell: (0,0), body-contained"
-Write-Host "  Enemy authority: body_bbox -> body_anchor -> relative anchor_cell"
-Write-Host "  Outside ROI: ignored for fragments, tracks, target and baseline"
-Write-Host "  SCENE_CHANGED: removed from combat flow"
-Write-Host "  Local visual effects: LOCAL_VISUAL_OCCLUSION; R remains held; H blocked"
-Write-Host "  Unknown local background: learned incrementally without freezing combat"
-Write-Host "  Facing confirmation: $FacingConfirmFrames frames; correction before H"
+Write-Host "  SELF authority: dedicated tracker, immutable role, reserved observation"
+Write-Host "  ENEMY authority: non-SELF tracker can never promote a body to SELF"
+Write-Host "  Combat ROI: circular radius 4 cells (64px each), centered only on SELF"
+Write-Host "  Same-cell combat: subcell anchor direction + bounded recovery"
+Write-Host "  MERGED_BODY: preserves both identities; H blocked; optional separation pulse"
+Write-Host "  Facing: commanded direction is only a prior; visual observation is required"
+Write-Host "  SCENE_CHANGED: absent from combat flow"
+Write-Host "  Async debug: ROI images by default; full frame only on conflict/state change"
 Write-Host "  Target FPS: $TargetFps"
 Write-Host "  Debug frames enabled: $SaveFrames every $DebugSaveEveryFrames frames"
 Write-Host "  Baseline: $BaselineFile"

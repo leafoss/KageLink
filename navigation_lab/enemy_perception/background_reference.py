@@ -51,9 +51,11 @@ class _Pending:
 class BackgroundReferenceStore:
     """Visual empty-tile catalogue grouped by semantic class and appearance.
 
-    The production question is: "Have I seen this empty tile, or something
-    visually similar, before?" World coordinates are retained only as source
-    metadata and never select the operational background.
+    Production matching asks whether the current tile resembles any known empty
+    appearance. World coordinates are source metadata only. The operational
+    score combines a foreground-tolerant comparison with the raw whole-tile
+    comparison, preventing a heavily different scene from scoring as a strong
+    match merely because a small subset of pixels is similar.
     """
 
     def __init__(
@@ -65,6 +67,7 @@ class BackgroundReferenceStore:
         trim_changed_fraction: float = 0.60,
         cluster_similarity: float = 0.94,
         max_representatives_per_cluster: int = 4,
+        robust_weight: float = 0.70,
     ) -> None:
         self.root = Path(root) if root else None
         self.max_references = max(1, int(max_references))
@@ -73,8 +76,8 @@ class BackgroundReferenceStore:
         self.trim_changed_fraction = min(0.75, max(0.0, float(trim_changed_fraction)))
         self.cluster_similarity = float(cluster_similarity)
         self.max_representatives_per_cluster = max(1, int(max_representatives_per_cluster))
+        self.robust_weight = min(0.90, max(0.50, float(robust_weight)))
         self.clusters_by_class: dict[str, list[_Cluster]] = {}
-        # Compatibility indexes retained for older unit tests and diagnostics.
         self.references_by_class: dict[str, list[_Reference]] = {}
         self.references: dict[tuple[int, int], list[_Reference]] = {}
         self.pending: dict[str, list[_Pending]] = {}
@@ -103,9 +106,8 @@ class BackgroundReferenceStore:
             )
         return cv2.absdiff(left[:, :, :3], right[:, :, :3]).max(axis=2).astype(np.float32)
 
-    def similarity(self, left: Any, right: Any) -> float:
-        """Robust score that tolerates a localized foreground sprite."""
-
+    def robust_similarity(self, left: Any, right: Any) -> float:
+        """Compare the most terrain-like fraction, tolerating foreground pixels."""
         import numpy as np
 
         flattened = np.sort(self._difference_intensity(left, right).reshape(-1))
@@ -116,6 +118,12 @@ class BackgroundReferenceStore:
     def raw_similarity(self, left: Any, right: Any) -> float:
         diff = self._difference_intensity(left, right)
         return max(0.0, min(1.0, 1.0 - float(diff.mean()) / 255.0))
+
+    def similarity(self, left: Any, right: Any) -> float:
+        robust = self.robust_similarity(left, right)
+        raw = self.raw_similarity(left, right)
+        score = self.robust_weight * robust + (1.0 - self.robust_weight) * raw
+        return max(0.0, min(1.0, float(score)))
 
     def _candidate_clusters(self, terrain_class: str | None) -> list[_Cluster]:
         if terrain_class is None:
@@ -128,7 +136,6 @@ class BackgroundReferenceStore:
         crop: Any | None = None,
         terrain_class: str | None = None,
     ) -> BackgroundMatch:
-        # Legacy coordinate lookup remains only for compatibility tests.
         if crop is not None and isinstance(crop_or_world_cell, tuple):
             current = crop
             candidates = self.references.get(tuple(crop_or_world_cell), [])
@@ -294,6 +301,7 @@ class BackgroundReferenceStore:
         payload = {
             "schema_version": SCHEMA_VERSION,
             "matching_semantics": "semantic_class_plus_visual_cluster",
+            "similarity_semantics": "0.70_robust_plus_0.30_raw",
             "clusters": [
                 {
                     "id": cluster.id,

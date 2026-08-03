@@ -49,13 +49,13 @@ class BackgroundReferenceStore:
         max_references: int = 32,
         stable_frames: int = 3,
         stable_similarity: float = 0.985,
-        trim_changed_fraction: float = 0.20,
+        trim_changed_fraction: float = 0.60,
     ) -> None:
         self.root = Path(root) if root else None
         self.max_references = max(1, int(max_references))
         self.stable_frames = max(2, int(stable_frames))
         self.stable_similarity = float(stable_similarity)
-        self.trim_changed_fraction = min(0.40, max(0.0, float(trim_changed_fraction)))
+        self.trim_changed_fraction = min(0.75, max(0.0, float(trim_changed_fraction)))
         self.references_by_class: dict[str, list[_Reference]] = {}
         self.references: dict[tuple[int, int], list[_Reference]] = {}
         self.pending: dict[str, list[_Pending]] = {}
@@ -81,7 +81,13 @@ class BackgroundReferenceStore:
         return cv2.absdiff(left[:, :, :3], right[:, :, :3]).max(axis=2).astype(np.float32)
 
     def similarity(self, left: Any, right: Any) -> float:
-        """Robust similarity that ignores a small localized foreground overlay."""
+        """Score the unchanged terrain portion while tolerating a foreground sprite.
+
+        The frame-45 D=1 target altered roughly 44% of its tile. Keeping the
+        lowest-difference 40% preserves that local detection without making a
+        world-coordinate assumption. A wrong terrain still differs throughout
+        the retained portion and is rejected by confidence/structural checks.
+        """
 
         import numpy as np
 

@@ -1,0 +1,61 @@
+{
+  "schema": "PR27.8_ROUND_001_LEGACY_DEBUG_REPLAY_EVIDENCE",
+  "source_archive": "round_001(1).zip",
+  "source_limitations": [
+    "The archive contains legacy debug overlays, not pristine BYOND native captures.",
+    "Only *_FULL images preserve the audited native-to-arena mapping; *_ROI images are auxiliary.",
+    "A legacy Trainer ghost already baked into an input frame can be detected/masked but original pixels cannot be reconstructed."
+  ],
+  "calibration": {
+    "native_size": [
+      1920,
+      1037
+    ],
+    "cell_size": 64,
+    "offset": [
+      0,
+      21
+    ],
+    "fixed_self_cell_absolute": [
+      6,
+      15
+    ],
+    "fixed_self_bbox_half_open": [
+      960,
+      405,
+      1024,
+      469
+    ],
+    "roi_radius_cells": 4
+  },
+  "archive_image_count": 142,
+  "authoritative_full_frames": 68,
+  "auxiliary_roi_frames": 74,
+  "grid_alignment_failures": 0,
+  "self_confirmed_frames": 57,
+  "self_unconfirmed_frames": 11,
+  "self_unconfirmed_action_policy": "NONE / SELF_NOT_CONFIRMED",
+  "frame_12_fixed_grid_ok": true,
+  "frame_24_water_audit": {
+    "available": true,
+    "classification": "ANIMATED_BACKGROUND_OR_NON_HUMANOID_WIDE_PATCH",
+    "old_lock_bbox": [
+      183,
+      96,
+      65,
+      63
+    ],
+    "passes_pr278_body_core": false
+  },
+  "water_false_positives": 0,
+  "trainer_mask_only": true,
+  "trainer_rgb_replaced_by_pr278": false,
+  "legacy_trainer_ghost_detected_in_input": true,
+  "entity_candidates_after_fixed_roi_gate": 136,
+  "humanoid_candidates_after_fixed_roi_gate": 69,
+  "hostile_confirmations": 0,
+  "planned_movements_blocked": 68,
+  "role_conflicts": 0,
+  "average_ms_per_authoritative_full_frame": 214.01096252944117,
+  "acceptance_status": "DRAFT_REQUIRES_PRISTINE_NATIVE_PERCEPTION_RUN"
+}

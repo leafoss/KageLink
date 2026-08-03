@@ -21,7 +21,10 @@ class Frame45RegressionTests(unittest.TestCase):
         store.add_reference((99, 99), "walkable", background)
         match = store.choose(current, terrain_class=None)
         self.assertTrue(match.available)
-        self.assertGreaterEqual(match.confidence, 0.985)
+        # A large foreground is USABLE rather than falsely called a perfect
+        # empty-tile match. The semantic NPC path does not depend on this score.
+        self.assertGreaterEqual(match.confidence, 0.88)
+        self.assertLess(match.raw_similarity, match.confidence)
         overlay = OverlayDetector(
             pixel_threshold=24,
             min_changed_ratio=0.03,

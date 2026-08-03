@@ -42,6 +42,18 @@ class BackgroundMatchLevel(str, Enum):
     NONE = "none"
 
 
+class TileKnowledgeState(str, Enum):
+    """Operational result of consulting the explicitly taught tile repertoire."""
+
+    KNOWN_CLEAN = "known_clean"
+    KNOWN_WITH_FOREIGN_BODY = "known_with_foreign_body"
+    SEMANTIC_ENTITY = "semantic_entity"
+    UNKNOWN_TILE = "unknown_tile"
+    PLAYER_CELL = "player_cell"
+    OUTSIDE_ROI = "outside_roi"
+    OUTSIDE_PLAYFIELD = "outside_playfield"
+
+
 class CandidateSource(str, Enum):
     SEMANTIC_NPC = "semantic_npc"
     BACKGROUND_RESIDUAL = "background_residual"
@@ -269,6 +281,17 @@ class CellDebugRecord:
     operational_difference_allowed: bool = False
     semantic_candidate_created: bool = False
     residual_candidate_created: bool = False
+    tile_knowledge_state: str = TileKnowledgeState.UNKNOWN_TILE.value
+    valid_repertoire_match: bool = False
+    matched_repertoire_example_id: str | None = None
+    matched_repertoire_class: str | None = None
+    best_diagnostic_candidate_id: str | None = None
+    best_diagnostic_score: float = 0.0
+    full_match_score: float = 0.0
+    preserved_terrain_score: float = 0.0
+    foreign_body_ratio: float = 0.0
+    difference_operational: bool = False
+    candidate_created: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -300,6 +323,17 @@ class CellDebugRecord:
             "operational_difference_allowed": self.operational_difference_allowed,
             "semantic_candidate_created": self.semantic_candidate_created,
             "residual_candidate_created": self.residual_candidate_created,
+            "tile_knowledge_state": self.tile_knowledge_state,
+            "valid_repertoire_match": self.valid_repertoire_match,
+            "matched_repertoire_example_id": self.matched_repertoire_example_id,
+            "matched_repertoire_class": self.matched_repertoire_class,
+            "best_diagnostic_candidate_id": self.best_diagnostic_candidate_id,
+            "best_diagnostic_score": self.best_diagnostic_score,
+            "full_match_score": self.full_match_score,
+            "preserved_terrain_score": self.preserved_terrain_score,
+            "foreign_body_ratio": self.foreign_body_ratio,
+            "difference_operational": self.difference_operational,
+            "candidate_created": self.candidate_created,
             **asdict(self.metrics),
             "decision": self.decision,
             "decision_reason": self.decision_reason,

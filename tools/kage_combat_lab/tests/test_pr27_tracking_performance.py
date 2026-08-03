@@ -192,8 +192,6 @@ def test_large_visual_effect_burst_suspends_identity_updates() -> None:
         minimum_component_area=4,
         minimum_fragment_pixels=4,
         minimum_observation_pixels=8,
-        scene_changed_cell_ratio=0.95,
-        scene_changed_min_cells=200,
         enable_context_enemy=False,
     )
     system = PR27CombatSystem(
@@ -210,8 +208,9 @@ def test_large_visual_effect_burst_suspends_identity_updates() -> None:
 
     assert result.action is CombatAction.NONE
     assert result.groups == ()
-    assert "visual effect burst" in result.reason
+    assert "local visual occlusion" in result.reason
     assert system.visual_burst_active is True
+    assert result.scene_changed is False
 
 
 def test_baseline_caches_lab_image_once() -> None:
@@ -236,7 +235,7 @@ class FakeController:
         self.states.append(tuple(keys))
 
 
-def test_control_mode_releases_r_until_target_action_exists() -> None:
+def test_control_mode_latches_r_before_target_exists() -> None:
     controller = FakeController()
     physical = PR27PhysicalInput(controller, sleep_fn=lambda _seconds: None)
 
@@ -245,9 +244,10 @@ def test_control_mode_releases_r_until_target_action_exists() -> None:
 
     assert controller.activated is True
     assert controller.repeat_keys == {"r"}
-    assert armed == ("CONTROL_ARMED_WAITING_CONFIRMED_TARGET",)
-    assert idle == ("CONTROL_WAIT_TARGET",)
-    assert controller.states[-1] == ()
+    assert armed == ("R_DOWN_COMBAT_LATCH",)
+    assert idle == ("R_HELD_COMBAT",)
+    assert controller.states[-1] == ("r",)
+    assert physical.combat_r_latched is True
 
 
 def test_control_attack_requires_confirmation_and_h_cooldown(monkeypatch) -> None:
@@ -261,9 +261,9 @@ def test_control_attack_requires_confirmation_and_h_cooldown(monkeypatch) -> Non
     second = physical.execute(CombatAction.ATTACK, mode="CONTROL_ENABLED")
     third = physical.execute(CombatAction.ATTACK, mode="CONTROL_ENABLED")
 
-    assert first == ("R_AUTHORIZED", "H_WAIT_CONFIRM_1/2")
-    assert second == ("R_AUTHORIZED", "H_80MS")
-    assert third[0] == "R_AUTHORIZED"
+    assert first == ("R_HELD_COMBAT", "H_WAIT_CONFIRM_1/2")
+    assert second == ("R_HELD_COMBAT", "H_80MS")
+    assert third[0] == "R_HELD_COMBAT"
     assert third[1].startswith("H_COOLDOWN_")
     assert controller.states.count(("h", "r")) == 1
     assert controller.states[-1] == ("r",)

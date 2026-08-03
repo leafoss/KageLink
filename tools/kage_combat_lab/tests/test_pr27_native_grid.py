@@ -130,6 +130,10 @@ def test_context_enemy_requires_persistent_visual_identity() -> None:
     assert result.target is not None
     assert result.target.track_id == enemies[0].track_id
     assert result.action in {
+        CombatAction.TURN_LEFT,
+        CombatAction.TURN_RIGHT,
+        CombatAction.TURN_UP,
+        CombatAction.TURN_DOWN,
         CombatAction.CHASE_LEFT,
         CombatAction.CHASE_RIGHT,
         CombatAction.CHASE_UP,
@@ -189,22 +193,21 @@ def test_temporarily_missing_id_is_retained_without_blind_action() -> None:
     assert result.state is RoundState.TARGET_TEMPORARILY_MISSING
 
 
-def test_scene_change_suspends_combat_and_invalidates_baselines() -> None:
+def test_global_change_becomes_local_state_without_invalidating_baselines() -> None:
     config = PR27Config(
         changed_ratio_threshold=0.01,
         minimum_component_area=4,
-        scene_changed_cell_ratio=0.25,
-        scene_changed_min_cells=2,
+        local_occlusion_min_changed_cells=2,
     )
     system = PR27CombatSystem(config=config, cropper=ArenaCropper(ArenaRect(0, 0, 256, 192)))
     baseline = blank_frame()
     seed_blank_baseline(system, baseline)
     shifted = np.full_like(baseline, 150)
     result = system.process(shifted)
-    assert result.scene_changed is True
-    assert result.state is RoundState.SCENE_CHANGED
+    assert result.scene_changed is False
+    assert result.state is RoundState.LOCAL_VISUAL_OCCLUSION
     assert result.action is CombatAction.NONE
-    assert all(not item.valid for item in system.baselines._baselines.values())
+    assert all(item.valid for item in system.baselines._baselines.values())
 
 
 def test_baseline_roundtrip_preserves_native_cell_images(tmp_path: Path) -> None:

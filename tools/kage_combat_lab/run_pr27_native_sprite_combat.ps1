@@ -26,16 +26,21 @@ param(
     [int]$MaximumMissingFrames = 3,
     [int]$TargetMissingGraceFrames = 4,
     [int]$TargetFocusRadiusCells = 3,
-    [int]$GlobalReacquireIntervalFrames = 6,
     [int]$MaximumActiveTracks = 18,
     [int]$AttackDistanceCells = 1,
     [double]$HCooldown = 1.75,
     [int]$AttackConfirmFrames = 2,
-    [double]$SceneChangedRatio = 0.42,
-    [int]$SceneChangedMinimumCells = 8,
+    [int]$RoiRadiusCells = 4,
+    [int]$LocalOcclusionMinimumCells = 10,
+    [int]$LocalOcclusionRowSpan = 6,
+    [int]$LocalOcclusionMaximumFrames = 6,
+    [int]$LocalBackgroundLearnFrames = 5,
+    [int]$FacingConfirmFrames = 2,
+    [int]$FacingCooldownFrames = 1,
+    [double]$HitDisplacementPixels = 10,
     [int]$OverlayEveryFrames = 3,
     [int]$DebugSaveEveryFrames = 80,
-    [int]$LogEveryFrames = 2,
+    [int]$LogEveryFrames = 1,
     [double]$TargetFps = 8
 )
 
@@ -44,34 +49,18 @@ $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = (Resolve-Path (Join-Path $Root "..\..")).Path
 $PcAgentRoot = Join-Path $RepoRoot "KageLink Installer\pc_agent"
 
-if (-not (Test-Path $PcAgentRoot)) {
-    throw "Full KageLink checkout required. Missing: $PcAgentRoot"
-}
-
-$PythonPaths = @($Root, $PcAgentRoot)
-$env:PYTHONPATH = ($PythonPaths -join [IO.Path]::PathSeparator)
-
+if (-not (Test-Path $PcAgentRoot)) { throw "Full KageLink checkout required. Missing: $PcAgentRoot" }
+$env:PYTHONPATH = (@($Root, $PcAgentRoot) -join [IO.Path]::PathSeparator)
 $Python = Get-Command python -ErrorAction SilentlyContinue
 if (-not $Python) { $Python = Get-Command py -ErrorAction SilentlyContinue }
 if (-not $Python) { throw "Python 3 was not found. Install Python or add it to PATH." }
 
-$SelectedModeCount = @(
-    @($PerceptionOnly.IsPresent, $FaceOnly.IsPresent, $ControlEnabled.IsPresent) |
-        Where-Object { $_ }
-).Count
-if ($SelectedModeCount -gt 1) {
-    throw "Choose only one mode: -PerceptionOnly, -FaceOnly or -ControlEnabled."
-}
+$SelectedModeCount = @(@($PerceptionOnly.IsPresent, $FaceOnly.IsPresent, $ControlEnabled.IsPresent) | Where-Object { $_ }).Count
+if ($SelectedModeCount -gt 1) { throw "Choose only one mode: -PerceptionOnly, -FaceOnly or -ControlEnabled." }
 if ($ControlEnabled -and -not $AcknowledgePhysicalRisk) {
     throw "CONTROL_ENABLED requires -AcknowledgePhysicalRisk and direct supervision with F12 ready."
 }
-$ControlMode = if ($ControlEnabled) {
-    "CONTROL_ENABLED"
-} elseif ($FaceOnly) {
-    "FACE_ONLY"
-} else {
-    "PERCEPTION_ONLY"
-}
+$ControlMode = if ($ControlEnabled) { "CONTROL_ENABLED" } elseif ($FaceOnly) { "FACE_ONLY" } else { "PERCEPTION_ONLY" }
 
 if ($PixelDelta -lt 1) { throw "PixelDelta must be >= 1." }
 if ($ChangedRatio -le 0 -or $ChangedRatio -gt 1) { throw "ChangedRatio must be in (0, 1]." }
@@ -79,15 +68,14 @@ if ($UncertainRatio -lt 0 -or $UncertainRatio -gt $ChangedRatio) { throw "Uncert
 if ($MinimumComponentArea -lt 1) { throw "MinimumComponentArea must be >= 1." }
 if ($MinimumFragmentPixels -lt $MinimumComponentArea) { throw "MinimumFragmentPixels must be >= MinimumComponentArea." }
 if ($MinimumObservationPixels -lt $MinimumFragmentPixels) { throw "MinimumObservationPixels must be >= MinimumFragmentPixels." }
-if ($AssociationScore -lt 0 -or $AssociationScore -gt 1) { throw "AssociationScore must be between 0 and 1." }
-if ($TargetAssociationScore -lt 0 -or $TargetAssociationScore -gt $AssociationScore) { throw "TargetAssociationScore must be between 0 and AssociationScore." }
 if ($EnemyConfirmFrames -lt 3) { throw "EnemyConfirmFrames must be >= 3." }
-if ($MaximumMissingFrames -lt 1) { throw "MaximumMissingFrames must be >= 1." }
 if ($TargetMissingGraceFrames -lt $MaximumMissingFrames) { throw "TargetMissingGraceFrames must be >= MaximumMissingFrames." }
-if ($AttackDistanceCells -lt 0) { throw "AttackDistanceCells must be >= 0." }
 if ($HCooldown -lt 0.5) { throw "HCooldown must be >= 0.5 seconds." }
 if ($AttackConfirmFrames -lt 2) { throw "AttackConfirmFrames must be >= 2." }
+if ($RoiRadiusCells -ne 4) { throw "PR27.6 combat ROI is fixed at exactly 4 native cells." }
+if ($FacingConfirmFrames -lt 2) { throw "FacingConfirmFrames must be >= 2." }
 if ($DebugSaveEveryFrames -lt 1) { throw "DebugSaveEveryFrames must be >= 1." }
+if ($LogEveryFrames -lt 1) { throw "LogEveryFrames must be >= 1." }
 if ($TargetFps -lt 1 -or $TargetFps -gt 20) { throw "TargetFps must be between 1 and 20." }
 
 function Set-InvariantDoubleEnv([string]$Name, [double]$Value) {
@@ -118,11 +106,16 @@ $env:KAGE_PR27_ENEMY_CONFIRM_FRAMES = [string]$EnemyConfirmFrames
 $env:KAGE_PR27_MAX_MISSING_FRAMES = [string]$MaximumMissingFrames
 $env:KAGE_PR27_TARGET_MISSING_GRACE = [string]$TargetMissingGraceFrames
 $env:KAGE_PR27_TARGET_FOCUS_RADIUS = [string]$TargetFocusRadiusCells
-$env:KAGE_PR27_GLOBAL_REACQUIRE_INTERVAL = [string]$GlobalReacquireIntervalFrames
 $env:KAGE_PR27_MAX_ACTIVE_TRACKS = [string]$MaximumActiveTracks
 $env:KAGE_PR27_ATTACK_DISTANCE = [string]$AttackDistanceCells
 $env:KAGE_PR27_ATTACK_CONFIRM_FRAMES = [string]$AttackConfirmFrames
-$env:KAGE_PR27_SCENE_CHANGED_MIN_CELLS = [string]$SceneChangedMinimumCells
+$env:KAGE_PR27_ROI_RADIUS_CELLS = [string]$RoiRadiusCells
+$env:KAGE_PR27_LOCAL_OCCLUSION_MIN_CELLS = [string]$LocalOcclusionMinimumCells
+$env:KAGE_PR27_LOCAL_OCCLUSION_ROW_SPAN = [string]$LocalOcclusionRowSpan
+$env:KAGE_PR27_LOCAL_OCCLUSION_MAX_FRAMES = [string]$LocalOcclusionMaximumFrames
+$env:KAGE_PR27_LOCAL_BACKGROUND_LEARN_FRAMES = [string]$LocalBackgroundLearnFrames
+$env:KAGE_PR27_FACING_CONFIRM_FRAMES = [string]$FacingConfirmFrames
+$env:KAGE_PR27_FACING_COOLDOWN_FRAMES = [string]$FacingCooldownFrames
 $env:KAGE_PR27_OVERLAY_EVERY_FRAMES = [string]$OverlayEveryFrames
 $env:KAGE_PR27_SAVE_EVERY_FRAMES = [string]$DebugSaveEveryFrames
 $env:KAGE_PR27_LOG_EVERY_FRAMES = [string]$LogEveryFrames
@@ -131,36 +124,31 @@ Set-InvariantDoubleEnv "KAGE_PR27_UNCERTAIN_RATIO" $UncertainRatio
 Set-InvariantDoubleEnv "KAGE_PR27_ASSOCIATION_SCORE" $AssociationScore
 Set-InvariantDoubleEnv "KAGE_PR27_TARGET_ASSOCIATION_SCORE" $TargetAssociationScore
 Set-InvariantDoubleEnv "KAGE_PR27_H_COOLDOWN" $HCooldown
-Set-InvariantDoubleEnv "KAGE_PR27_SCENE_CHANGED_RATIO" $SceneChangedRatio
+Set-InvariantDoubleEnv "KAGE_PR27_HIT_DISPLACEMENT_PX" $HitDisplacementPixels
 Set-InvariantDoubleEnv "KAGE_PR27_TARGET_FPS" $TargetFps
 
-Write-Host "PR27.5 BODY-ANCHORED PHASED GRID COMBAT" -ForegroundColor Green
+Write-Host "PR27.6 PLAYER-CENTRIC LOCAL ROI COMBAT" -ForegroundColor Green
 Write-Host "  Mode: $ControlMode" -ForegroundColor Cyan
 if ($ControlEnabled) {
     Write-Host "  PHYSICAL CONTROL: ENABLED BY EXPLICIT ACKNOWLEDGEMENT" -ForegroundColor Red
-    Write-Host "  R: released until a confirmed non-Trainer body lock exists" -ForegroundColor Yellow
-    Write-Host "  H: requires $AttackConfirmFrames ATTACK frames; cooldown $HCooldown seconds" -ForegroundColor Yellow
+    Write-Host "  R: DOWN at combat start; held through every intermediate state; UP only at combat end" -ForegroundColor Yellow
+    Write-Host "  H: requires body lock, confirmed facing and cooldown $HCooldown seconds" -ForegroundColor Yellow
     Write-Host "  F12: emergency stop; keep it ready" -ForegroundColor Yellow
 }
 if ($PhysicalMode -and $DebugOverlay) {
     Write-Host "  Live overlay: automatically disabled in physical modes to preserve game focus" -ForegroundColor Yellow
 }
-Write-Host "  Combat authority: body_bbox -> body_anchor -> unique anchor_cell"
-Write-Host "  Global observation bbox: search/debug only"
-Write-Host "  Trainer coordinates: fit_full letterbox inverted to native pixels"
-Write-Host "  Ground/effect fragments: rejected before track creation"
-Write-Host "  Visual effect bursts: tracking and physical actions suspended"
-Write-Host "  Perception frame: original DreamSeeker client pixels"
-Write-Host "  JPEG in perception: OFF" -ForegroundColor Yellow
-Write-Host "  Resize in perception: OFF" -ForegroundColor Yellow
-Write-Host "  Grid: native phase-aligned 64x64 cells"
-Write-Host "  Enemy confirmation: $EnemyConfirmFrames observations + 2 candidate wins"
-Write-Host "  Target missing grace: $TargetMissingGraceFrames frames"
-Write-Host "  Maximum active tracks: $MaximumActiveTracks"
+Write-Host "  Combat ROI: circular radius 4 cells (64px each), player-centered"
+Write-Host "  Player authority cell: (0,0), body-contained"
+Write-Host "  Enemy authority: body_bbox -> body_anchor -> relative anchor_cell"
+Write-Host "  Outside ROI: ignored for fragments, tracks, target and baseline"
+Write-Host "  SCENE_CHANGED: removed from combat flow"
+Write-Host "  Local visual effects: LOCAL_VISUAL_OCCLUSION; R remains held; H blocked"
+Write-Host "  Unknown local background: learned incrementally without freezing combat"
+Write-Host "  Facing confirmation: $FacingConfirmFrames frames; correction before H"
 Write-Host "  Target FPS: $TargetFps"
 Write-Host "  Debug frames enabled: $SaveFrames every $DebugSaveEveryFrames frames"
 Write-Host "  Baseline: $BaselineFile"
-Write-Host "  Sprite references: $SpriteRoot"
 
 $Arguments = @(
     "-m", "kage_combat_lab.full_loop_pr27",

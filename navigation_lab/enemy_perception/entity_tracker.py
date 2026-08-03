@@ -7,7 +7,7 @@ from .models import EntityObservation, EntityTrack
 
 
 class EntityTracker:
-    """Greedy local tracker using world-cell proximity and visual similarity."""
+    """Greedy local tracker using position, appearance and shape continuity."""
 
     def __init__(
         self,
@@ -15,6 +15,9 @@ class EntityTracker:
         min_similarity: float = 0.72,
         max_cell_distance: int = 2,
         interest_radius_cells: int | None = None,
+        min_area_ratio: float = 0.25,
+        min_width_ratio: float = 0.25,
+        min_height_ratio: float = 0.35,
     ) -> None:
         self.ttl_frames = max(1, int(ttl_frames))
         self.min_similarity = float(min_similarity)
@@ -22,7 +25,11 @@ class EntityTracker:
         self.interest_radius_cells = (
             None if interest_radius_cells is None else max(1, int(interest_radius_cells))
         )
+        self.min_area_ratio = min(1.0, max(0.01, float(min_area_ratio)))
+        self.min_width_ratio = min(1.0, max(0.01, float(min_width_ratio)))
+        self.min_height_ratio = min(1.0, max(0.01, float(min_height_ratio)))
         self.tracks: dict[str, EntityTrack] = {}
+        self._track_shapes: dict[str, tuple[float, float, float]] = {}
         self._next = 1
 
     @staticmethod
@@ -33,6 +40,63 @@ class EntityTracker:
         if left is None or right is None:
             return 99
         return abs(left[0] - right[0]) + abs(left[1] - right[1])
+
+    @staticmethod
+    def _observation_shape(
+        observation: EntityObservation,
+    ) -> tuple[float, float, float]:
+        x0, y0, x1, y1 = observation.region.bounding_box_px
+        width = float(max(1, x1 - x0))
+        height = float(max(1, y1 - y0))
+        return width, height, width * height
+
+    @staticmethod
+    def _ratio(left: float, right: float) -> float:
+        larger = max(float(left), float(right), 1.0)
+        return min(float(left), float(right)) / larger
+
+    def _shape_compatible(
+        self,
+        track_id: str,
+        observation: EntityObservation,
+    ) -> tuple[bool, dict[str, float]]:
+        previous = self._track_shapes.get(track_id)
+        current = self._observation_shape(observation)
+        if previous is None:
+            return True, {
+                "area_ratio": 1.0,
+                "width_ratio": 1.0,
+                "height_ratio": 1.0,
+            }
+        width_ratio = self._ratio(previous[0], current[0])
+        height_ratio = self._ratio(previous[1], current[1])
+        area_ratio = self._ratio(previous[2], current[2])
+        compatible = bool(
+            area_ratio >= self.min_area_ratio
+            and width_ratio >= self.min_width_ratio
+            and height_ratio >= self.min_height_ratio
+        )
+        return compatible, {
+            "area_ratio": area_ratio,
+            "width_ratio": width_ratio,
+            "height_ratio": height_ratio,
+        }
+
+    def _remember_shape(
+        self,
+        track_id: str,
+        observation: EntityObservation,
+        alpha: float = 0.30,
+    ) -> None:
+        current = self._observation_shape(observation)
+        previous = self._track_shapes.get(track_id)
+        if previous is None:
+            self._track_shapes[track_id] = current
+            return
+        self._track_shapes[track_id] = tuple(
+            (1.0 - alpha) * old + alpha * new
+            for old, new in zip(previous, current)
+        )
 
     def update(
         self,
@@ -69,6 +133,7 @@ class EntityTracker:
         for observation in scoped:
             best_id: str | None = None
             best_score = -1.0
+            shape_rejections: list[dict] = []
             for track_id in list(available):
                 track = self.tracks[track_id]
                 distance = self._distance(
@@ -77,11 +142,30 @@ class EntityTracker:
                 )
                 if distance > self.max_cell_distance:
                     continue
-                visual = EntityFeatureExtractor.similarity(track.feature, observation.feature)
-                # Semantic candidates may change substantially with animation;
-                # category continuity and cell proximity provide extra evidence.
+
+                shape_ok, shape_metrics = self._shape_compatible(
+                    track_id,
+                    observation,
+                )
+                if not shape_ok:
+                    shape_rejections.append(
+                        {
+                            "event": "track_match_rejected_shape",
+                            "track_id": track_id,
+                            "frame": frame_index,
+                            "anchor_world_cell": observation.region.anchor_world_cell,
+                            **shape_metrics,
+                        }
+                    )
+                    continue
+
+                visual = EntityFeatureExtractor.similarity(
+                    track.feature,
+                    observation.feature,
+                )
                 same_category = (
-                    track.classification.category == observation.classification.category
+                    track.classification.category
+                    == observation.classification.category
                 )
                 required = self.min_similarity - (0.12 if same_category else 0.0)
                 if visual < required:
@@ -90,10 +174,22 @@ class EntityTracker:
                     0.0,
                     1.0 - distance / max(1, self.max_cell_distance + 1),
                 )
-                score = 0.70 * visual + 0.20 * proximity + 0.10 * float(same_category)
+                shape_score = (
+                    shape_metrics["area_ratio"]
+                    + shape_metrics["width_ratio"]
+                    + shape_metrics["height_ratio"]
+                ) / 3.0
+                score = (
+                    0.58 * visual
+                    + 0.18 * proximity
+                    + 0.10 * float(same_category)
+                    + 0.14 * shape_score
+                )
                 if score > best_score:
                     best_score = score
                     best_id = track_id
+
+            events.extend(shape_rejections)
 
             if best_id is None:
                 track_id = f"ENT-{self._next:06d}"
@@ -113,6 +209,7 @@ class EntityTracker:
                     candidate_sources=list(observation.candidate_sources),
                 )
                 self.tracks[track_id] = track
+                self._remember_shape(track_id, observation, alpha=1.0)
                 events.append(
                     {
                         "event": "entity_created",
@@ -141,7 +238,11 @@ class EntityTracker:
                     ]
                 else:
                     track.feature = list(observation.feature)
-                if observation.classification.confidence > track.classification.confidence:
+                self._remember_shape(best_id, observation)
+                if (
+                    observation.classification.confidence
+                    > track.classification.confidence
+                ):
                     track.classification = observation.classification
                 moved = (
                     previous is not None
@@ -181,14 +282,23 @@ class EntityTracker:
         for track_id, track in list(self.tracks.items()):
             outside = False
             if self.interest_radius_cells is not None and player_world is not None:
-                outside = self._distance(track.current_world_cell, player_world) > self.interest_radius_cells
+                outside = (
+                    self._distance(track.current_world_cell, player_world)
+                    > self.interest_radius_cells
+                )
             if outside:
                 track.out_of_scope = True
                 expired.append(track)
                 del self.tracks[track_id]
-                events.append({"event": "entity_out_of_scope", "track_id": track_id})
+                self._track_shapes.pop(track_id, None)
+                events.append(
+                    {"event": "entity_out_of_scope", "track_id": track_id}
+                )
             elif frame_index - track.last_seen_frame > self.ttl_frames:
                 expired.append(track)
                 del self.tracks[track_id]
-                events.append({"event": "entity_expired", "track_id": track_id})
+                self._track_shapes.pop(track_id, None)
+                events.append(
+                    {"event": "entity_expired", "track_id": track_id}
+                )
         return events, expired

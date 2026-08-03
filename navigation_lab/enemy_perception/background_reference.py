@@ -49,13 +49,12 @@ class _Pending:
 
 
 class BackgroundReferenceStore:
-    """Visual empty-tile catalogue grouped by semantic class and appearance.
+    """Visual tile repertoire grouped by semantic class and appearance.
 
-    Production matching asks whether the current tile resembles any known empty
-    appearance. World coordinates are source metadata only. The operational
-    score combines a foreground-tolerant comparison with the raw whole-tile
-    comparison, preventing a heavily different scene from scoring as a strong
-    match merely because a small subset of pixels is similar.
+    The store may retain historical sources for compatibility, but callers can
+    explicitly restrict a lookup to user-taught or manually confirmed entries.
+    World coordinates remain source metadata only and are never required for
+    visual repertoire matching.
     """
 
     def __init__(
@@ -90,6 +89,14 @@ class BackgroundReferenceStore:
     @property
     def cluster_count(self) -> int:
         return sum(len(items) for items in self.clusters_by_class.values())
+
+    def reference_count(self, allowed_sources: set[str] | None = None) -> int:
+        return sum(
+            1
+            for bucket in self.references_by_class.values()
+            for reference in bucket
+            if allowed_sources is None or reference.source in allowed_sources
+        )
 
     @staticmethod
     def _difference_intensity(left: Any, right: Any) -> Any:
@@ -135,10 +142,21 @@ class BackgroundReferenceStore:
         crop_or_world_cell: Any,
         crop: Any | None = None,
         terrain_class: str | None = None,
+        allowed_sources: set[str] | None = None,
     ) -> BackgroundMatch:
+        """Return the best visual candidate, optionally restricted by source.
+
+        Returning a best candidate does not mean the caller has a valid match.
+        Operational validity is deliberately decided by the perception engine.
+        """
+
         if crop is not None and isinstance(crop_or_world_cell, tuple):
             current = crop
-            candidates = self.references.get(tuple(crop_or_world_cell), [])
+            candidates = [
+                item
+                for item in self.references.get(tuple(crop_or_world_cell), [])
+                if allowed_sources is None or item.source in allowed_sources
+            ]
             if not candidates:
                 return BackgroundMatch(False)
             scored = [(self.similarity(current, item.image), item) for item in candidates]
@@ -149,6 +167,7 @@ class BackgroundReferenceStore:
                 (self.similarity(current, reference.image), reference)
                 for cluster in clusters
                 for reference in cluster.references
+                if allowed_sources is None or reference.source in allowed_sources
             ]
         if not scored:
             return BackgroundMatch(False)

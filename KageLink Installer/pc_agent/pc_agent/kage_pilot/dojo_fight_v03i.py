@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import time  # Compatibility surface for the validated v0.3i test harness.
+from pathlib import Path
 
 from .dojo_fight_v03e import (
     DojoFightRequestError,
@@ -43,22 +45,35 @@ def _error_code(error: BaseException) -> str:
 
 
 def _current_validated_dialog(game_title: str):
-    """Re-enumerate the dialog immediately before BM_CLICK.
-
-    ``find_dojo_dialog_with_ok`` validates game process ownership, #32770 identity,
-    ListBox geometry/count and the visible enabled OK control. Returning the fresh
-    match prevents reuse of stale HWNDs or old coordinates.
-    """
-
     match = find_dojo_dialog_with_ok(game_title)
     if match is not None:
         return match
-
     from pc_agent.game_window import find_exact_game_window
-
     if find_exact_game_window(game_title) is None:
         raise DojoFightRequestError("GAME_WINDOW_NOT_AVAILABLE")
     raise DojoFightRequestError("DOJO_DIALOG_INVALID:REVALIDATION_FAILED")
+
+
+def _capture_pr279_trainer_identity_scene() -> None:
+    """Capture pristine native RGB after Trainer search and before the click."""
+    value = os.environ.get("KAGE_PR279_TRAINER_IDENTITY_SCENE", "").strip()
+    if not value:
+        return
+    path = Path(value).resolve()
+    from pc_agent.game_capture import GameCapture
+    import cv2
+    capture = GameCapture()
+    try:
+        native = capture.capture_native()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if not cv2.imwrite(str(path), native.bgr):
+            raise DojoFightRequestError(f"PR27_9_TRAINER_IDENTITY_WRITE_FAILED:{path}")
+        print(
+            f"PR27_9_TRAINER_IDENTITY_CAPTURED path={path} "
+            f"native={native.source_width}x{native.source_height} phase=BEFORE_TRAINER_CLICK"
+        )
+    finally:
+        capture.close()
 
 
 def request_taijutsu_dojo_spar_single_click(
@@ -74,17 +89,10 @@ def request_taijutsu_dojo_spar_single_click(
     round_number: int | None = None,
     controller=None,
 ) -> TrainerClickTarget:
-    """Click the trainer once, then retry only the already-requested dialog gate.
-
-    There is one initial wait/check plus ``dialog_retries`` additional wait/checks.
-    No path after ``TRAINER_CLICK_ONCE`` may move, search for or click the trainer again.
-    """
-
+    """Click the trainer once, then retry only the already-requested dialog gate."""
     del interaction_attempts
-
     from .pilot import WindowsGameController
     from pc_agent.windows import ensure_game_window_foreground
-
     owns_controller = controller is None
     controller = controller or WindowsGameController(recover_foreground=False)
     controller.repeat_keys = set()
@@ -93,62 +101,48 @@ def request_taijutsu_dojo_spar_single_click(
     total_checks = 1 + retry_count
     delay = max(0.0, float(dialog_delay_seconds))
     find_timeout = max(0.5, float(dialog_find_timeout_seconds))
-
     try:
         controller.activate()
         controller.release_all()
-
         target = search_trainer_until_visible(
             controller,
             timeout_seconds=trainer_search_timeout_seconds,
             leader_threshold=leader_threshold,
         )
-
+        _capture_pr279_trainer_identity_scene()
         controller.release_all()
         try:
             controller.click_normalized(target.normalized_x, target.normalized_y)
         except Exception as error:
             controller.release_all()
             raise DojoRoundWithoutCombatError(
-                "TRAINER_CLICK_FAILED",
-                trainer_clicks=1,
-                dialog_attempts=0,
+                "TRAINER_CLICK_FAILED", trainer_clicks=1, dialog_attempts=0
             ) from error
         controller.release_all()
         print(
             f"{prefix}TRAINER_CLICK_ONCE score={target.score:.3f} d={target.grid_distance} "
             f"/ CLIQUE_UNICO_NO_TREINADOR"
         )
-
         last_reason = "DOJO_DIALOG_NOT_FOUND"
         checks_performed = 0
         for attempt in range(1, total_checks + 1):
             wait_marker = "DOJO_DIALOG_WAIT" if attempt == 1 else "DOJO_DIALOG_RETRY_WAIT"
-            print(
-                f"{prefix}{wait_marker} attempt={attempt}/{total_checks} delay={delay:.1f}"
-            )
+            print(f"{prefix}{wait_marker} attempt={attempt}/{total_checks} delay={delay:.1f}")
             controller.release_all()
             _interruptible_wait(delay)
             controller.release_all()
             checks_performed = attempt
-
             try:
-                wait_for_dojo_dialog_with_ok(
-                    game_title,
-                    timeout_seconds=find_timeout,
-                )
+                wait_for_dojo_dialog_with_ok(game_title, timeout_seconds=find_timeout)
             except DojoFightRequestError as error:
                 code = _error_code(error)
                 if code == "F12_STOP":
                     raise
                 if code == "DOJO_DIALOG_NOT_FOUND":
                     last_reason = code
-                    print(
-                        f"{prefix}DOJO_DIALOG_NOT_FOUND attempt={attempt}/{total_checks}"
-                    )
+                    print(f"{prefix}DOJO_DIALOG_NOT_FOUND attempt={attempt}/{total_checks}")
                     continue
                 raise
-
             try:
                 refreshed = _current_validated_dialog(game_title)
             except DojoFightRequestError as error:
@@ -158,12 +152,8 @@ def request_taijutsu_dojo_spar_single_click(
                 if code == "GAME_WINDOW_NOT_AVAILABLE":
                     raise
                 last_reason = "DOJO_DIALOG_INVALID"
-                print(
-                    f"{prefix}DOJO_DIALOG_INVALID attempt={attempt}/{total_checks} "
-                    f"detail={code}"
-                )
+                print(f"{prefix}DOJO_DIALOG_INVALID attempt={attempt}/{total_checks} detail={code}")
                 continue
-
             print(
                 f"{prefix}DOJO_DIALOG_CONFIRMED attempt={attempt}/{total_checks} "
                 f"hwnd={refreshed.dialog_hwnd}"
@@ -175,32 +165,23 @@ def request_taijutsu_dojo_spar_single_click(
                 if code == "F12_STOP":
                     raise
                 last_reason = "DIALOG_OK_CLICK_FAILED"
-                print(
-                    f"{prefix}DIALOG_OK_CLICK_FAILED attempt={attempt}/{total_checks} "
-                    f"detail={code}"
-                )
+                print(f"{prefix}DIALOG_OK_CLICK_FAILED attempt={attempt}/{total_checks} detail={code}")
                 continue
-
             controller.release_all()
             print(
                 f"{prefix}DOJO_DIALOG_OK_CLICKED attempt={attempt}/{total_checks} "
                 f"hwnd={refreshed.dialog_hwnd}"
             )
-            print(
-                f"{prefix}DOJO_REQUEST_OK trainer_clicks=1 dialog_attempts={attempt}"
-            )
-
+            print(f"{prefix}DOJO_REQUEST_OK trainer_clicks=1 dialog_attempts={attempt}")
             focus = ensure_game_window_foreground(game_title)
             if not focus.ok:
                 raise DojoFightRequestError(focus.error or "GAME_REFOCUS_FAILED")
-
             spawn_delay = max(0.0, float(spawn_delay_seconds))
             print(f"{prefix}WAITING_FOR_SPAWN delay={spawn_delay:.1f}")
             controller.release_all()
             _interruptible_wait(spawn_delay)
             controller.release_all()
             return target
-
         controller.release_all()
         raise DojoRoundWithoutCombatError(
             last_reason,

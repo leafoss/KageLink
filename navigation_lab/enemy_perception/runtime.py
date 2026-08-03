@@ -14,6 +14,20 @@ TAUGHT_EMPTY_TERRAIN_CLASSES = {
 }
 
 
+class SeedResult(int):
+    """Backward-compatible count that also exposes how many crops were loaded."""
+
+    def __new__(cls, added: int, loaded: int):
+        instance = int.__new__(cls, int(added))
+        instance.added = int(added)
+        instance.loaded = int(loaded)
+        return instance
+
+    def __iter__(self):
+        yield self.loaded
+        yield self.added
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Passive enemy perception debug lab")
     parser.add_argument("--window-title", default="Shinobi Story Online")
@@ -27,6 +41,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--player-temporal-ttl-frames", type=int, default=10)
     parser.add_argument("--player-anchor-column", type=int)
     parser.add_argument("--player-anchor-row", type=int)
+    parser.add_argument("--player-anchor-x-ratio", type=float, default=0.50)
+    parser.add_argument("--player-anchor-y-ratio", type=float, default=0.57)
     parser.add_argument("--semantic-entity-threshold", type=float, default=0.90)
     parser.add_argument("--background-strong-threshold", type=float, default=0.95)
     parser.add_argument("--background-usable-threshold", type=float, default=0.88)
@@ -98,7 +114,7 @@ def _seed_backgrounds_from_taught_terrain(
     backgrounds: Any,
     tile_knowledge: Any,
     repository_root: Path,
-) -> tuple[int, int]:
+) -> SeedResult:
     import cv2
 
     loaded = 0
@@ -119,7 +135,7 @@ def _seed_backgrounds_from_taught_terrain(
             continue
         backgrounds.add_reference(None, category, crop, source_frame=0, source="taught_tile")
         added += 1
-    return loaded, added
+    return SeedResult(added, loaded)
 
 
 def build_engine(args: argparse.Namespace):
@@ -189,11 +205,15 @@ def build_engine(args: argparse.Namespace):
             "[Enemy Perception Lab] Old background schema ignored. "
             "Run with -ResetBackgroundReferences to remove the obsolete catalogue."
         )
-    loaded, added = _seed_backgrounds_from_taught_terrain(
+    seed_result = _seed_backgrounds_from_taught_terrain(
         backgrounds, tile_knowledge, repository.root
     )
-    print(f"[Enemy Perception Lab] Taught terrain crops loaded: {loaded}", flush=True)
-    print(f"[Enemy Perception Lab] Visual background clusters: {backgrounds.cluster_count} ({added} new crops)", flush=True)
+    print(f"[Enemy Perception Lab] Taught terrain crops loaded: {seed_result.loaded}", flush=True)
+    print(
+        f"[Enemy Perception Lab] Visual background clusters: "
+        f"{backgrounds.cluster_count} ({seed_result.added} new crops)",
+        flush=True,
+    )
 
     entity_knowledge = EntityKnowledgeBase(
         entities_root,
@@ -216,6 +236,8 @@ def build_engine(args: argparse.Namespace):
         mode=args.player_anchor_mode,
         anchor_column=args.player_anchor_column,
         anchor_row=args.player_anchor_row,
+        anchor_x_ratio=args.player_anchor_x_ratio,
+        anchor_y_ratio=args.player_anchor_y_ratio,
     )
     consensus = SceneConsensusLearner(
         backgrounds,
@@ -269,8 +291,11 @@ def main(argv: list[str] | None = None) -> int:
                 break
             frame, bounds = capture.capture()
             engine.process_frame(frame, {
-                "title": bounds.title, "hwnd": bounds.hwnd, "width": bounds.width,
-                "height": bounds.height, "capture_backend": bounds.capture_backend,
+                "title": bounds.title,
+                "hwnd": bounds.hwnd,
+                "width": bounds.width,
+                "height": bounds.height,
+                "capture_backend": bounds.capture_backend,
             })
             processed += 1
             if args.max_frames and processed >= args.max_frames:

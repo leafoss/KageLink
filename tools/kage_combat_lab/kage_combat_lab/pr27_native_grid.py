@@ -25,14 +25,7 @@ from .pr27_tracker import SpriteTracker
 
 
 class PR27CombatSystem:
-    def __init__(
-        self,
-        *,
-        config: PR27Config | None = None,
-        cropper: ArenaCropper | None = None,
-        baselines: CellBaselineStore | None = None,
-        registry: KnownSpriteRegistry | None = None,
-    ) -> None:
+    def __init__(self, *, config: PR27Config | None = None, cropper: ArenaCropper | None = None, baselines: CellBaselineStore | None = None, registry: KnownSpriteRegistry | None = None) -> None:
         self.config = (config or PR27Config()).normalized()
         self.cropper = cropper or ArenaCropper()
         self.grid = NativeGrid64()
@@ -49,21 +42,23 @@ class PR27CombatSystem:
         self.previous_changed_count = 0
         self.trainer_exclusion_bbox: tuple[int, int, int, int] | None = None
 
-    def _configure_trainer_exclusion(
-        self,
-        metadata: Mapping[str, object],
-        *,
-        native_shape: tuple[int, int],
-        arena_rect: ArenaRect,
-        arena_shape: tuple[int, int],
-        cells: tuple[GridCell, ...],
-    ) -> None:
+    def _configure_trainer_exclusion(self, metadata: Mapping[str, object], *, native_shape: tuple[int, int], arena_rect: ArenaRect, arena_shape: tuple[int, int], cells: tuple[GridCell, ...]) -> None:
         center_normalized = metadata.get("trainer_center_normalized")
         center_frame: tuple[float, float] | None = None
         if isinstance(center_normalized, list) and len(center_normalized) == 2:
+            # Trainer detection runs through fit_full(..., 960x540). Undo its
+            # scale and letterbox offsets before entering native coordinates.
+            source_h, source_w = native_shape
+            output_w, output_h = 960.0, 540.0
+            scale = min(output_w / max(1.0, source_w), output_h / max(1.0, source_h))
+            rendered_w, rendered_h = source_w * scale, source_h * scale
+            offset_x = (output_w - rendered_w) / 2.0
+            offset_y = (output_h - rendered_h) / 2.0
+            output_x = float(center_normalized[0]) * (output_w - 1.0)
+            output_y = float(center_normalized[1]) * (output_h - 1.0)
             center_frame = (
-                float(center_normalized[0]) * max(1, native_shape[1] - 1),
-                float(center_normalized[1]) * max(1, native_shape[0] - 1),
+                min(source_w - 1.0, max(0.0, (output_x - offset_x) / scale)),
+                min(source_h - 1.0, max(0.0, (output_y - offset_y) / scale)),
             )
         elif isinstance(metadata.get("trainer_bbox"), list) and len(metadata["trainer_bbox"]) == 4:
             raw = [float(value) for value in metadata["trainer_bbox"]]
@@ -90,12 +85,7 @@ class PR27CombatSystem:
         forbidden = [
             (cell.row, cell.column)
             for cell in cells
-            if not (
-                cell.x + cell.width <= left
-                or right <= cell.x
-                or cell.y + cell.height <= top
-                or bottom <= cell.y
-            )
+            if not (cell.x + cell.width <= left or right <= cell.x or cell.y + cell.height <= top or bottom <= cell.y)
         ]
         self.tracker.set_trainer_exclusion(self.trainer_exclusion_bbox, forbidden)
 
@@ -106,13 +96,7 @@ class PR27CombatSystem:
         self.planner.set_grid_phase(self.grid.phase)
         cells = self.grid.build(arena.shape)
         loaded = self.baselines.load_npz(path, cells)
-        self._configure_trainer_exclusion(
-            metadata,
-            native_shape=native_frame_bgr.shape[:2],
-            arena_rect=rect,
-            arena_shape=arena.shape[:2],
-            cells=cells,
-        )
+        self._configure_trainer_exclusion(metadata, native_shape=native_frame_bgr.shape[:2], arena_rect=rect, arena_shape=arena.shape[:2], cells=cells)
         return loaded
 
     def _focused_differences(self, differences: Mapping[tuple[int, int], CellDifference]) -> Mapping[tuple[int, int], CellDifference]:
@@ -132,24 +116,7 @@ class PR27CombatSystem:
             return differences
         return focused
 
-    def _result(
-        self,
-        *,
-        now: float,
-        rect: ArenaRect,
-        arena: np.ndarray,
-        cells: tuple[GridCell, ...],
-        differences: Mapping[tuple[int, int], CellDifference],
-        groups: tuple[CellSearchGroup, ...] = (),
-        fragments: tuple[SpriteFragment, ...] = (),
-        observations: tuple[SpriteObservation, ...] = (),
-        tracks: tuple[TrackedSprite, ...] | None = None,
-        target: CombatTarget | None = None,
-        action: CombatAction = CombatAction.NONE,
-        state: RoundState = RoundState.SEARCHING,
-        scene_changed: bool = False,
-        reason: str,
-    ) -> PR27FrameResult:
+    def _result(self, *, now: float, rect: ArenaRect, arena: np.ndarray, cells: tuple[GridCell, ...], differences: Mapping[tuple[int, int], CellDifference], groups: tuple[CellSearchGroup, ...] = (), fragments: tuple[SpriteFragment, ...] = (), observations: tuple[SpriteObservation, ...] = (), tracks: tuple[TrackedSprite, ...] | None = None, target: CombatTarget | None = None, action: CombatAction = CombatAction.NONE, state: RoundState = RoundState.SEARCHING, scene_changed: bool = False, reason: str) -> PR27FrameResult:
         rejections = Counter(self.extractor.last_rejections)
         rejections.update(self.assembler.last_rejections)
         result = PR27FrameResult(
@@ -184,12 +151,7 @@ class PR27CombatSystem:
             raise RuntimeError("PR27_BASELINE_NOT_LOADED")
         if self.rebaseliner.active:
             rebuilt = self.rebaseliner.observe(arena, cells, self.baselines)
-            return self._result(
-                now=now, rect=rect, arena=arena, cells=cells, differences={},
-                state=RoundState.SEARCHING if rebuilt else RoundState.SCENE_CHANGED,
-                scene_changed=not rebuilt,
-                reason="native phased-cell baselines rebuilt" if rebuilt else "waiting for stable phased cells after scene change",
-            )
+            return self._result(now=now, rect=rect, arena=arena, cells=cells, differences={}, state=RoundState.SEARCHING if rebuilt else RoundState.SCENE_CHANGED, scene_changed=not rebuilt, reason="native phased-cell baselines rebuilt" if rebuilt else "waiting for stable phased cells after scene change")
         differences = self.difference_detector.compare(arena, cells, self.baselines)
         changed_count = sum(item.state is CellState.CHANGED for item in differences.values())
         changed_limit = max(self.config.scene_changed_min_cells, int(math.ceil(len(cells) * self.config.scene_changed_cell_ratio)))
@@ -198,30 +160,19 @@ class PR27CombatSystem:
             self.previous_changed_count = changed_count
             self.rebaseliner.start(self.baselines)
             target, action, state, reason = self.planner.plan(tuple(self.tracker.tracks.values()), arena_shape=arena.shape, scene_changed=True)
-            return self._result(
-                now=now, rect=rect, arena=arena, cells=cells, differences=differences,
-                target=target, action=action, state=state, scene_changed=True, reason=reason,
-            )
+            return self._result(now=now, rect=rect, arena=arena, cells=cells, differences=differences, target=target, action=action, state=state, scene_changed=True, reason=reason)
         burst_enter = max(72, int(math.ceil(len(cells) * 0.25)))
         burst_clear = max(48, int(math.ceil(len(cells) * 0.18)))
         burst_spike = changed_count >= max(burst_enter, int(math.ceil(max(1, self.previous_changed_count) * 1.45)))
         if self.visual_burst_active:
             if changed_count > burst_clear:
                 self.previous_changed_count = changed_count
-                return self._result(
-                    now=now, rect=rect, arena=arena, cells=cells, differences=differences,
-                    state=RoundState.TRACKING,
-                    reason=f"visual effect burst ({changed_count} cells); body identity and actions suspended",
-                )
+                return self._result(now=now, rect=rect, arena=arena, cells=cells, differences=differences, state=RoundState.TRACKING, reason=f"visual effect burst ({changed_count} cells); body identity and actions suspended")
             self.visual_burst_active = False
         elif burst_spike:
             self.visual_burst_active = True
             self.previous_changed_count = changed_count
-            return self._result(
-                now=now, rect=rect, arena=arena, cells=cells, differences=differences,
-                state=RoundState.TRACKING,
-                reason=f"visual effect burst ({changed_count} cells); body identity and actions suspended",
-            )
+            return self._result(now=now, rect=rect, arena=arena, cells=cells, differences=differences, state=RoundState.TRACKING, reason=f"visual effect burst ({changed_count} cells); body identity and actions suspended")
         self.previous_changed_count = changed_count
         search_differences = self._focused_differences(differences)
         groups = self.grouper.group(search_differences)
@@ -229,11 +180,7 @@ class PR27CombatSystem:
         observations = self.assembler.assemble(arena, groups, fragments, cells=cells)
         tracks = self.tracker.update(observations, frame_index=self.frame_index, arena_shape=arena.shape)
         target, action, state, reason = self.planner.plan(tracks, arena_shape=arena.shape, scene_changed=False)
-        return self._result(
-            now=now, rect=rect, arena=arena, cells=cells, differences=differences,
-            groups=groups, fragments=fragments, observations=observations, tracks=tracks,
-            target=target, action=action, state=state, scene_changed=False, reason=reason,
-        )
+        return self._result(now=now, rect=rect, arena=arena, cells=cells, differences=differences, groups=groups, fragments=fragments, observations=observations, tracks=tracks, target=target, action=action, state=state, scene_changed=False, reason=reason)
 
 
 __all__ = [

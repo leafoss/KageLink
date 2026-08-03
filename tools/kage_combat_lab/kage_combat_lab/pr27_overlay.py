@@ -1,115 +1,113 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 
 import cv2
 import numpy as np
 
-from .pr27_native_grid import CellState, FragmentRole, PR27FrameResult, SpriteClass, TrackState
+from .pr27_native_grid import LocalBackgroundState, PR27FrameResult, SpriteClass, TrackState
 
 
 class PR27DebugOverlay:
-    """PR27.5 overlay separating search regions from body-level combat authority."""
+    """PR27.6 local-only overlay. No global grid or global changed-cell authority."""
 
-    def __init__(self, *, window_name: str = "Kage Combat Lab - PR27.5 Body Lock") -> None:
+    def __init__(self, *, window_name: str = "Kage Combat Lab - PR27.6 Local ROI") -> None:
         self.window_name = window_name
         self.created = False
 
     @staticmethod
-    def _cell_color(state: CellState) -> tuple[int, int, int]:
-        if state is CellState.CHANGED:
-            return (0, 180, 255)
-        if state is CellState.UNCERTAIN:
-            return (255, 190, 0)
-        if state is CellState.BASELINE_INVALID:
-            return (0, 0, 255)
-        return (75, 75, 75)
+    def _track_color(category: SpriteClass, state: TrackState) -> tuple[int,int,int]:
+        if state is TrackState.TEMPORARILY_MISSING:
+            return (150,150,150)
+        if category is SpriteClass.PLAYER:
+            return (255,180,0)
+        if category is SpriteClass.ENEMY:
+            return (0,0,255)
+        if category is SpriteClass.NPC:
+            return (255,0,255)
+        return (0,255,255)
 
     @staticmethod
-    def _track_color(category: SpriteClass, state: TrackState) -> tuple[int, int, int]:
-        if state is TrackState.TEMPORARILY_MISSING:
-            return (150, 150, 150)
-        if category is SpriteClass.PLAYER:
-            return (255, 180, 0)
-        if category is SpriteClass.ENEMY:
-            return (0, 0, 255)
-        if category is SpriteClass.NPC:
-            return (255, 0, 255)
-        return (0, 255, 255)
+    def _background_color(state: LocalBackgroundState | None) -> tuple[int,int,int]:
+        if state is LocalBackgroundState.OCCLUDED_BY_EFFECT:
+            return (0,100,255)
+        if state in {LocalBackgroundState.UNKNOWN, LocalBackgroundState.LEARNING_BACKGROUND}:
+            return (0,220,220)
+        return (70,70,70)
 
     def render(self, result: PR27FrameResult) -> np.ndarray:
         canvas = result.arena_bgr.copy()
-        target_id = result.target.track_id if result.target else None
-        target_anchor_cell = result.target.anchor_cell if result.target else None
+        target_id = None if result.target is None else result.target.track_id
+        enemy_cell = result.enemy_relative_cell
+
         for cell in result.cells:
-            difference = result.differences.get((cell.row, cell.column))
-            state = CellState.BASELINE_INVALID if difference is None else difference.state
-            color = self._cell_color(state)
-            thickness = 3 if target_anchor_cell == (cell.row, cell.column) else 1
-            cv2.rectangle(
-                canvas,
-                (cell.x, cell.y),
-                (cell.x + cell.width - 1, cell.y + cell.height - 1),
-                color if thickness == 1 else (0, 0, 255),
-                thickness,
-            )
-            label = f"{cell.row},{cell.column}"
-            if difference is not None and difference.state is not CellState.STABLE:
-                label += f" {difference.changed_ratio:.2f}"
-            cv2.putText(canvas, label, (cell.x + 2, cell.y + 12), cv2.FONT_HERSHEY_SIMPLEX, 0.30, color, 1, cv2.LINE_AA)
-        for group in result.groups:
-            for cell in group.cells:
-                cv2.rectangle(canvas, (cell.x + 2, cell.y + 2), (cell.x + cell.width - 3, cell.y + cell.height - 3), (180, 0, 180), 1)
-                cv2.putText(canvas, f"G{group.group_id}", (cell.x + 2, cell.y + cell.height - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (180, 0, 180), 1, cv2.LINE_AA)
-        for fragment in result.fragments:
-            x, y, width, height = fragment.native_bbox
-            color = (0, 220, 220) if fragment.role is FragmentRole.BODY_CANDIDATE else (100, 100, 100)
-            cv2.rectangle(canvas, (x, y), (x + width, y + height), color, 1)
-            cv2.putText(canvas, f"F{fragment.fragment_id} BODY {fragment.body_score:.2f}", (x, max(10, y - 2)), cv2.FONT_HERSHEY_SIMPLEX, 0.30, color, 1, cv2.LINE_AA)
+            key = (cell.row,cell.column)
+            if key == (0,0):
+                color,thickness = (255,180,0),4
+            elif key == enemy_cell:
+                color,thickness = (0,0,255),4
+            else:
+                color,thickness = self._background_color(result.local_background_states.get(key)),1
+            cv2.rectangle(canvas,(cell.x,cell.y),(cell.x+cell.width-1,cell.y+cell.height-1),color,thickness)
+            label = "PLAYER CELL (0,0)" if key == (0,0) else f"({cell.row:+d},{cell.column:+d})"
+            if key == enemy_cell:
+                label = f"ENEMY CELL ({cell.row:+d},{cell.column:+d})"
+            cv2.putText(canvas,label,(cell.x+2,cell.y+13),cv2.FONT_HERSHEY_SIMPLEX,0.34,color,1,cv2.LINE_AA)
+
+        if result.roi_center is not None:
+            cx,cy = int(round(result.roi_center[0])),int(round(result.roi_center[1]))
+            cv2.circle(canvas,(cx,cy),result.roi_radius_cells*64,(255,150,0),1,cv2.LINE_AA)
+
         for track in result.tracks:
-            if track.track_state is TrackState.LOST:
+            if track.track_state is TrackState.LOST or track.body_bbox is None:
                 continue
-            color = self._track_color(track.classification, track.track_state)
-            x, y, width, height = track.native_bbox
-            cv2.rectangle(canvas, (x, y), (x + width, y + height), (135, 135, 135), 1)
-            cv2.putText(canvas, f"OBS ID{track.track_id}", (x, max(12, y - 2)), cv2.FONT_HERSHEY_SIMPLEX, 0.28, (165, 165, 165), 1, cv2.LINE_AA)
-            if track.body_bbox is not None:
-                bx, by, bw, bh = track.body_bbox
-                thickness = 4 if track.track_id == target_id else 2
-                cv2.rectangle(canvas, (bx, by), (bx + bw, by + bh), color, thickness)
-                label = (
-                    f"{'LOCKED ENEMY' if track.track_id == target_id else 'BODY'} "
-                    f"ID{track.track_id} {track.classification.value} conf={track.body_confidence:.2f}"
-                )
-                cv2.putText(canvas, label, (bx, max(14, by - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.40, color, 1, cv2.LINE_AA)
+            color = self._track_color(track.classification,track.track_state)
+            bx,by,bw,bh = track.body_bbox
+            thickness = 4 if track.track_id == target_id else 2
+            cv2.rectangle(canvas,(bx,by),(bx+bw,by+bh),color,thickness)
+            if track.classification is SpriteClass.PLAYER:
+                label = f"PLAYER BODY containment={result.player_body_containment_ratio:.2f}"
+            elif track.track_id == target_id:
+                label = f"LOCKED ENEMY ID{track.track_id}"
+            else:
+                label = f"BODY ID{track.track_id} {track.classification.value}"
+            cv2.putText(canvas,label,(bx,max(16,by-5)),cv2.FONT_HERSHEY_SIMPLEX,0.40,color,1,cv2.LINE_AA)
             if track.body_anchor is not None:
-                ax, ay = int(round(track.body_anchor[0])), int(round(track.body_anchor[1]))
-                cv2.drawMarker(canvas, (ax, ay), color, cv2.MARKER_CROSS, 14, 2)
-                cv2.putText(canvas, f"A{track.anchor_cell}", (ax + 5, ay + 14), cv2.FONT_HERSHEY_SIMPLEX, 0.34, color, 1, cv2.LINE_AA)
-        status = (
-            f"frame={result.frame_index} state={result.state.value} action={result.action.value} "
-            f"target={target_id if target_id is not None else '-'} phase={result.grid_phase} "
-            f"anchor_cell={target_anchor_cell if target_anchor_cell is not None else '-'}"
+                ax,ay = int(round(track.body_anchor[0])),int(round(track.body_anchor[1]))
+                cv2.drawMarker(canvas,(ax,ay),color,cv2.MARKER_CROSS,14,2)
+                cv2.putText(canvas,f"A{track.anchor_cell}",(ax+5,ay+14),cv2.FONT_HERSHEY_SIMPLEX,0.34,color,1,cv2.LINE_AA)
+
+        status1 = (
+            f"frame={result.frame_index} state={result.state.value} local={result.local_state.value} "
+            f"action={result.action.value} ROI_RADIUS={result.roi_radius_cells} ROI_CELLS={result.roi_processed_cell_count}"
         )
-        cv2.rectangle(canvas, (0, 0), (min(canvas.shape[1] - 1, 1180), 24), (0, 0, 0), -1)
-        cv2.putText(canvas, status, (6, 17), cv2.FONT_HERSHEY_SIMPLEX, 0.43, (255, 255, 255), 1, cv2.LINE_AA)
+        control_enabled = os.environ.get("KAGE_PR27_CONTROL_MODE", "").strip().upper() == "CONTROL_ENABLED"
+        status2 = (
+            f"PLAYER_CELL=(0,0) ENEMY_CELL={enemy_cell if enemy_cell is not None else '-'} "
+            f"R_LATCHED={str(control_enabled).lower()} FACING={result.facing_detected or 'UNKNOWN'} "
+            f"CONFIRMED={str(result.facing_confirmed).lower()}"
+        )
+        cv2.rectangle(canvas,(0,0),(min(canvas.shape[1]-1,1400),42),(0,0,0),-1)
+        cv2.putText(canvas,status1,(6,16),cv2.FONT_HERSHEY_SIMPLEX,0.42,(255,255,255),1,cv2.LINE_AA)
+        cv2.putText(canvas,status2,(6,34),cv2.FONT_HERSHEY_SIMPLEX,0.42,(255,255,255),1,cv2.LINE_AA)
         return canvas
 
-    def show(self, image: np.ndarray) -> bool:
+    def show(self,image:np.ndarray)->bool:
         if not self.created:
-            cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
-            self.created = True
-        cv2.imshow(self.window_name, image)
-        key = cv2.waitKey(1) & 0xFF
-        return key not in (27, ord("q"))
+            cv2.namedWindow(self.window_name,cv2.WINDOW_NORMAL)
+            self.created=True
+        cv2.imshow(self.window_name,image)
+        key=cv2.waitKey(1)&0xFF
+        return key not in (27,ord('q'))
 
     @staticmethod
-    def save(image: np.ndarray, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        cv2.imwrite(str(path), image)
+    def save(image:np.ndarray,path:Path)->None:
+        path.parent.mkdir(parents=True,exist_ok=True)
+        cv2.imwrite(str(path),image)
 
     @staticmethod
-    def close() -> None:
+    def close()->None:
         try:
             cv2.destroyAllWindows()
         except cv2.error:

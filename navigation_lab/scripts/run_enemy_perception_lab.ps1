@@ -11,6 +11,8 @@ param(
   [int]$PlayerTemporalTtlFrames = 10,
   [int]$PlayerAnchorColumn = -1,
   [int]$PlayerAnchorRow = -1,
+  [double]$PlayerAnchorXRatio = 0.50,
+  [double]$PlayerAnchorYRatio = 0.57,
   [double]$SemanticEntityThreshold = 0.90,
   [double]$BackgroundStrongThreshold = 0.95,
   [double]$BackgroundUsableThreshold = 0.88,
@@ -56,7 +58,7 @@ if ($NoDebugFrames) { $DebugMode = "Off" }
 $DebugRoot = Join-Path $env:LOCALAPPDATA "KageNavigationLab\profiles\$Profile\enemy_perception_debug"
 $EnemyRoot = Join-Path $env:LOCALAPPDATA "KageNavigationLab\profiles\$Profile\enemy_perception\$RegionId"
 Write-Host "[Enemy Perception Lab] Python: $Python" -ForegroundColor Cyan
-Write-Host "[Enemy Perception Lab] Player: $PlayerAnchorMode; temporal TTL=$PlayerTemporalTtlFrames" -ForegroundColor Cyan
+Write-Host "[Enemy Perception Lab] Player: $PlayerAnchorMode; TTL=$PlayerTemporalTtlFrames; anchor=$PlayerAnchorXRatio,$PlayerAnchorYRatio" -ForegroundColor Cyan
 Write-Host "[Enemy Perception Lab] Semantic NPC threshold: $SemanticEntityThreshold" -ForegroundColor Cyan
 Write-Host "[Enemy Perception Lab] Background levels: strong=$BackgroundStrongThreshold usable=$BackgroundUsableThreshold diagnostic=$BackgroundDiagnosticThreshold" -ForegroundColor Cyan
 Write-Host "[Enemy Perception Lab] ROI: tracking D<=$InterestRadiusCells; processing D<=$ProcessingRadiusCells" -ForegroundColor Cyan
@@ -76,6 +78,8 @@ $Arguments = @(
   "--grouping-threshold", $GroupingThreshold,
   "--player-anchor-mode", $PlayerAnchorMode,
   "--player-temporal-ttl-frames", $PlayerTemporalTtlFrames,
+  "--player-anchor-x-ratio", $PlayerAnchorXRatio,
+  "--player-anchor-y-ratio", $PlayerAnchorYRatio,
   "--semantic-entity-threshold", $SemanticEntityThreshold,
   "--background-strong-threshold", $BackgroundStrongThreshold,
   "--background-usable-threshold", $BackgroundUsableThreshold,

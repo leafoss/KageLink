@@ -1,5 +1,6 @@
 from .background_reference import BackgroundReferenceStore
 from .debug_recorder import DebugRecorder
+from .entity_candidate_validator import EntityCandidateValidator
 from .entity_classifier import EntityClassifier
 from .entity_extractor import EntityExtractor
 from .entity_features import EntityFeatureExtractor
@@ -13,6 +14,7 @@ from .perception_engine import EnemyPerceptionEngine
 __all__ = [
     "BackgroundReferenceStore",
     "DebugRecorder",
+    "EntityCandidateValidator",
     "EntityClassifier",
     "EntityExtractor",
     "EntityFeatureExtractor",

@@ -265,29 +265,9 @@ class EnemyPerceptionEngine:
                             "reason": rejected_reason,
                         }
                     )
-
-                if not accepted_match and rejected_reason != "structural_background_mismatch":
-                    eligible = bool(
-                        classification.known
-                        and terrain_class in TERRAIN_CLASSES
-                        and classification.confidence >= self.auto_threshold
-                    )
-                    learned = self.backgrounds.observe_empty_candidate(
-                        world_cell,
-                        terrain_class,
-                        cell.image,
-                        eligible,
-                        source_frame=mapping.frame_index,
-                    )
-                    if learned:
-                        events.append(
-                            {
-                                "event": "background_reference_learned",
-                                "reference_id": learned,
-                                "source_world_cell": world_cell,
-                                "terrain_class": terrain_class,
-                            }
-                        )
+                elif not match.available:
+                    decision = "no_reference"
+                    decision_reason = "not_in_taught_empty_tile_catalogue"
 
             if accepted_match and match is not None:
                 cv2.putText(

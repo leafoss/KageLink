@@ -49,12 +49,9 @@ def config_from_env() -> PR27Config:
         minimum_fragment_pixels=int(os.environ.get("KAGE_PR27_MIN_FRAGMENT_PIXELS", "28")),
         minimum_observation_pixels=int(os.environ.get("KAGE_PR27_MIN_OBSERVATION_PIXELS", "72")),
         maximum_fragments_per_group=int(os.environ.get("KAGE_PR27_MAX_FRAGMENTS_PER_GROUP", "32")),
-        scene_changed_cell_ratio=float(os.environ.get("KAGE_PR27_SCENE_CHANGED_RATIO", "0.42")),
-        scene_changed_min_cells=int(os.environ.get("KAGE_PR27_SCENE_CHANGED_MIN_CELLS", "8")),
         maximum_missing_frames=int(os.environ.get("KAGE_PR27_MAX_MISSING_FRAMES", "3")),
         target_missing_grace_frames=int(os.environ.get("KAGE_PR27_TARGET_MISSING_GRACE", "4")),
         target_focus_radius_cells=int(os.environ.get("KAGE_PR27_TARGET_FOCUS_RADIUS", "3")),
-        global_reacquire_interval_frames=int(os.environ.get("KAGE_PR27_GLOBAL_REACQUIRE_INTERVAL", "6")),
         maximum_active_tracks=int(os.environ.get("KAGE_PR27_MAX_ACTIVE_TRACKS", "18")),
         association_min_score=float(os.environ.get("KAGE_PR27_ASSOCIATION_SCORE", "0.48")),
         target_association_min_score=float(os.environ.get("KAGE_PR27_TARGET_ASSOCIATION_SCORE", "0.40")),
@@ -63,11 +60,19 @@ def config_from_env() -> PR27Config:
         player_anchor_radius_px=float(os.environ.get("KAGE_PR27_PLAYER_RADIUS", "58")),
         enemy_confirm_frames=int(os.environ.get("KAGE_PR27_ENEMY_CONFIRM_FRAMES", "5")),
         attack_distance_cells=int(os.environ.get("KAGE_PR27_ATTACK_DISTANCE", "1")),
+        roi_radius_cells=int(os.environ.get("KAGE_PR27_ROI_RADIUS_CELLS", "4")),
+        local_occlusion_min_changed_cells=int(os.environ.get("KAGE_PR27_LOCAL_OCCLUSION_MIN_CELLS", "10")),
+        local_occlusion_row_span_cells=int(os.environ.get("KAGE_PR27_LOCAL_OCCLUSION_ROW_SPAN", "6")),
+        local_occlusion_max_frames=int(os.environ.get("KAGE_PR27_LOCAL_OCCLUSION_MAX_FRAMES", "6")),
+        local_background_learning_frames=int(os.environ.get("KAGE_PR27_LOCAL_BACKGROUND_LEARN_FRAMES", "5")),
+        facing_confirm_frames=int(os.environ.get("KAGE_PR27_FACING_CONFIRM_FRAMES", "2")),
+        facing_correction_cooldown_frames=int(os.environ.get("KAGE_PR27_FACING_COOLDOWN_FRAMES", "1")),
+        hit_displacement_px=float(os.environ.get("KAGE_PR27_HIT_DISPLACEMENT_PX", "10")),
     ).normalized()
 
 
 class PR27PhysicalInput:
-    """Final input boundary consuming only actions derived from TrackedSprite state."""
+    """Physical boundary with an absolute combat-long R latch."""
 
     def __init__(self, controller, *, sleep_fn) -> None:
         self.controller = controller
@@ -78,6 +83,12 @@ class PR27PhysicalInput:
         self.last_h_at = -1e9
         self.h_cooldown_seconds = max(0.5, float(os.environ.get("KAGE_PR27_H_COOLDOWN", "1.75")))
         self.attack_confirm_frames = max(2, int(os.environ.get("KAGE_PR27_ATTACK_CONFIRM_FRAMES", "2")))
+        self.combat_r_latched = False
+
+    def _hold_r(self) -> None:
+        if self.mode == "CONTROL_ENABLED":
+            self.controller.apply_keys(("r",))
+            self.combat_r_latched = True
 
     def activate(self, *, mode: str) -> tuple[str, ...]:
         self.mode = str(mode).strip().upper()
@@ -87,8 +98,10 @@ class PR27PhysicalInput:
         self.active = True
         self.attack_streak = 0
         self.last_h_at = -1e9
+        self.combat_r_latched = False
         if self.mode == "CONTROL_ENABLED":
-            return ("CONTROL_ARMED_WAITING_CONFIRMED_TARGET",)
+            self._hold_r()
+            return ("R_DOWN_COMBAT_LATCH",)
         return ("INPUT_ARMED_SAFE",)
 
     def execute(self, action: CombatAction, *, mode: str) -> tuple[str, ...]:
@@ -103,13 +116,8 @@ class PR27PhysicalInput:
             self.controller.release_all()
             return ("PR27_INPUT_BLOCKED",)
 
-        if action is CombatAction.NONE:
-            self.attack_streak = 0
-            self.controller.release_all()
-            return ("CONTROL_WAIT_TARGET",) if normalized_mode == "CONTROL_ENABLED" else ("FACE_ONLY_WAIT",)
-
         direction = None
-        for suffix, key in (("LEFT", "left"), ("RIGHT", "right"), ("UP", "up"), ("DOWN", "down")):
+        for suffix, key in (("LEFT","left"),("RIGHT","right"),("UP","up"),("DOWN","down")):
             if action.value.endswith(suffix):
                 direction = key
                 break
@@ -119,52 +127,67 @@ class PR27PhysicalInput:
             if direction is None:
                 self.controller.release_all()
                 return ("FACE_ONLY_WAIT",)
-            return self._turn(direction)
+            return self._turn_face_only(direction)
+
+        self._hold_r()
+        if action is CombatAction.NONE:
+            self.attack_streak = 0
+            return ("R_HELD_COMBAT",)
 
         if action is CombatAction.ATTACK:
             self.attack_streak += 1
-            self.controller.apply_keys(("r",))
             if self.attack_streak < self.attack_confirm_frames:
-                return ("R_AUTHORIZED", f"H_WAIT_CONFIRM_{self.attack_streak}/{self.attack_confirm_frames}")
+                return ("R_HELD_COMBAT", f"H_WAIT_CONFIRM_{self.attack_streak}/{self.attack_confirm_frames}")
             now = time.monotonic()
-            remaining = self.h_cooldown_seconds - (now - self.last_h_at)
+            remaining = self.h_cooldown_seconds - (now-self.last_h_at)
             if remaining > 0.0:
-                return ("R_AUTHORIZED", f"H_COOLDOWN_{remaining:.2f}S")
-            self.controller.apply_keys(("h", "r"))
+                return ("R_HELD_COMBAT", f"H_COOLDOWN_{remaining:.2f}S")
+            self.controller.apply_keys(("h","r"))
             self.sleep_fn(0.080)
-            self.controller.apply_keys(("r",))
+            self._hold_r()
             self.last_h_at = time.monotonic()
-            return ("R_AUTHORIZED", "H_80MS")
+            return ("R_HELD_COMBAT", "H_80MS")
 
         self.attack_streak = 0
         if direction is not None and action.value.startswith("CHASE_"):
-            self.controller.apply_keys(tuple(sorted(("r", direction))))
+            self.controller.apply_keys(tuple(sorted(("r",direction))))
             self.sleep_fn(0.075)
-            self.controller.apply_keys(("r",))
-            return ("R_AUTHORIZED", f"CHASE_{direction.upper()}_75MS")
+            self._hold_r()
+            return ("R_HELD_COMBAT", f"CHASE_{direction.upper()}_75MS")
 
         if direction is not None and action.value.startswith("TURN_"):
-            self.controller.apply_keys(tuple(sorted(("r", direction))))
+            self.controller.apply_keys(tuple(sorted(("r",direction))))
             self.sleep_fn(0.060)
-            self.controller.apply_keys(("r",))
-            return ("R_AUTHORIZED", f"TURN_{direction.upper()}_60MS")
+            self._hold_r()
+            return ("R_HELD_COMBAT", f"TURN_{direction.upper()}_60MS")
 
-        self.controller.release_all()
-        return ("CONTROL_WAIT_TARGET",)
+        self._hold_r()
+        return ("R_HELD_COMBAT",)
 
-    def _turn(self, direction: str) -> tuple[str, ...]:
+    def _turn_face_only(self, direction: str) -> tuple[str, ...]:
         self.controller.release_all()
         self.controller.apply_keys((direction,))
         self.sleep_fn(0.060)
         self.controller.release_all()
         return (f"TURN_{direction.upper()}_60MS",)
 
+    def end_combat(self, reason: str = "COMBAT_END") -> tuple[str, ...]:
+        if self.mode == "CONTROL_ENABLED" and self.combat_r_latched:
+            self.controller.release_all()
+            self.combat_r_latched = False
+            self.attack_streak = 0
+            print(f"PR27_R_LATCH event=R_UP_COMBAT_END reason={reason}", flush=True)
+            return ("R_UP_COMBAT_END", str(reason))
+        return ("INPUT_ALREADY_RELEASED", str(reason))
+
     def close(self) -> None:
         try:
+            self.end_combat("CLEANUP")
             self.controller.release_all()
         finally:
             self.active = False
             self.attack_streak = 0
+            self.combat_r_latched = False
 
 
 def create_log(args, module_file: str):
@@ -174,4 +197,4 @@ def create_log(args, module_file: str):
     report_root = Path(module_file).resolve().parents[1] / "reports"
     report_root.mkdir(parents=True, exist_ok=True)
     stem = f"pr27_round_{time.strftime('%Y%m%d_%H%M%S')}"
-    return (report_root / f"{stem}.jsonl").open("w", encoding="utf-8", buffering=65536), report_root, stem
+    return (report_root/f"{stem}.jsonl").open("w", encoding="utf-8", buffering=65536), report_root, stem

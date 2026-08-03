@@ -6,6 +6,16 @@ import shutil
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Any
+
+
+TAUGHT_EMPTY_TERRAIN_CLASSES = {
+    "walkable",
+    "wall",
+    "walkable_with_jutsu",
+    "transition",
+    "danger",
+}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -63,6 +73,55 @@ def _reset_unknown_entity_knowledge(path: Path) -> None:
         encoding="utf-8",
     )
     temporary.replace(index)
+
+
+def _resolve_taught_crop_path(
+    crop_path: str | None,
+    repository_root: Path,
+) -> Path | None:
+    if not crop_path:
+        return None
+    candidate = Path(crop_path)
+    if candidate.is_file():
+        return candidate
+    if not candidate.is_absolute():
+        relative = repository_root / candidate
+        if relative.is_file():
+            return relative
+    return None
+
+
+def _seed_backgrounds_from_taught_terrain(
+    backgrounds: Any,
+    tile_knowledge: Any,
+    repository_root: Path,
+) -> int:
+    """Seed empty appearances only from manually taught terrain crops."""
+
+    import cv2
+
+    added = 0
+    for example in tile_knowledge.examples:
+        category = example.category.value
+        if category not in TAUGHT_EMPTY_TERRAIN_CLASSES:
+            continue
+        crop_path = _resolve_taught_crop_path(example.crop_path, repository_root)
+        if crop_path is None:
+            continue
+        crop = cv2.imread(str(crop_path), cv2.IMREAD_COLOR)
+        if crop is None or crop.size == 0:
+            continue
+        existing = backgrounds.choose(crop, terrain_class=category)
+        if existing.available and existing.confidence >= 0.995:
+            continue
+        backgrounds.add_reference(
+            None,
+            category,
+            crop,
+            source_frame=0,
+        )
+        added += 1
+    return added
 
 
 def build_engine(args: argparse.Namespace):
@@ -129,6 +188,16 @@ def build_engine(args: argparse.Namespace):
             "[Enemy Perception Lab] Old background schema ignored. "
             "Run again with -ResetBackgroundReferences to remove the obsolete catalogue."
         )
+    seeded = _seed_backgrounds_from_taught_terrain(
+        backgrounds,
+        tile_knowledge,
+        repository.root,
+    )
+    print(
+        f"[Enemy Perception Lab] Taught empty-terrain crops added to visual catalogue: {seeded}",
+        flush=True,
+    )
+
     entity_knowledge = EntityKnowledgeBase(
         entities_root,
         args.auto_threshold,

@@ -26,8 +26,6 @@ def build_system(**overrides):
         minimum_observation_pixels=8,
         body_min_area=30,
         body_lock_min_confidence=0.20,
-        scene_changed_min_cells=30,
-        scene_changed_cell_ratio=0.9,
         association_min_score=0.20,
         target_association_min_score=0.18,
         target_minimum_appearance=0.20,
@@ -47,6 +45,7 @@ def build_system(**overrides):
     _, arena = system.cropper.crop(base)
     for cell in system.grid.build(arena.shape):
         system.baselines.set(cell, arena[cell.y:cell.y+cell.height, cell.x:cell.x+cell.width])
+    system._ensure_reference(arena)
     return system, base
 
 
@@ -88,9 +87,8 @@ def test_body_observation_has_unique_anchor_cell_and_body_bbox():
 
 def test_trainer_zone_rejects_body_anchor_and_bbox():
     system, base = build_system(enable_context_enemy=True)
-    cells = system.grid.build(base.shape)
-    forbidden = [(cell.row, cell.column) for cell in cells if cell.x < 100 and cell.y < 100]
-    system.tracker.set_trainer_exclusion((0, 0, 100, 100), forbidden)
+    system.trainer_exclusion_bbox = (0, 0, 100, 100)
+    system.tracker.set_trainer_exclusion(system.trainer_exclusion_bbox)
     for _ in range(4):
         frame = base.copy()
         draw_sprite(frame, 30, 30)
@@ -103,11 +101,13 @@ def test_trainer_zone_rejects_body_anchor_and_bbox():
 def test_attack_requires_enemy_body_lock_and_anchor_cell():
     system, base = build_system()
     result = None
-    for offset in (0, 2, 4, 6):
+    actions = []
+    for offset in (0, 2, 4, 6, 6, 6):
         frame = base.copy()
         draw_sprite(frame, 119, 65, (240, 120, 40))
         draw_sprite(frame, 150 + offset, 65, (40, 210, 70))
         result = system.process(frame)
+        actions.append(result.action)
     assert result is not None
     enemies = [track for track in result.tracks if track.classification is SpriteClass.ENEMY]
     assert enemies
@@ -116,4 +116,5 @@ def test_attack_requires_enemy_body_lock_and_anchor_cell():
     assert result.target is not None
     assert result.target.body_bbox == enemy.body_bbox
     assert result.target.anchor_cell == enemy.anchor_cell
+    assert CombatAction.TURN_RIGHT in actions
     assert result.action is CombatAction.ATTACK

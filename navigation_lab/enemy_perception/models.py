@@ -19,11 +19,52 @@ class EntityClass(str, Enum):
 class HostilityState(str, Enum):
     UNKNOWN_VISUAL = "unknown_visual"
     STATIC_OVERLAY = "static_overlay"
+    STATIC_ENTITY = "static_entity"
     MOBILE_ENTITY = "mobile_entity"
     APPROACHING_ENTITY = "approaching_entity"
     FOLLOWING_ENTITY = "following_entity"
     HOSTILE_PROBABLE = "hostile_probable"
     HOSTILE_CONFIRMED = "hostile_confirmed"
+    ATTACK_RECOMMENDED = "attack_recommended"
+
+
+class PlayerLocationSource(str, Enum):
+    VISUAL_CONFIRMED = "visual_confirmed"
+    CALIBRATED_ANCHOR_FALLBACK = "calibrated_anchor_fallback"
+    TEMPORAL_PREDICTED = "temporal_predicted"
+    NOT_FOUND = "not_found"
+
+
+class BackgroundMatchLevel(str, Enum):
+    STRONG = "strong"
+    USABLE = "usable"
+    WEAK = "weak"
+    NONE = "none"
+
+
+class CandidateSource(str, Enum):
+    SEMANTIC_NPC = "semantic_npc"
+    BACKGROUND_RESIDUAL = "background_residual"
+
+
+@dataclass(slots=True)
+class PlayerLocation:
+    recognized: bool
+    source: PlayerLocationSource
+    screen_cell: tuple[int, int] | None
+    world_cell: tuple[int, int] | None
+    confidence: float = 0.0
+    age_frames: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "recognized": self.recognized,
+            "source": self.source.value,
+            "screen_cell": list(self.screen_cell) if self.screen_cell is not None else None,
+            "world_cell": list(self.world_cell) if self.world_cell is not None else None,
+            "confidence": float(self.confidence),
+            "age_frames": int(self.age_frames),
+        }
 
 
 @dataclass(slots=True)
@@ -36,6 +77,9 @@ class BackgroundMatch:
     source_world_cell: tuple[int, int] | None = None
     raw_similarity: float = 0.0
     schema_version: int | None = None
+    cluster_id: str | None = None
+    source: str | None = None
+    match_level: BackgroundMatchLevel = BackgroundMatchLevel.NONE
 
 
 @dataclass(slots=True)
@@ -119,6 +163,15 @@ class EntityObservation:
     hostility_score: int = 0
     hostility_state: HostilityState = HostilityState.UNKNOWN_VISUAL
     hostility_reasons: list[str] = field(default_factory=list)
+    candidate_sources: list[str] = field(default_factory=list)
+    semantic_class: str | None = None
+    semantic_confidence: float = 0.0
+    background_cluster_id: str | None = None
+    background_confidence: float = 0.0
+    background_match_level: str = BackgroundMatchLevel.NONE.value
+    overall_candidate_confidence: float = 0.0
+    movement_state: str = "unknown"
+    attack_recommended: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -131,14 +184,23 @@ class EntityObservation:
             "anchor_world_cell": list(self.region.anchor_world_cell) if self.region.anchor_world_cell else None,
             "covered_cells": [list(item) for item in self.region.covered_cells],
             "movement_detected": self.movement_detected,
+            "movement_state": self.movement_state,
             "previous_world_cell": list(self.previous_world_cell) if self.previous_world_cell else None,
             "current_world_cell": list(self.region.anchor_world_cell) if self.region.anchor_world_cell else None,
             "distance_to_player": self.distance_to_player,
             "previous_distance_to_player": self.previous_distance_to_player,
             "approaching": self.approaching,
+            "candidate_sources": list(self.candidate_sources),
+            "semantic_class": self.semantic_class,
+            "semantic_confidence": self.semantic_confidence,
+            "background_cluster_id": self.background_cluster_id,
+            "background_confidence": self.background_confidence,
+            "background_match_level": self.background_match_level,
+            "overall_candidate_confidence": self.overall_candidate_confidence,
             "hostility_score": self.hostility_score,
             "hostility_state": self.hostility_state.value,
             "hostility_reasons": list(self.hostility_reasons),
+            "attack_recommended": self.attack_recommended,
         }
 
 
@@ -166,6 +228,7 @@ class EntityTrack:
     last_scored_frame: int = 0
     last_move_vector: tuple[int, int] | None = None
     out_of_scope: bool = False
+    candidate_sources: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -198,6 +261,14 @@ class CellDebugRecord:
     background_reference_rejection_reason: str | None = None
     background_reference_terrain_class: str | None = None
     background_reference_source_world_cell: tuple[int, int] | None = None
+    player_location_source: str | None = None
+    best_background_cluster_id: str | None = None
+    best_background_score: float = 0.0
+    background_match_level: str = BackgroundMatchLevel.NONE.value
+    diagnostic_difference_generated: bool = False
+    operational_difference_allowed: bool = False
+    semantic_candidate_created: bool = False
+    residual_candidate_created: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -205,9 +276,12 @@ class CellDebugRecord:
             "world_cell": list(self.world_cell) if self.world_cell else None,
             "pixel_bounds": list(self.pixel_bounds),
             "terrain_class": self.terrain_class,
+            "semantic_class": self.terrain_class,
             "terrain_confidence": self.terrain_confidence,
+            "semantic_confidence": self.terrain_confidence,
             "inside_playfield": self.inside_playfield,
             "inside_processing_roi": self.inside_processing_roi,
+            "player_location_source": self.player_location_source,
             "background_reference_available": self.background_reference_available,
             "background_reference_id": self.background_reference_id,
             "background_reference_confidence": self.background_reference_confidence,
@@ -219,6 +293,13 @@ class CellDebugRecord:
                 if self.background_reference_source_world_cell is not None
                 else None
             ),
+            "best_background_cluster_id": self.best_background_cluster_id,
+            "best_background_score": self.best_background_score,
+            "background_match_level": self.background_match_level,
+            "diagnostic_difference_generated": self.diagnostic_difference_generated,
+            "operational_difference_allowed": self.operational_difference_allowed,
+            "semantic_candidate_created": self.semantic_candidate_created,
+            "residual_candidate_created": self.residual_candidate_created,
             **asdict(self.metrics),
             "decision": self.decision,
             "decision_reason": self.decision_reason,
@@ -243,6 +324,8 @@ class FramePerception:
     roi: dict[str, Any] = field(default_factory=dict)
     counters: dict[str, int] = field(default_factory=dict)
     candidate_rejections: list[dict[str, Any]] = field(default_factory=list)
+    player_location: dict[str, Any] = field(default_factory=dict)
+    background: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -253,6 +336,8 @@ class FramePerception:
             "calibration": self.calibration,
             "frame_state": self.frame_state,
             "player": self.player,
+            "player_location": self.player_location or self.player,
+            "background": self.background,
             "playfield": self.playfield,
             "roi": self.roi,
             "counters": self.counters,

@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+  <meta name="theme-color" content="#070b10">
+  <title>KageLink Remote</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="brand">KageLink Remote</div>
+      <span class="status-pill"><span id="connectionDot" class="status-dot"></span><span id="connectionText">Desconectado</span></span>
+      <span class="status-pill" id="rolePill">VIEW</span>
+      <span class="status-pill" id="modePill">GAME</span>
+      <div class="spacer"></div>
+      <button id="languageButton" type="button">EN</button>
+      <button id="disconnectButton" class="danger" type="button" disabled>Desconectar</button>
+    </header>
+
+    <section class="grid">
+      <div class="card video-card">
+        <div id="videoStage" class="video-stage" tabindex="0" aria-label="Remote video">
+          <div id="videoTransform" class="video-transform">
+            <video id="remoteVideo" autoplay playsinline muted></video>
+          </div>
+          <div class="video-overlay">
+            <span class="badge" id="rttBadge">RTT —</span>
+            <span class="badge" id="fpsBadge">FPS —</span>
+            <span class="badge" id="bitrateBadge">0 Mbps</span>
+            <span class="badge" id="lossBadge">Loss —</span>
+          </div>
+        </div>
+        <div class="toolbar" id="controlToolbar">
+          <button id="keyboardButton" type="button">Teclado</button>
+          <button data-key="ctrl" class="modifier" type="button">Ctrl</button>
+          <button data-key="alt" class="modifier" type="button">Alt</button>
+          <button data-key="shift" class="modifier" type="button">Shift</button>
+          <button data-key="escape" type="button">Esc</button>
+          <button data-key="tab" type="button">Tab</button>
+          <button data-key="enter" type="button">Enter</button>
+          <button data-key="backspace" type="button">⌫</button>
+          <button data-key="delete" type="button">Del</button>
+          <button data-key="left" type="button">←</button>
+          <button data-key="up" type="button">↑</button>
+          <button data-key="down" type="button">↓</button>
+          <button data-key="right" type="button">→</button>
+          <span class="grow"></span>
+          <button id="zoomOutButton" type="button">−</button>
+          <button id="zoomFitButton" type="button">Ajustar</button>
+          <button id="zoomInButton" type="button">+</button>
+          <button id="releaseButton" class="warn" type="button">Soltar</button>
+        </div>
+      </div>
+
+      <aside class="side">
+        <div class="card">
+          <h2 id="pairTitle">Conectar</h2>
+          <div class="form-row">
+            <label id="deviceLabel" for="deviceName">Nome deste dispositivo</label>
+            <input id="deviceName" maxlength="64" autocomplete="off">
+          </div>
+          <div class="form-row">
+            <label id="roleLabel" for="requestedRole">Permissão solicitada</label>
+            <select id="requestedRole">
+              <option value="control">Controle</option>
+              <option value="view">Somente visualizar</option>
+            </select>
+          </div>
+          <div class="actions">
+            <button id="pairButton" class="primary" type="button">Solicitar conexão</button>
+          </div>
+          <div id="message" class="message" aria-live="polite">Aguardando.</div>
+        </div>
+
+        <div class="card">
+          <h3 id="qualityTitle">Qualidade</h3>
+          <div class="metrics">
+            <div class="metric"><div class="label">RTT</div><div id="rttValue" class="value">—</div></div>
+            <div class="metric"><div class="label">FPS</div><div id="fpsValue" class="value">—</div></div>
+            <div class="metric"><div class="label">Bitrate</div><div id="bitrateValue" class="value">—</div></div>
+            <div class="metric"><div class="label">Packet loss</div><div id="lossValue" class="value">—</div></div>
+          </div>
+          <p id="securityNote" class="muted small">A sessão fica somente na memória e precisa ser aprovada no PC host.</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <textarea id="imeCapture" autocapitalize="none" autocomplete="off" autocorrect="on" spellcheck="false" aria-hidden="true"></textarea>
+  <script src="/static/client.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+name: Remote Control Prototype
+
+on:
+  pull_request:
+    paths:
+      - "KageLink Installer/pc_agent/prototypes/remote_control_v01/**"
+      - ".github/workflows/remote-control-prototype.yml"
+  push:
+    branches:
+      - "agent/kagelink-remote-*"
+    paths:
+      - "KageLink Installer/pc_agent/prototypes/remote_control_v01/**"
+      - ".github/workflows/remote-control-prototype.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  security-contract:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: "KageLink Installer/pc_agent/prototypes/remote_control_v01"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile Python sources
+        run: python -m py_compile security.py capture.py input_win32.py remote_host.py
+      - name: Run pure security tests
+        run: python -m unittest discover -s tests -p "test_security.py" -v
+      - name: Check browser JavaScript syntax
+        run: |
+          node --check web/client.js
+          node --check web/ime_live.js
+          node --check web/admin.js
+      - name: Verify mobile IME compatibility layer is loaded
+        run: grep -Fq '/static/ime_live.js' web/client.html

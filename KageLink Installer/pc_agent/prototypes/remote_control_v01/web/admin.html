@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#070b10">
+  <title>KageLink Remote — Host Admin</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="brand">KageLink Remote — Host</div>
+      <span class="status-pill"><span id="hostDot" class="status-dot"></span><span id="hostStatus">Carregando…</span></span>
+      <span class="status-pill" id="hostMode">—</span>
+      <div class="spacer"></div>
+      <button id="languageButton" type="button">EN</button>
+      <button id="enableInputButton" class="good" type="button">Habilitar controle</button>
+      <button id="emergencyButton" class="danger" type="button">PARAR CONTROLE</button>
+    </header>
+
+    <div id="emergencyBanner" class="emergency-banner">Controle remoto bloqueado localmente.</div>
+
+    <section class="admin-grid">
+      <div class="card">
+        <h2 id="pendingTitle">Solicitações pendentes</h2>
+        <p id="pendingHelp" class="muted small">Aprove apenas dispositivos que você reconhece. Controle e visualização são permissões separadas.</p>
+        <div id="pendingList" class="list"></div>
+      </div>
+
+      <div class="card">
+        <h2 id="sessionsTitle">Sessões ativas</h2>
+        <p id="sessionsHelp" class="muted small">Apenas um controlador pode existir por vez. Sessões expiram automaticamente.</p>
+        <div id="sessionList" class="list"></div>
+      </div>
+
+      <div class="card">
+        <h2 id="connectionTitle">Conexão</h2>
+        <div class="form-row">
+          <label id="localLabel">Endereço local</label>
+          <div id="localUrl" class="message mono">—</div>
+        </div>
+        <div class="form-row">
+          <label id="externalLabel">Endereço externo</label>
+          <div id="externalUrl" class="message mono">—</div>
+        </div>
+        <p id="pairingNote" class="muted small">Não existe chave permanente. O navegador remoto cria uma solicitação que precisa ser aprovada aqui.</p>
+      </div>
+
+      <div class="card">
+        <h2 id="diagTitle">Diagnóstico</h2>
+        <div class="metrics">
+          <div class="metric"><div class="label">FPS</div><div id="captureFps" class="value">—</div></div>
+          <div class="metric"><div class="label">Capture</div><div id="captureMs" class="value">—</div></div>
+          <div class="metric"><div class="label">Frame age</div><div id="frameAge" class="value">—</div></div>
+          <div class="metric"><div class="label">State</div><div id="captureState" class="value">—</div></div>
+        </div>
+        <p class="muted small">Atalho local de emergência: <strong>CTRL + ALT + F12</strong></p>
+        <p class="muted small">O audit log registra eventos de sessão, nunca teclas, texto digitado ou conteúdo do desktop.</p>
+      </div>
+    </section>
+  </main>
+  <script src="/static/admin.js" defer></script>
+</body>
+</html>

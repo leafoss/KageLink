@@ -3,21 +3,32 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
+from .post_combat_v03 import HudResourceReader
+
+
+_HEALTH_X, _HEALTH_Y, _HEALTH_W, _HEALTH_H = HudResourceReader.HEALTH_ROI
+
 
 class StaminaHudReader:
     """Read Shinobi Story Stamina from the bar directly below HEALTH.
 
-    The bar keeps a fixed HUD position and changes fill color as it drains:
-    green -> yellow -> orange -> no color. The unfilled tail is dark brown/black.
-    We therefore measure the longest horizontal run of saturated green/yellow/orange
-    pixels while deliberately rejecting the darker empty-bar background.
+    The bar keeps a fixed position relative to the already-calibrated HEALTH HUD and
+    changes fill color as it drains: green -> yellow -> orange -> no color. The
+    unfilled tail is dark brown/black. We measure the longest horizontal run of
+    saturated filled-bar pixels while deliberately rejecting the darker empty tail.
     """
 
     calibrated = True
 
-    # Normalized 960x540 GAME frame coordinates. This is a narrow sub-region inside
-    # the already-known HEALTH HUD neighborhood and intentionally excludes the red HP bar.
-    STAMINA_ROI = (0.170, 0.832, 0.045, 0.018)
+    # Anchor the Stamina search to the validated HEALTH neighborhood rather than
+    # inventing an independent screen origin. The supplied HUD reference shows the
+    # Stamina bar below and slightly right of the red HEALTH bar.
+    STAMINA_ROI = (
+        _HEALTH_X + _HEALTH_W * 0.18,
+        _HEALTH_Y + _HEALTH_H * 0.34,
+        _HEALTH_W * 0.46,
+        _HEALTH_H * 0.34,
+    )
     STAMINA_FULL_PX_960 = 30.0
 
     @staticmethod

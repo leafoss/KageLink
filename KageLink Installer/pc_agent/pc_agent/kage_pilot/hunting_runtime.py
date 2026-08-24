@@ -72,7 +72,7 @@ def main(argv: list[str] | None = None) -> int:
     meditation_active = False
     last_resource_emit = -1e9
 
-    print("KAGE_HUNTING_RUNTIME_START version=FOREST_ALPHA6_HUNTING_1", flush=True)
+    print("KAGE_HUNTING_RUNTIME_START version=FOREST_ALPHA6_HUNTING_2_STAMINA", flush=True)
     print(
         "HUNTING_RULE exact_ambush_chat_only; D<=3; two temporal body observations; "
         "preexisting bodies/players have no attack authority; V3.2 HF1 combat",
@@ -80,7 +80,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(
         "HUNTING_RECOVERY HP>=90% AND Stamina>=90%; "
-        "Stamina reader is fail-closed until calibrated",
+        "Stamina visual reader calibrated from the fixed bar below HEALTH",
         flush=True,
     )
 
@@ -211,8 +211,8 @@ def main(argv: list[str] | None = None) -> int:
                     _phase("searching", direction=direction, kills=kills, detail="recovered")
                 elif now_mono - recovery_started > recovery_timeout:
                     print(
-                        "HUNTING_RECOVERY_HOLD timeout_reached_but_fail_closed; "
-                        "V remains active until STOP/F12 because Stamina authority is not satisfied",
+                        "HUNTING_RECOVERY_HOLD timeout_reached; "
+                        "V remains active because HP/Stamina authority is not yet satisfied",
                         flush=True,
                     )
                     recovery_started = now_mono

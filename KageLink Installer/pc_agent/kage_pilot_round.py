@@ -1,18 +1,24 @@
-"""Canonical isolated Kage Pilot round entrypoint.
+"""Canonical isolated Kage Pilot round / Hunting entrypoint.
 
-The physically validated implementation remains in the historical compatibility
-chain until CI and real Windows/BYOND validation authorize its extraction.
-Importing this boundary must not install runtime monkeypatches; the engine is
-loaded only when the isolated round is actually executed.
+Dojo remains the default path. Hunting deliberately shares the same packaged helper so
+KageLink does not gain another executable or a second combat-core copy.
 """
-
 from __future__ import annotations
+
+import sys
 
 
 def main() -> int:
-    from kage_pilot_live_v03k_round import main as validated_main
+    values = list(sys.argv[1:])
+    if values and values[0] == "--hunting":
+        from pc_agent.kage_pilot.hunting_runtime import main as hunting_main
 
-    return validated_main()
+        sys.argv = [sys.argv[0], *values[1:]]
+        return hunting_main()
+
+    from pc_agent.kage_pilot.dojo_combat_runtime import main as dojo_main
+
+    return dojo_main()
 
 
 if __name__ == "__main__":

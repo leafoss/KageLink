@@ -6,6 +6,7 @@ import '../localization/l10n_helpers.dart';
 import '../localization/locale_controller.dart';
 import 'chat_screen.dart';
 import 'dojo_screen.dart';
+import 'hunting_screen.dart';
 
 class ConnectedShellV35 extends StatefulWidget {
   const ConnectedShellV35({
@@ -26,7 +27,7 @@ class _ConnectedShellV35State extends State<ConnectedShellV35> {
 
   Future<void> _select(int value) async {
     if (value == _section) return;
-    if (value == 1) {
+    if (value == 1 || value == 2) {
       await SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]);
     }
     if (!mounted) return;
@@ -49,6 +50,10 @@ class _ConnectedShellV35State extends State<ConnectedShellV35> {
             profile: profile,
             selected: _section == 1,
           ),
+          HuntingScreen(
+            profile: profile,
+            selected: _section == 2,
+          ),
         ],
       ),
       bottomNavigationBar: portrait
@@ -65,6 +70,11 @@ class _ConnectedShellV35State extends State<ConnectedShellV35> {
                   icon: const Icon(Icons.sports_martial_arts_outlined),
                   selectedIcon: const Icon(Icons.sports_martial_arts),
                   label: context.l10n.dojoTab,
+                ),
+                const NavigationDestination(
+                  icon: Icon(Icons.travel_explore_outlined),
+                  selectedIcon: Icon(Icons.travel_explore),
+                  label: 'Hunting',
                 ),
               ],
             )

@@ -8,6 +8,7 @@ from fastapi import Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from starlette.responses import JSONResponse
 
+from pc_agent.kage_pilot.hunting_recovery import StaminaHudReader
 from pc_agent.kage_pilot.hunting_service import HuntingConfig, HuntingService
 
 
@@ -39,7 +40,9 @@ def hunting_status_payload(service: HuntingService) -> dict[str, Any]:
         "last_enemy": snapshot.last_enemy,
         "health": snapshot.health,
         "stamina": snapshot.stamina,
-        "stamina_calibrated": snapshot.stamina_calibrated,
+        # Calibration is a property of this packaged reader, not of whether the
+        # child process has already reached its first recovery telemetry line.
+        "stamina_calibrated": bool(StaminaHudReader.calibrated),
         "last_line": snapshot.last_line,
         "last_error": snapshot.last_error,
         "return_code": snapshot.return_code,
@@ -47,7 +50,8 @@ def hunting_status_payload(service: HuntingService) -> dict[str, Any]:
             "health_percent": 90.0,
             "stamina_percent": 90.0,
             "chakra_is_not_stamina": True,
-            "fail_closed_without_stamina_calibration": True,
+            "stamina_visual_reader": bool(StaminaHudReader.calibrated),
+            "fail_closed_without_stamina_calibration": not bool(StaminaHudReader.calibrated),
         },
     }
 

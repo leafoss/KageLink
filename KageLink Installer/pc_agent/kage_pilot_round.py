@@ -1,16 +1,14 @@
 """Canonical isolated Kage Pilot round entrypoint.
 
-The physically validated implementation remains in the historical compatibility
-chain until CI and real Windows/BYOND validation authorize its extraction.
-Importing this boundary must not install runtime monkeypatches; the engine is
-loaded only when the isolated round is actually executed.
+Dojo request/spawn/KO/recovery remain supplied by the validated compatibility chain.
+Only the combat-action boundary is overlaid by the physically validated Alpha 6 core.
 """
 
 from __future__ import annotations
 
 
 def main() -> int:
-    from kage_pilot_live_v03k_round import main as validated_main
+    from pc_agent.kage_pilot.dojo_combat_runtime import main as validated_main
 
     return validated_main()
 
